@@ -6,7 +6,7 @@ export interface SilenceDetector {
 	dispose(): void
 }
 
-export interface SilenceDetectorDeps {
+interface SilenceDetectorDeps {
 	readonly sessionKey: string
 	readonly busyBytes?: number
 	readonly config: {

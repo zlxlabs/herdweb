@@ -291,8 +291,6 @@ function routeVariants(basePath: string, path: string): readonly string[] {
 	return Array.from(new Set([path, joinBasePath(basePath, path)]))
 }
 
-export { routeVariants }
-
 const IMAGE_DROP_MAX_BYTES = 10 * 1024 * 1024
 
 type ImageDropFormat = 'png' | 'jpeg' | 'webp' | 'gif'

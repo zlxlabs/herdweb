@@ -22,7 +22,7 @@ function isSubscriptionGoneReason(reason: unknown): reason is { endpoint: string
 	return isRecord(reason) && typeof reason.endpoint === 'string'
 }
 
-export interface NotifyServiceDeps {
+interface NotifyServiceDeps {
 	readonly stateDir: string
 	readonly historyLimit: number
 	readonly vapidOverride?: VapidConfig

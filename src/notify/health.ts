@@ -2,7 +2,7 @@ import { basename } from 'node:path'
 import type { NotifyEvent } from './events'
 import type { LastSessionEntry } from './state'
 
-export const RESTART_ANNOUNCE_GAP_MS = 120_000
+const RESTART_ANNOUNCE_GAP_MS = 120_000
 
 /** Parse herdr --session from post-`--` argv; otherwise return `default`. */
 export function extractSessionKey(command: readonly string[] | undefined): string {

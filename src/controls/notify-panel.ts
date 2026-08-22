@@ -3,7 +3,7 @@ import { type NotifyEvent, type NotifyKind, isRecord } from '../notify/events'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
 
-export interface NotifyPanelDeps {
+interface NotifyPanelDeps {
 	readonly basePath: string
 	readonly fetchFn?: typeof fetch
 	readonly now?: () => number

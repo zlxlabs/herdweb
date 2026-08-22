@@ -101,7 +101,7 @@ export interface LastSessionEntry {
 	readonly signal: number | null
 }
 
-export type LastSessionStore = Record<string, LastSessionEntry>
+type LastSessionStore = Record<string, LastSessionEntry>
 
 export function readLastSessionStore(stateDir: string): LastSessionStore {
 	const parsed = readJsonFile(join(stateDir, LAST_SESSION_FILE))

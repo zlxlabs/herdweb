@@ -24,7 +24,7 @@ function isLoopbackAddress(address: string): boolean {
 	)
 }
 
-export interface NotifyRouteDeps {
+interface NotifyRouteDeps {
 	readonly basePath: string
 	readonly notifyService: NotifyService
 	readonly stateDir: string
