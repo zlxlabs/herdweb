@@ -106,6 +106,8 @@ When `--config` is not specified, herdweb searches:
 2. `~/.config/herdweb/herdweb.config.ts` / `.js` (XDG fallback)
 3. Legacy upstream config paths (automatic fallback for migration)
 
+Resolution is first-hit-wins and all-or-nothing: once a config file is found, later locations are never read. This includes `.local` override files, which are only looked up in the same directory as the resolved config. So if you create `~/.config/herdweb/herdweb.config.ts` but leave old settings (e.g. `mobile.keyboardMode: 'manual'`, ASR provider keys) in the legacy `~/.config/remobi/` directory, they silently fall back to defaults — symptoms like the soft keyboard popping up on every tap (`keyboardMode` back to `auto`) or the voice input button disappearing (ASR key lost). When migrating, move all settings and the `.local` file into the new directory together; don't split them across both.
+
 ## Configuration
 
 Create `herdweb.config.ts` (or run `herdweb init`):
@@ -434,6 +436,9 @@ Those tools change your workflow. herdweb gives you the raw terminal — full po
 
 **Is this production-ready?**
 It's early. The author uses it daily. Feedback welcome.
+
+**Android shows no install prompt when herdweb is behind Cloudflare Access?**
+Chromium's PWA installability check fetches `manifest.json` separately, and the `<link rel="manifest">` fetch sends no cookies by default. Behind Cloudflare Access (or any authenticating proxy) that fetch gets redirected to the login page, the check fails, and no install UI appears. Since v1.6.1 the manifest link carries `crossorigin="use-credentials"` so the fetch includes cookies — but only if the proxy lets credentialed requests through. The reliable fix is to bypass auth for these five paths at the proxy (Cloudflare Access: create a self-hosted application matching the paths with a Bypass + Everyone policy; Access matches the most specific path first, so the rest of the site still requires login): `/manifest.json`, `/sw.js`, `/icon-192.png`, `/icon-512.png`, `/apple-touch-icon.png`. These paths only expose the app name and icons. If you serve with `--base-path`, prefix the paths accordingly. iOS "Add to Home Screen" never validates the manifest or service worker, which is why only Android is affected.
 
 ## Licence
 
