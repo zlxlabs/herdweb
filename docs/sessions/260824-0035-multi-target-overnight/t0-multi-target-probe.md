@@ -33,7 +33,7 @@
 
 ### 7. 远程 target 的 silence/health 语义 — partial
 
-- health done：停止远端临时 named session 后，隔离 `7682` 状态实际写入 `kind=health`、`session=t0-multi-target-20260824`、`title=...会话结束`、`reason=signal 0`，`last-session.json` 记录本地连接进程 `exitCode=1/signal=0`；只陈述连接进程事实。
+- health done：停止远端临时 named session 后，隔离 `7682` 状态实际写入 `kind=health`、`session=t0-multi-target-20260824`、`title=...会话结束`、`reason=signal 0`，`last-session.json` 记录本地连接进程 `exitCode=1/signal=0`；当前 health 文案会让人误以为远端 session 已结束，属于真实语义漂移；后续 T6b/T9 必须改为仅陈述 target 连接进程退出与 code/signal，不得从 SSH/exit 推断远端 pane/session。
 - silence partial：同一远端 target 按默认 `busyMs=30s/quietMs=180s` 观察 210s，`events.jsonl` 仍为空；当前 pane 未达到 busy-byte armed 条件，不能声称 silence 通知已送达。
 
 ## 当前生产/调试入口服务探活
