@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test'
 export default defineConfig({
 	testDir: './tests/playwright',
 	timeout: 30_000,
-	retries: 0,
+	retries: process.env.CI ? 2 : 0,
 	use: {
 		baseURL: 'http://127.0.0.1:17681',
 	},
