@@ -196,6 +196,32 @@ test('touchend alone does not trigger subscribe or unsubscribe', async () => {
 	expect(unsubscribe).not.toHaveBeenCalled()
 })
 
+test('subscribe rejects show failure status and reset toggle without POST subscribe', async () => {
+	const subscribe = vi.fn().mockRejectedValue(new Error('Registration failed - permission denied'))
+	const fetchMock = setupPushMocks({ currentSub: null, subscribe })
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	const status = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-status')
+	if (!toggle || !status) throw new Error('missing panel elements')
+
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(status.textContent).toContain('订阅失败')
+	expect(toggle.checked).toBe(false)
+	expect(
+		fetchMock.mock.calls.some(
+			([url, init]) =>
+				typeof url === 'string' && url.endsWith('/api/push/subscribe') && init?.method === 'POST',
+		),
+	).toBe(false)
+})
+
 test('subscribe rolls back local subscription when POST rejects', async () => {
 	const unsubscribe = vi.fn().mockResolvedValue(true)
 	let currentSub: {

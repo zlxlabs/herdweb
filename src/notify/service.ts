@@ -22,6 +22,14 @@ function isSubscriptionGoneReason(reason: unknown): reason is { endpoint: string
 	return isRecord(reason) && typeof reason.endpoint === 'string'
 }
 
+function formatEndpointForLog(endpoint: string): string {
+	try {
+		return new URL(endpoint).host
+	} catch {
+		return endpoint.slice(0, 40)
+	}
+}
+
 interface NotifyServiceDeps {
 	readonly stateDir: string
 	readonly historyLimit: number
@@ -88,7 +96,10 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 	async function pushToAll(event: NotifyEvent): Promise<void> {
 		ensureVapid()
 		const subs = readSubscriptions(deps.stateDir)
-		if (subs.length === 0) return
+		if (subs.length === 0) {
+			console.log('herdweb: notify push skipped — no subscriptions')
+			return
+		}
 
 		const payload = JSON.stringify(event)
 		const send = deps.sendPush ?? webpush.sendNotification.bind(webpush)
@@ -116,14 +127,21 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 
 		const removed = new Set<string>()
 		let deliverySucceeded = false
-		for (const result of results) {
+		for (let i = 0; i < results.length; i++) {
+			const result = results[i]
+			const sub = subs[i]
+			if (result === undefined || sub === undefined) continue
 			if (result.status === 'fulfilled') {
 				deliverySucceeded = true
+				console.log(`herdweb: notify push delivered → ${formatEndpointForLog(sub.endpoint)}`)
 			}
 			if (result.status === 'rejected') {
 				const reason = result.reason
 				if (isSubscriptionGoneReason(reason)) {
 					removed.add(reason.endpoint)
+					console.log(
+						`herdweb: notify subscription removed (stale ) → ${formatEndpointForLog(reason.endpoint)}`,
+					)
 				}
 			}
 		}

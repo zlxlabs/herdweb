@@ -60,12 +60,41 @@ describe('notify push delivery', () => {
 		const sendPush = vi
 			.fn()
 			.mockRejectedValue(Object.assign(new Error('gone'), { statusCode: 410 }))
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
 		notifyService.dispatchEvent(
 			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p2', kind: 'done', title: 'T', ts: 1 })),
 		)
 		await notifyService.awaitInFlight(1000)
 		expect(readSubscriptions(stateDir)).toHaveLength(0)
+		expect(
+			logSpy.mock.calls.some(
+				([message]) =>
+					typeof message === 'string' &&
+					message.includes('herdweb: notify subscription removed (stale )') &&
+					message.includes('push.example'),
+			),
+		).toBe(true)
+		logSpy.mockRestore()
+		notifyService.dispose()
+	})
+
+	test('logs skipped when no subscriptions', async () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-push-'))
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
+		notifyService.dispatchEvent(
+			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p-empty', kind: 'test', title: 'T', ts: 1 })),
+		)
+		await notifyService.awaitInFlight(1000)
+		expect(
+			logSpy.mock.calls.some(
+				([message]) =>
+					typeof message === 'string' &&
+					message.includes('herdweb: notify push skipped — no subscriptions'),
+			),
+		).toBe(true)
+		logSpy.mockRestore()
 		notifyService.dispose()
 	})
 
