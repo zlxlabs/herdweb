@@ -67,19 +67,6 @@ describe('drawer close paths', () => {
 		expect(isOpen()).toBe(false)
 		expect(drawer.classList.contains('open')).toBe(false)
 	})
-
-	test('↑ ↓ fallback buttons are reachable in the default drawer grid', () => {
-		const { drawer } = makeDrawer()
-		const labels = [...drawer.querySelectorAll('#wt-drawer-grid button')].map((b) => b.textContent)
-		expect(labels).toContain('↑')
-		expect(labels).toContain('↓')
-	})
-
-	test('Tab fallback is reachable in the default drawer grid (⌫ took its row1 slot)', () => {
-		const { drawer } = makeDrawer()
-		const labels = [...drawer.querySelectorAll('#wt-drawer-grid button')].map((b) => b.textContent)
-		expect(labels).toContain('Tab')
-	})
 })
 
 describe('drawer section headings', () => {

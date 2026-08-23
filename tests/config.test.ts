@@ -149,8 +149,8 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.toolbar.row2).toEqual([])
 	})
 
-	test('has 31 drawer buttons', () => {
-		expect(defaultConfig.drawer.buttons).toHaveLength(31)
+	test('has 24 drawer buttons', () => {
+		expect(defaultConfig.drawer.buttons).toHaveLength(24)
 	})
 
 	test('default row1 contains the image-upload button; the drawer does not', () => {

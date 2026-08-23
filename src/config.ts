@@ -57,9 +57,9 @@ const voiceComposerButton: ControlButton = {
 /**
  * Default row 1 buttons (moshi-style single row): control keys on the left
  * (Esc, C-c, ✥, ⏎), input modes on the right (🎤, 🖼, ⌨, ☰). ⌫ left the row —
- * the floating d-pad and the voice composer textarea cover it day-to-day,
- * and the drawer keeps a fallback. The voice entry stays on the row even
- * when ASR is disabled; the toolbar hides it until a mic controller exists.
+ * the floating d-pad and the voice composer textarea cover it. The voice entry
+ * stays on the row even when ASR is disabled; the toolbar hides it until a mic
+ * controller exists.
  */
 const defaultRow1: HerdwebConfig['toolbar']['row1'] = [
 	{
@@ -76,8 +76,7 @@ const defaultRow1: HerdwebConfig['toolbar']['row1'] = [
 		description: 'Send Ctrl-C interrupt (tap twice to quit agents)',
 		action: { type: 'send', data: '\x03' },
 	},
-	// ✥ toggles the floating d-pad — it owns the arrow keys and ⌫ now (up/down
-	// also keep drawer fallback entries below).
+	// ✥ toggles the floating d-pad — it owns the arrow keys and ⌫ now.
 	dpadToggleButton,
 	{
 		id: 'enter',
@@ -149,7 +148,7 @@ export function withVoiceComposerEntry(config: HerdwebConfig): HerdwebConfig {
 	}
 }
 
-/** Default drawer commands — three sections: herdr session keys, terminal key fallbacks, herdweb app controls */
+/** Default drawer commands — three sections: herdr session keys, terminal keys, herdweb app controls */
 export const defaultDrawerButtons: readonly ControlButton[] = [
 	{
 		id: 'herdr-new-window',
@@ -235,51 +234,6 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		action: { type: 'send', data: '\x1b[6~', keyLabel: 'Page Down' },
 		section: 'Terminal',
 	},
-	// Keys removed from the toolbar when it went single-row stay reachable here
-	{
-		// Tab left row1 when the row shrank — drawer fallback
-		id: 'tab',
-		label: 'Tab',
-		description: 'Send Tab key',
-		action: { type: 'send', data: '\t', keyLabel: 'Tab' },
-		section: 'Terminal',
-	},
-	{
-		id: 'shift-tab',
-		label: 'S-Tab',
-		description: 'Send Shift+Tab key',
-		action: { type: 'send', data: '\x1b[Z', keyLabel: 'Shift+Tab' },
-		section: 'Terminal',
-	},
-	{
-		id: 'left',
-		label: '\u2190',
-		description: 'Send Left arrow key',
-		action: { type: 'send', data: '\x1b[D', keyLabel: 'Left' },
-		section: 'Terminal',
-	},
-	{
-		id: 'right',
-		label: '\u2192',
-		description: 'Send Right arrow key',
-		action: { type: 'send', data: '\x1b[C', keyLabel: 'Right' },
-		section: 'Terminal',
-	},
-	// up/down left row1 when the d-pad took over the arrows — drawer fallback
-	{
-		id: 'up',
-		label: '\u2191',
-		description: 'Send Up arrow key',
-		action: { type: 'send', data: '\x1b[A', keyLabel: 'Up' },
-		section: 'Terminal',
-	},
-	{
-		id: 'down',
-		label: '\u2193',
-		description: 'Send Down arrow key',
-		action: { type: 'send', data: '\x1b[B', keyLabel: 'Down' },
-		section: 'Terminal',
-	},
 	{
 		id: 'ctrl-c',
 		label: 'C-c',
@@ -313,14 +267,6 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		label: 'Space',
 		description: 'Send Space key',
 		action: { type: 'send', data: ' ' },
-		section: 'Terminal',
-	},
-	{
-		// ⌫ left row1 in the portrait recut — the d-pad owns it day-to-day; drawer fallback
-		id: 'backspace',
-		label: '\u232b',
-		description: 'Send Backspace key',
-		action: { type: 'send', data: '\x7f', keyLabel: 'Backspace' },
 		section: 'Terminal',
 	},
 	// Second single-row cut (8-key row): Ctrl modifier / Paste stay reachable here
