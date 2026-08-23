@@ -213,6 +213,7 @@ State files are per listen port: `~/.local/state/herdweb/{port}/` (`vapid.json`,
 | Field | Default | Notes |
 |-------|---------|-------|
 | `notify.token` | unset | Optional bearer token for `POST /api/events` and push subscribe/delete (loopback-only callers) |
+| `notify.channels` | `[]` | Optional outbound webhook channels; each event is posted once to every configured channel in parallel with Web Push |
 | `notify.vapid.subject` | auto | VAPID subject URI (`mailto:…`); config overrides disk; use a real contact in production — Apple rejects reserved domains like `localhost` (`403 BadJwtToken`) |
 | `notify.vapid.publicKey` | auto | VAPID public key (base64url); stored in state if unset |
 | `notify.vapid.privateKey` | auto | VAPID private key; keep in `.local` config when overriding |
@@ -221,6 +222,23 @@ State files are per listen port: `~/.local/state/herdweb/{port}/` (`vapid.json`,
 | `notify.silence.busyMs` | `30000` | Trailing window to detect busy output (ms) |
 | `notify.silence.quietMs` | `180000` | Quiet period after busy before firing (ms) |
 | `notify.silence.cooldownMs` | `600000` | Per-session cooldown between silence notifications (ms) |
+
+Outbound channel examples (use placeholders and keep real credentials in a local config file):
+
+```typescript
+notify: {
+  channels: [
+    { type: 'message-pusher', url: 'https://push.example.com', user: 'someone', token: 'token-placeholder' },
+    { type: 'wecom', url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder' },
+    { type: 'webhook', url: 'https://example.com/hook', headers: { 'x-source': 'herdweb' } },
+  ],
+}
+```
+
+`message-pusher` posts `{ title, desp, content, token }` to `{url}/push/{user}`;
+`wecom` posts plain text as `{ msgtype: 'text', text: { content } }`; `webhook` posts the event
+object itself. Requests run in parallel with Web Push, are isolated per channel, and time out after
+10 seconds. No channel is sent when `notify.channels` is omitted or empty.
 
 `POST /api/events` is loopback-only. Badge kinds `asking`, `done`, `ci-red` require an on-host event source (agent-config#495) — not active until that outbound lane is deployed.
 

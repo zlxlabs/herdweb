@@ -667,3 +667,40 @@ describe('assertValidConfigOverrides: ButtonArrayInput forms', () => {
 		expect(message).toContain('array or function')
 	})
 })
+
+describe('notify channel config schema', () => {
+	test('accepts all built-in outbound channel shapes', () => {
+		expect(() =>
+			assertValidConfigOverrides({
+				notify: {
+					channels: [
+						{
+							type: 'message-pusher',
+							url: 'https://push.example.com',
+							user: 'someone',
+							token: 'token-placeholder',
+						},
+						{ type: 'wecom', url: 'https://wecom.example.com/hook' },
+						{
+							type: 'webhook',
+							url: 'https://hooks.example.com/events',
+							headers: { authorization: 'Bearer header-placeholder' },
+						},
+					],
+				},
+			}),
+		).not.toThrow()
+	})
+
+	test('rejects unknown fields in a channel', () => {
+		const message = getValidationMessage(
+			{
+				notify: {
+					channels: [{ type: 'wecom', url: 'https://wecom.example.com/hook', secret: 'x' }],
+				},
+			},
+			assertValidConfigOverrides,
+		)
+		expect(message).toContain('config.notify.channels[0].secret')
+	})
+})

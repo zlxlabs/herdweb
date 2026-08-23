@@ -239,6 +239,44 @@ goes quiet, or when the service restarts. Subscribe from the in-app panel — no
 On iPhone, if you are not in standalone mode, the panel shows a hint to add herdweb to the Home
 Screen first.
 
+**Outbound notification channels**
+
+Web Push and outbound channels run in parallel. Channels are disabled by default; configure one or
+more fixed-shape webhook destinations under `notify.channels` when a device cannot reach its push
+provider. Each event is posted once to every configured channel. A failed channel is logged with
+its type, host, and status/error name, but does not block Web Push or another channel; there is no
+retry queue in v1.
+
+```ts
+export default {
+  notify: {
+    channels: [
+      {
+        type: 'message-pusher',
+        url: 'https://push.example.com',
+        user: 'someone',
+        token: 'token-placeholder',
+      },
+      {
+        type: 'wecom',
+        url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder',
+      },
+      {
+        type: 'webhook',
+        url: 'https://example.com/hook',
+        headers: { 'x-source': 'herdweb' },
+      },
+    ],
+  },
+}
+```
+
+`message-pusher` posts JSON to `{url}/push/{user}` with `{ title, desp, content, token }`.
+`wecom` posts `{ msgtype: 'text', text: { content } }` to the configured URL. `webhook` posts the
+event object itself and applies the configured headers. All requests are JSON and time out after
+10 seconds. Keep webhook query keys, tokens, and custom header values in a local, uncommitted
+config file.
+
 **What gets notified (and how fast)**
 
 | Lane | Source | Typical delay | v1 status |
@@ -251,6 +289,16 @@ Screen first.
 The silence lane cannot distinguish “waiting for you” from “running a long task” — titles use
 “may be done / stuck” wording. A `202` response from `POST /api/events` means the event was
 accepted and queued for push — not that the phone has already displayed it.
+
+**Known limitations**
+
+Some Android devices cannot receive any Web Push notification when the device's long-lived
+connection from Google Play services to FCM is unreachable. This is not a herdweb-specific issue:
+the official Google push demo is also unable to deliver in that environment. A browser being able
+to browse the web does not imply that FCM is reachable; Web Push depends on Google Play services
+maintaining a long-lived connection to `mtalk.google.com` on ports `5228`, `5229`, or `5230`.
+Configure an outbound channel above as the workaround for those devices; message-pusher and the
+WeCom webhook do not depend on the device's FCM connection.
 
 **State directory (per port)**
 
