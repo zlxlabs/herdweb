@@ -2,12 +2,8 @@
 import { execSync } from 'node:child_process'
 import { createECDH } from 'node:crypto'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
-import {
-	Agent as HttpsAgent,
-	type IncomingMessage,
-	type ServerResponse,
-	createServer,
-} from 'node:https'
+import { type IncomingMessage } from 'node:http'
+import { Agent as HttpsAgent, createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, expect, test } from 'vitest'

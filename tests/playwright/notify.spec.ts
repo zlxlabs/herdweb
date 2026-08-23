@@ -136,9 +136,12 @@ test('notify toggle tap subscribes via touch and persists state on reopen', asyn
 		const auth = new Uint8Array(16)
 		auth.fill(0xcd)
 
-		const subscription = {
+		const subscription: PushSubscription = {
 			endpoint: stubEndpoint,
-			getKey: (name: string) => {
+			expirationTime: null,
+			options: { applicationServerKey: null, userVisibleOnly: false },
+			toJSON: () => ({ endpoint: stubEndpoint, expirationTime: null }),
+			getKey: (name: PushEncryptionKeyName) => {
 				if (name === 'p256dh') return p256dh.buffer
 				if (name === 'auth') return auth.buffer
 				return null
