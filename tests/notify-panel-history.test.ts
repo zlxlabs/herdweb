@@ -12,11 +12,21 @@ function stubServiceWorker(): void {
 	Object.defineProperty(navigator, 'serviceWorker', {
 		value: {
 			ready: Promise.resolve({
+				active: {},
 				pushManager: {
 					getSubscription: vi.fn(() => Promise.resolve(null)),
 					subscribe: vi.fn(),
 				},
 			}),
+			getRegistration: vi.fn(() =>
+				Promise.resolve({
+					active: {},
+					pushManager: {
+						getSubscription: vi.fn(() => Promise.resolve(null)),
+						subscribe: vi.fn(),
+					},
+				}),
+			),
 		},
 		configurable: true,
 	})

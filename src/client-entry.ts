@@ -840,7 +840,7 @@ async function registerServiceWorker(basePath: string): Promise<void> {
 	try {
 		const swPath = joinBasePath(basePath, '/sw.js')
 		await navigator.serviceWorker.register(swPath, {
-			scope: basePath === '/' ? '/' : `${basePath}/`,
+			scope: basePath,
 		})
 	} catch (error) {
 		console.error('herdweb: service worker registration failed', error)
