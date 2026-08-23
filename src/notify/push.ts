@@ -5,6 +5,9 @@ import { ensureStateDir, readJsonFile, writeJsonFileAtomic } from './state'
 const VAPID_FILE = 'vapid.json'
 const SUBSCRIPTIONS_FILE = 'push-subscriptions.json'
 
+/** Apple-valid default — format-legal mailto contact (not a reserved TLD like localhost). */
+export const DEFAULT_VAPID_SUBJECT = 'mailto:admin@example.com'
+
 export interface VapidConfig {
 	readonly subject?: string
 	readonly publicKey?: string
@@ -23,13 +26,13 @@ export interface PushSubscriptionRecord {
 	lastSuccessAt: number
 }
 
-/** Ensure VAPID keys exist on disk; config override wins for rotation. */
+/** Ensure VAPID keys exist on disk; config override wins for keypair rotation; subject follows config. */
 export function ensureVapidKeys(stateDir: string, override?: VapidConfig): VapidKeys {
 	ensureStateDir(stateDir)
 	const path = join(stateDir, VAPID_FILE)
-	const subject = override?.subject ?? 'mailto:herdweb@localhost'
 
 	if (override?.publicKey && override?.privateKey) {
+		const subject = override.subject ?? DEFAULT_VAPID_SUBJECT
 		const keys: VapidKeys = {
 			publicKey: override.publicKey,
 			privateKey: override.privateKey,
@@ -41,9 +44,19 @@ export function ensureVapidKeys(stateDir: string, override?: VapidConfig): Vapid
 
 	const existing = readJsonFile<VapidKeys>(path)
 	if (existing?.publicKey && existing?.privateKey) {
-		return { ...existing, subject: existing.subject ?? subject }
+		const subject = override?.subject ?? existing.subject ?? DEFAULT_VAPID_SUBJECT
+		const keys: VapidKeys = {
+			publicKey: existing.publicKey,
+			privateKey: existing.privateKey,
+			subject,
+		}
+		if (subject !== existing.subject) {
+			writeJsonFileAtomic(path, keys, 0o600)
+		}
+		return keys
 	}
 
+	const subject = override?.subject ?? DEFAULT_VAPID_SUBJECT
 	const generated = webpush.generateVAPIDKeys()
 	const keys: VapidKeys = {
 		publicKey: generated.publicKey,

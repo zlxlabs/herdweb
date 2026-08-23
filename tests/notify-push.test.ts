@@ -1,9 +1,15 @@
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import { parseNotifyEvent } from '../src/notify/events'
-import { STALE_SUBSCRIPTION_MS, readSubscriptions, writeSubscriptions } from '../src/notify/push'
+import {
+	DEFAULT_VAPID_SUBJECT,
+	STALE_SUBSCRIPTION_MS,
+	ensureVapidKeys,
+	readSubscriptions,
+	writeSubscriptions,
+} from '../src/notify/push'
 import * as pushModule from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
 import {
@@ -12,6 +18,73 @@ import {
 	resolveScopeUrl,
 	showPushNotification,
 } from '../src/sw-entry'
+
+describe('ensureVapidKeys', () => {
+	let stateDir: string
+
+	afterEach(() => {
+		rmSync(stateDir, { recursive: true, force: true })
+	})
+
+	test('generates default subject on fresh stateDir', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-vapid-'))
+		const keys = ensureVapidKeys(stateDir)
+		expect(keys.subject).toBe('mailto:admin@example.com')
+		const disk = JSON.parse(readFileSync(join(stateDir, 'vapid.json'), 'utf-8'))
+		expect(disk.subject).toBe('mailto:admin@example.com')
+	})
+
+	test('default subject matches deliverable mailto format', () => {
+		expect(DEFAULT_VAPID_SUBJECT).toMatch(/^mailto:.+@.+\..+$/)
+	})
+
+	test('config subject overrides disk subject and syncs file', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-vapid-'))
+		const diskPath = join(stateDir, 'vapid.json')
+		const diskKeys = {
+			publicKey: 'disk-pub',
+			privateKey: 'disk-priv',
+			subject: 'mailto:herdweb@localhost',
+		}
+		writeFileSync(diskPath, JSON.stringify(diskKeys), { mode: 0o600 })
+		const keys = ensureVapidKeys(stateDir, { subject: 'mailto:ops@mydomain.com' })
+		expect(keys.publicKey).toBe('disk-pub')
+		expect(keys.privateKey).toBe('disk-priv')
+		expect(keys.subject).toBe('mailto:ops@mydomain.com')
+		const disk = JSON.parse(readFileSync(diskPath, 'utf-8'))
+		expect(disk.subject).toBe('mailto:ops@mydomain.com')
+		expect(disk.publicKey).toBe('disk-pub')
+	})
+
+	test('returns disk subject when no override', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-vapid-'))
+		const diskPath = join(stateDir, 'vapid.json')
+		const diskKeys = {
+			publicKey: 'disk-pub',
+			privateKey: 'disk-priv',
+			subject: 'mailto:stored@mydomain.com',
+		}
+		writeFileSync(diskPath, JSON.stringify(diskKeys), { mode: 0o600 })
+		const keys = ensureVapidKeys(stateDir)
+		expect(keys.subject).toBe('mailto:stored@mydomain.com')
+		expect(keys.publicKey).toBe('disk-pub')
+	})
+
+	test('subject-only override keeps disk keypair', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-vapid-'))
+		const diskPath = join(stateDir, 'vapid.json')
+		const diskKeys = {
+			publicKey: 'keep-pub',
+			privateKey: 'keep-priv',
+			subject: 'mailto:herdweb@localhost',
+		}
+		writeFileSync(diskPath, JSON.stringify(diskKeys), { mode: 0o600 })
+		const keys = ensureVapidKeys(stateDir, { subject: 'mailto:admin@example.com' })
+		expect(keys.publicKey).toBe('keep-pub')
+		expect(keys.privateKey).toBe('keep-priv')
+		expect(keys.subject).toBe('mailto:admin@example.com')
+	})
+})
 
 describe('notify push delivery', () => {
 	let stateDir: string
