@@ -1,7 +1,7 @@
 # 里程碑进度：M5 — 通知出站通道（webhook 中间层）
 
 - **负责主脑**：claude-opus5（herdr tab `w15:t1`）
-- **状态**：进行中（2026-08-23 开卡）
+- **状态**：**基础实现已完成，里程碑验收未完成**（2026-08-24）——三通道实现已合入 main（`d256866` 及后续修复），仍缺 Android IM 用户真实收件证据。
 - **预期产出**：注意力层的事件除了 Web Push，还能并行 POST 到用户配置的 webhook 出口，
   经 [message-pusher](https://github.com/songquanpeng/message-pusher) 或企业微信群机器人
   抵达 IM。用户在 Web Push 不可达的 Android 设备上也能收到提醒。
@@ -26,8 +26,7 @@
   4. **凭据绝不落日志**：企业微信的密钥写在 URL 的 query string 里，message-pusher 的
      token 在 body 里。日志只允许记通道类型、目标 host、HTTP 状态码、成败。
      出处：agent-config core.md「生产诊断」节 #148。
-- **已知阻塞**：无（实现不依赖真实凭据；用户的 message-pusher 实例地址与 token 在验收阶段
-  写入 `.local` 配置即可）。
+- **已知阻塞**：Android IM 真实收件尚未由用户在真实入口确认；生产日志的 `wecom ... (200)` 只证明上游接受，不证明手机展示。
 - **推进前必须拿到的证据**：
   - [ ] 单元测试全绿，含**安全闸**：给含 `?key=secret-value` 的通道 URL，捕获全部日志输出，
         断言该密钥不出现在任何一条日志里。
