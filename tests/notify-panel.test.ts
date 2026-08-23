@@ -8,14 +8,14 @@ afterEach(() => {
 	GlobalRegistrator.unregister()
 })
 
-test('toggle off sends DELETE for the active subscription', async () => {
-	const unsubscribe = vi.fn().mockResolvedValue(true)
-	let currentSub: {
+function setupPushMocks(options: {
+	currentSub: {
 		endpoint: string
 		unsubscribe: ReturnType<typeof vi.fn>
 		getKey: (name: string) => ArrayBuffer
-	} | null = null
-
+	} | null
+	subscribe: ReturnType<typeof vi.fn>
+}): ReturnType<typeof vi.fn> {
 	const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
 		if (url.endsWith('/api/push/vapid-key')) {
 			return { ok: true, json: async () => ({ publicKey: 'cHVibGljLWtleQ' }) }
@@ -29,6 +29,33 @@ test('toggle off sends DELETE for the active subscription', async () => {
 		return { ok: false, status: 500 }
 	})
 
+	Object.defineProperty(globalThis, 'Notification', {
+		value: { requestPermission: vi.fn().mockResolvedValue('granted') },
+		configurable: true,
+	})
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve({
+				pushManager: {
+					getSubscription: vi.fn(() => Promise.resolve(options.currentSub)),
+					subscribe: options.subscribe,
+				},
+			}),
+		},
+		configurable: true,
+	})
+
+	return fetchMock
+}
+
+test('change event with checked=true triggers subscribe', async () => {
+	const unsubscribe = vi.fn().mockResolvedValue(true)
+	let currentSub: {
+		endpoint: string
+		unsubscribe: ReturnType<typeof vi.fn>
+		getKey: (name: string) => ArrayBuffer
+	} | null = null
+
 	const subscribe = vi.fn().mockImplementation(async () => {
 		currentSub = {
 			endpoint: 'https://push.example/device',
@@ -38,21 +65,7 @@ test('toggle off sends DELETE for the active subscription', async () => {
 		return currentSub
 	})
 
-	Object.defineProperty(globalThis, 'Notification', {
-		value: { requestPermission: vi.fn().mockResolvedValue('granted') },
-		configurable: true,
-	})
-	Object.defineProperty(navigator, 'serviceWorker', {
-		value: {
-			ready: Promise.resolve({
-				pushManager: {
-					getSubscription: vi.fn(() => Promise.resolve(currentSub)),
-					subscribe,
-				},
-			}),
-		},
-		configurable: true,
-	})
+	const fetchMock = setupPushMocks({ currentSub, subscribe })
 
 	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
 	document.body.appendChild(panel.element)
@@ -61,14 +74,44 @@ test('toggle off sends DELETE for the active subscription', async () => {
 	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
 	if (!toggle) throw new Error('missing toggle')
 
-	currentSub = {
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(Notification.requestPermission).toHaveBeenCalled()
+	expect(subscribe).toHaveBeenCalled()
+	expect(
+		fetchMock.mock.calls.some(
+			([url]) => typeof url === 'string' && url.endsWith('/api/push/vapid-key'),
+		),
+	).toBe(true)
+	expect(fetchMock).toHaveBeenCalledWith(
+		'/api/push/subscribe',
+		expect.objectContaining({ method: 'POST' }),
+	)
+})
+
+test('change event with checked=false triggers unsubscribe', async () => {
+	const unsubscribe = vi.fn().mockResolvedValue(true)
+	const currentSub = {
 		endpoint: 'https://push.example/device',
 		unsubscribe,
 		getKey: () => new Uint8Array([1]).buffer,
 	}
-	toggle.checked = true
-	toggle.click()
-	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const subscribe = vi.fn()
+	const fetchMock = setupPushMocks({ currentSub, subscribe })
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	if (!toggle) throw new Error('missing toggle')
+
+	toggle.checked = false
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
 
 	expect(fetchMock).toHaveBeenCalledWith(
 		'/api/push/subscription',
@@ -78,6 +121,79 @@ test('toggle off sends DELETE for the active subscription', async () => {
 		}),
 	)
 	expect(unsubscribe).toHaveBeenCalled()
+})
+
+test('toggle click triggers change and subscribe branch', async () => {
+	const unsubscribe = vi.fn().mockResolvedValue(true)
+	let currentSub: {
+		endpoint: string
+		unsubscribe: ReturnType<typeof vi.fn>
+		getKey: (name: string) => ArrayBuffer
+	} | null = null
+
+	const subscribe = vi.fn().mockImplementation(async () => {
+		currentSub = {
+			endpoint: 'https://push.example/device',
+			unsubscribe,
+			getKey: () => new Uint8Array([1]).buffer,
+		}
+		return currentSub
+	})
+
+	const fetchMock = setupPushMocks({ currentSub, subscribe })
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	if (!toggle) throw new Error('missing toggle')
+
+	toggle.checked = false
+	toggle.click()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(subscribe).toHaveBeenCalled()
+	expect(fetchMock).toHaveBeenCalledWith(
+		'/api/push/subscribe',
+		expect.objectContaining({ method: 'POST' }),
+	)
+})
+
+test('touchend alone does not trigger subscribe or unsubscribe', async () => {
+	const unsubscribe = vi.fn().mockResolvedValue(true)
+	const currentSub = {
+		endpoint: 'https://push.example/device',
+		unsubscribe,
+		getKey: () => new Uint8Array([1]).buffer,
+	}
+
+	const subscribe = vi.fn()
+	const fetchMock = setupPushMocks({ currentSub, subscribe })
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	if (!toggle) throw new Error('missing toggle')
+
+	// User taps to turn off while checked is still true (pre-flip on touch).
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const pushCalls = fetchMock.mock.calls.filter(
+		([url]) =>
+			typeof url === 'string' &&
+			(url.endsWith('/api/push/vapid-key') ||
+				url.endsWith('/api/push/subscribe') ||
+				url.endsWith('/api/push/subscription')),
+	)
+	expect(pushCalls).toHaveLength(0)
+	expect(Notification.requestPermission).not.toHaveBeenCalled()
+	expect(subscribe).not.toHaveBeenCalled()
+	expect(unsubscribe).not.toHaveBeenCalled()
 })
 
 test('subscribe rolls back local subscription when POST rejects', async () => {
@@ -130,8 +246,8 @@ test('subscribe rolls back local subscription when POST rejects', async () => {
 	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
 	if (!toggle) throw new Error('missing toggle')
 
-	toggle.checked = false
-	toggle.click()
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
 	await new Promise((resolve) => setTimeout(resolve, 50))
 
 	expect(unsubscribe).toHaveBeenCalled()
@@ -167,13 +283,15 @@ test('test button POSTs to /api/push/test', async () => {
 
 	const testBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-test')
 	if (!testBtn) throw new Error('missing test button')
-	testBtn.click()
-	await new Promise((resolve) => setTimeout(resolve, 20))
+	testBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
 
-	expect(fetchMock).toHaveBeenCalledWith(
-		'/api/push/test',
-		expect.objectContaining({ method: 'POST' }),
-	)
+	expect(
+		fetchMock.mock.calls.some(
+			([url, init]) =>
+				typeof url === 'string' && url.endsWith('/api/push/test') && init?.method === 'POST',
+		),
+	).toBe(true)
 })
 
 test('refreshToggle degrades when service worker ready never resolves', async () => {

@@ -316,7 +316,10 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		close()
 	})
 
-	onTap(toggle, () => {
+	// Use change (not onTap): on touch devices touchend fires before the browser
+	// flips checkbox.checked on the synthesised click, so onTap always reads the
+	// pre-flip value and runs the wrong subscribe/unsubscribe branch.
+	toggle.addEventListener('change', () => {
 		void (async () => {
 			if (toggle.checked) {
 				await subscribe()
