@@ -1,7 +1,6 @@
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import asrConfig from './asr.config'
-import { startIsolatedServe } from './isolated-serve'
 
 declare global {
 	interface Window {
@@ -11,6 +10,7 @@ declare global {
 
 const repoRoot = join(import.meta.dirname, '../..')
 const configPath = join(repoRoot, 'tests/playwright/asr.config.ts')
+test.use({ serveOptions: { configPath } })
 const voiceButton = asrConfig.toolbar.row1.at(0)
 if (!voiceButton) throw new Error('ASR e2e config must define a voice-input toolbar button')
 
@@ -32,19 +32,11 @@ function frameType(message: string | Buffer): { readonly type: number; readonly 
 
 test.describe('Voice composer tap-to-toggle input', () => {
 	test.skip(({ browserName }) => browserName !== 'chromium', 'full voice flow is chromium-only')
-	let server: Awaited<ReturnType<typeof startIsolatedServe>> | undefined
-
-	test.beforeAll(async () => {
-		server = await startIsolatedServe({ configPath })
-	})
-	test.afterAll(async () => {
-		await server?.close()
-	})
 
 	test('fake microphone → mock partial/final → PTY receives sanitized command bytes', async ({
 		page,
+		serve,
 	}) => {
-		if (!server) throw new Error('Voice test server was not started')
 		const partial = serverFrame(0, 'partial')
 		const asrFrames: Buffer[] = []
 		const frameCounts = { fullRequest: 0, audio: 0, end: 0 }
@@ -74,7 +66,7 @@ test.describe('Voice composer tap-to-toggle input', () => {
 			currentText = `printf '\\x4f\\x55\\x54\\x50\\x55\\x54-${attempt}\\n'`
 			const outputMarker = `OUTPUT-${attempt}`
 			expect(currentText).not.toContain(outputMarker)
-			await page.goto(server.url)
+			await page.goto(serve.url)
 			await page.waitForSelector('#wt-toolbar [data-herdweb-action="voice-input"]')
 			const entry = page.locator('[data-herdweb-action="voice-input"]')
 			await expect(entry).toBeVisible()
@@ -139,9 +131,9 @@ test.describe('Voice composer tap-to-toggle input', () => {
 
 	test('long drafts wrap, Enter stays in textarea, and Send keeps composer open', async ({
 		page,
+		serve,
 	}) => {
-		if (!server) throw new Error('Voice test server was not started')
-		await page.goto(server.url)
+		await page.goto(serve.url)
 		const entry = page.locator('[data-herdweb-action="voice-input"]')
 		await entry.click()
 		const composer = page.locator('#wt-asr-composer')
@@ -167,9 +159,11 @@ test.describe('Voice composer tap-to-toggle input', () => {
 		await expect(composer).toBeVisible()
 	})
 
-	test('connection observer replays a disconnected state to late subscribers', async ({ page }) => {
-		if (!server) throw new Error('Voice test server was not started')
-		await page.goto(server.url)
+	test('connection observer replays a disconnected state to late subscribers', async ({
+		page,
+		serve,
+	}) => {
+		await page.goto(serve.url)
 		await page.waitForSelector('#terminal .xterm')
 		await expect.poll(() => page.evaluate(() => window.__herdwebSockets?.[0]?.readyState)).toBe(1)
 		await page.evaluate(() => window.__herdwebSockets?.[0]?.close())
@@ -185,9 +179,11 @@ test.describe('Voice composer tap-to-toggle input', () => {
 		await expect.poll(() => page.evaluate(() => window.__voiceConnectionStates)).toEqual([false])
 	})
 
-	test('socket error followed by close emits one disconnected transition', async ({ page }) => {
-		if (!server) throw new Error('Voice test server was not started')
-		await page.goto(server.url)
+	test('socket error followed by close emits one disconnected transition', async ({
+		page,
+		serve,
+	}) => {
+		await page.goto(serve.url)
 		await page.waitForSelector('#terminal .xterm')
 		await expect.poll(() => page.evaluate(() => window.__herdwebSockets?.[0]?.readyState)).toBe(1)
 		await page.evaluate(() => {
@@ -212,18 +208,14 @@ test.describe('Mic tap-to-toggle capability degradation', () => {
 	test('webkit hides voice input when getUserMedia is unavailable', async ({
 		page,
 		browserName,
+		serve,
 	}) => {
 		test.skip(browserName !== 'webkit', 'capability degradation is webkit-only')
 		await page.addInitScript(() => {
 			Object.defineProperty(navigator, 'mediaDevices', { configurable: true, value: undefined })
 		})
-		const server = await startIsolatedServe({ configPath })
-		try {
-			await page.goto(server.url)
-			await page.waitForSelector('#wt-toolbar')
-			await expect(page.locator('[data-herdweb-action="voice-input"]')).toHaveCount(0)
-		} finally {
-			await server.close()
-		}
+		await page.goto(serve.url)
+		await page.waitForSelector('#wt-toolbar')
+		await expect(page.locator('[data-herdweb-action="voice-input"]')).toHaveCount(0)
 	})
 })
