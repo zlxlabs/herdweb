@@ -106,6 +106,8 @@ export async function startIsolatedServe(
 			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'pipe',
+			detached: true,
+			killWithParent: true,
 		},
 	)
 	let exited = false
