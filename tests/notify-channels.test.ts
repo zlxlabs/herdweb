@@ -64,6 +64,38 @@ describe('notify channel content', () => {
 	] as const)('assembles %s without extra blank lines', (_name, input, expected) => {
 		expect(buildNotifyContent({ v: 1, id: 'content', ts: 1, ...input })).toBe(expected)
 	})
+
+	test.each([
+		['no session or body', {}, '【测试】Test'],
+		['session without body', { session: 'default' }, '【测试】Test\n会话：default'],
+		[
+			'session with body that does not contain it',
+			{ session: 'default', body: '正文不含该值' },
+			'【测试】Test\n正文不含该值\n会话：default',
+		],
+		[
+			'body already contains a UUID session',
+			{
+				session: '39b36907-9086-4637-8de9-285d423f3e0b',
+				body: 'pane=w15:p1 session=39b36907-9086-4637-8de9-285d423f3e0b',
+			},
+			'【测试】Test\npane=w15:p1 session=39b36907-9086-4637-8de9-285d423f3e0b',
+		],
+		[
+			'body already contains default session',
+			{ session: 'default', body: 'session=default' },
+			'【测试】Test\nsession=default',
+		],
+		[
+			'substring match is treated as contained',
+			{ session: 'abc', body: 'abcdef' },
+			'【测试】Test\nabcdef',
+		],
+	] as const)('deduplicates a session already present in body: %s', (_name, input, expected) => {
+		expect(
+			buildNotifyContent({ v: 1, id: 'content', kind: 'test', title: 'Test', ts: 1, ...input }),
+		).toBe(expected)
+	})
 })
 
 describe('notify channel request bytes', () => {
