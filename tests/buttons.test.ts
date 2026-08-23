@@ -33,10 +33,9 @@ describe('defaultRow1 (moshi-style single row)', () => {
 		expect(enter?.action).toEqual({ type: 'send', data: '\r' })
 	})
 
-	test('⌫ leaves the row — the d-pad and the drawer keep it reachable', () => {
+	test('⌫ leaves the row and the drawer — the d-pad owns it now', () => {
 		expect(defaultRow1.find((b) => b.id === 'backspace')).toBeUndefined()
-		const backspace = defaultDrawerButtons.find((b) => b.id === 'backspace')
-		expect(backspace?.action).toEqual({ type: 'send', data: '\x7f', keyLabel: 'Backspace' })
+		expect(defaultDrawerButtons.find((b) => b.id === 'backspace')).toBeUndefined()
 	})
 
 	test('has no arrow keys — the floating d-pad (✥) owns them now', () => {
