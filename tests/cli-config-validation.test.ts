@@ -30,9 +30,17 @@ function createTempDir(): string {
 	return dir
 }
 
+function createIsolatedEnv(): NodeJS.ProcessEnv {
+	// Point XDG_CONFIG_HOME at an empty temp dir so the child's config discovery
+	// never sees the host's ~/.config/herdweb. spawnProcess replaces the whole
+	// environment, so process.env must be spread in (the child needs PATH for tsx).
+	return { ...process.env, XDG_CONFIG_HOME: createTempDir() }
+}
+
 async function runCli(args: readonly string[], cwd: string = repoRoot): Promise<CliResult> {
 	const proc = spawnProcess(['tsx', join(repoRoot, 'cli.ts'), ...args], {
 		cwd,
+		env: createIsolatedEnv(),
 		stdin: 'ignore',
 		stdout: 'pipe',
 		stderr: 'pipe',
@@ -183,6 +191,7 @@ describe('CLI command validation', () => {
 			],
 			{
 				cwd: repoRoot,
+				env: createIsolatedEnv(),
 				stdin: 'ignore',
 				stdout: 'pipe',
 				stderr: 'pipe',
@@ -266,7 +275,7 @@ describe('CLI command validation', () => {
 				'-lc',
 				'sleep 30',
 			],
-			{ cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+			{ cwd: dir, env: createIsolatedEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 		)
 		const stdoutChunks: string[] = []
 		const stdoutStream = proc.stdout
@@ -308,7 +317,7 @@ describe('CLI command validation', () => {
 				'-lc',
 				'sleep 30',
 			],
-			{ cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+			{ cwd: dir, env: createIsolatedEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 		)
 
 		try {
@@ -338,7 +347,7 @@ describe('CLI command validation', () => {
 				'-lc',
 				'sleep 30',
 			],
-			{ cwd: dir, stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+			{ cwd: dir, env: createIsolatedEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 		)
 
 		try {
