@@ -42,4 +42,4 @@
 2. CDP `Input.dispatchTouchEvent` 能触发 DOM 事件但 **Android IME 不响应** → 弹键盘相关触摸必须 `adb shell input tap`。
 3. adb tap 坐标换算：`uiautomator dump` 取 Chrome toolbar_container 底边作为网页内容 top，CSS px × devicePixelRatio(2.625)。
 4. 驱动脚本留档：`/tmp/remobi-kb-spike/drive-final.mjs`。
-5. 模拟器保持运行（qemu PID 2374149），关闭：`/home/zlx/android-sdk/platform-tools/adb emu kill`；启动：`sg kvm -c '/home/zlx/android-sdk/emulator/emulator -avd remobi -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect'`。
+5. 模拟器调查结束后必须 teardown：执行 `adb emu kill` 并确认 qemu 退出；关闭：`/home/zlx/android-sdk/platform-tools/adb emu kill`；启动：`sg kvm -c '/home/zlx/android-sdk/emulator/emulator -avd remobi -no-window -no-audio -no-boot-anim -gpu swiftshader_indirect'`。
