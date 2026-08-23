@@ -1,3 +1,44 @@
+# [1.2.0](https://github.com/zlxlabs/herdweb/compare/v1.1.0...v1.2.0) (2026-08-23)
+
+
+### Bug Fixes
+
+* **notify:** allow GET vapid-key/history without Origin and add push/test ([c17e74f](https://github.com/zlxlabs/herdweb/commit/c17e74f8dd1a7b0b172e1daa1d389ac0e8289d96))
+* **notify:** bind push toggle to change instead of onTap ([db122fa](https://github.com/zlxlabs/herdweb/commit/db122fa80a97d997f0ce3b4c494a8b1e1a17dbe7))
+* **notify:** clear awaitInFlight race loser timer on early settle ([b0cb277](https://github.com/zlxlabs/herdweb/commit/b0cb277dfd75d9b49b68b60e8adc36524459bcd6))
+* **notify:** correct VAPID subject default and config override priority ([a41a677](https://github.com/zlxlabs/herdweb/commit/a41a677d1b7798780214ab13917aa00809dfaaff))
+* **notify:** cover bare base path with service worker scope ([2b27b8f](https://github.com/zlxlabs/herdweb/commit/2b27b8f1cb2670a5429254242316e6a82e111eb9))
+* **notify:** fail-safe panel subscribe and SW resubscribe rollback (F-P2-2–4) ([96a860a](https://github.com/zlxlabs/herdweb/commit/96a860a0bd1d70ee51aa124ef8ea99c4acf8a95c))
+* **notify:** log push delivery outcomes and skipped empty targets ([b2b4fc9](https://github.com/zlxlabs/herdweb/commit/b2b4fc923be186482e269fc1cadaae307a1314df))
+* **notify:** preserve subscriptions during push delivery ([b8bfc26](https://github.com/zlxlabs/herdweb/commit/b8bfc26577fb66c31698ef5ca22423abcc683969))
+* **notify:** route panel test button through /api/push/test ([ca65732](https://github.com/zlxlabs/herdweb/commit/ca6573210fd496ff14d96446b123a6761162c2d1))
+* **notify:** simplify atomic write and defer event trim (F-P2-1, F-P2-7) ([cf69963](https://github.com/zlxlabs/herdweb/commit/cf699637ea545e327505140cd6811d1d12b29395))
+* **notify:** sink fire-and-forget push rejection (F-P1-1) ([b27a8c5](https://github.com/zlxlabs/herdweb/commit/b27a8c5a65501f701600a03f4eaea8dfb7220cc3))
+* **notify:** surface push subscribe failures in panel ([e423afa](https://github.com/zlxlabs/herdweb/commit/e423afa14c65c5c705b6d9c29d9095eb1430a61a))
+* **notify:** use getRegistration when serviceWorker.ready hangs on Edge 151 ([745de7d](https://github.com/zlxlabs/herdweb/commit/745de7d8da33b198a981319b2b674537e6833a20))
+* **process:** preserve detached exit events ([40bb1a4](https://github.com/zlxlabs/herdweb/commit/40bb1a40bc820171c8f30731ab1e521ccd3f7a64))
+* **serve:** dispose terminal session on PTY exit (F-P2-5) ([28434a2](https://github.com/zlxlabs/herdweb/commit/28434a22aa68b86dfb5f2ac9961978419a1d7c1c))
+* **test:** terminate isolated serve with its caller ([990fd56](https://github.com/zlxlabs/herdweb/commit/990fd56a22b0daa3f7492b381e5c5bd27cbcc5ac))
+
+
+### Features
+
+* **notify:** add drawer notification settings panel ([bce447f](https://github.com/zlxlabs/herdweb/commit/bce447fe37e60992ddc25eef7e570291f57fa415))
+* **notify:** add event schema and per-port state helpers ([89869c4](https://github.com/zlxlabs/herdweb/commit/89869c4f808257c13c41ad2b2198ea706cb49803))
+* **notify:** add events.jsonl history reader with limit clamping ([715de92](https://github.com/zlxlabs/herdweb/commit/715de926d6e135e80ad4a534b956a0fac29ce6d1))
+* **notify:** add health lane helpers and last-session store ([b8dfeaa](https://github.com/zlxlabs/herdweb/commit/b8dfeaa2c4e40a11c338dee3cfd75c1ab83bd1e5))
+* **notify:** add history inbox list to notification panel ([98b1982](https://github.com/zlxlabs/herdweb/commit/98b19826002f46ac37788ef705986ec9c26dcd09))
+* **notify:** add PTY byte accumulator to SharedTerminalSession ([01ae80c](https://github.com/zlxlabs/herdweb/commit/01ae80ca8b78c460e40a6128b2b1bd275a56491e))
+* **notify:** add silence detector state machine ([251a3aa](https://github.com/zlxlabs/herdweb/commit/251a3aaf12119bd5f73c89119e97f3c907ce298d))
+* **notify:** add Web Push delivery service with VAPID and subscriptions ([5ba8dff](https://github.com/zlxlabs/herdweb/commit/5ba8dffd9d02af234b5b90d55d794bcde86934f2))
+* **notify:** bundle service worker and register it from the client ([0607d29](https://github.com/zlxlabs/herdweb/commit/0607d29dc0ed5d7da4b20803b17363a5651e2307))
+* **notify:** expose GET /api/events/history for mobile history inbox ([3f6fe06](https://github.com/zlxlabs/herdweb/commit/3f6fe067f7739c5d5e3de0253ac14baf74cfec5b))
+* **notify:** mount events/push routes, CSP worker-src, and shutdown drain ([9730a36](https://github.com/zlxlabs/herdweb/commit/9730a3642f7007da78fca8b02cf32c599ddb7a7f))
+* **notify:** show permission status line and re-request button in panel ([11dcff4](https://github.com/zlxlabs/herdweb/commit/11dcff45b62265b46de66f28dfaf88daaa45d848))
+* **notify:** surface service worker diagnostics ([6f39eee](https://github.com/zlxlabs/herdweb/commit/6f39eee671efb0d81b66f9349d871d9ccd8e218a))
+* **notify:** wire silence/health lanes and shutdown drain in serve ([44bda1a](https://github.com/zlxlabs/herdweb/commit/44bda1a664734cf0a2d0915e1d73564d230c050d))
+* **process:** support detached process groups ([a867758](https://github.com/zlxlabs/herdweb/commit/a867758752931461174258259c7653ebfc3e955c))
+
 # [1.1.0](https://github.com/zlxlabs/herdweb/compare/v1.0.2...v1.1.0) (2026-08-23)
 
 
