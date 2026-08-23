@@ -19,6 +19,11 @@ export interface ControlButton {
 	readonly label: string
 	readonly description: string
 	readonly action: ButtonAction
+	/**
+	 * Optional drawer section label — the drawer renders a heading row whenever
+	 * the section of adjacent buttons changes. Toolbar/floating renderers ignore it.
+	 */
+	readonly section?: string
 }
 
 /** xterm.js theme colours */

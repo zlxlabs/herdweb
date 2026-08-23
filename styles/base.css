@@ -448,6 +448,20 @@ body.wt-composer-open #wt-toolbar {
 	background: #585b70;
 }
 
+/* Section heading row — spans the full grid width between button groups */
+#wt-drawer-grid .wt-drawer-section {
+	grid-column: 1 / -1;
+	font-size: 12px;
+	font-weight: 600;
+	color: #7f849c;
+	text-align: left;
+	padding: 0 2px;
+}
+
+#wt-drawer-grid .wt-drawer-section ~ .wt-drawer-section {
+	margin-top: 8px;
+}
+
 /* Action failure marker — fail-loud, never a silent dead button */
 #wt-toolbar button.wt-action-error,
 #wt-drawer-grid button.wt-action-error,
