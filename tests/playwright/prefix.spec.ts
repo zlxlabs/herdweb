@@ -3,7 +3,7 @@
  * combo picker opens with contextual title/description.
  * The Prefix button lives in the drawer since the toolbar went single-row.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 import type { Page } from '@playwright/test'
 
 test.beforeEach(async ({ page }) => {

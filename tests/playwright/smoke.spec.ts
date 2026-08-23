@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test('serves the herdweb terminal client', async ({ page }) => {
 	await page.goto('/')
