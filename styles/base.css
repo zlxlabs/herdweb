@@ -619,7 +619,8 @@ body.wt-composer-open #wt-toolbar {
 	color: #a6adc8;
 }
 
-#wt-notify .wt-notify-perm-status {
+#wt-notify .wt-notify-perm-status,
+#wt-notify .wt-notify-sw-status {
 	margin: 0 0 12px;
 	color: #a6adc8;
 }
@@ -651,7 +652,8 @@ body.wt-composer-open #wt-toolbar {
 	cursor: pointer;
 }
 
-#wt-notify .wt-notify-perm-check {
+#wt-notify .wt-notify-perm-check,
+#wt-notify .wt-notify-sw-check {
 	padding: 10px 16px;
 	border: none;
 	border-radius: 8px;
