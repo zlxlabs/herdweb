@@ -280,10 +280,18 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			toggle.checked = false
 			return
 		}
-		const subscription = await registration.pushManager.subscribe({
-			userVisibleOnly: true,
-			applicationServerKey: vapidApplicationServerKey(publicKey),
-		})
+		let subscription: PushSubscription
+		try {
+			subscription = await registration.pushManager.subscribe({
+				userVisibleOnly: true,
+				applicationServerKey: vapidApplicationServerKey(publicKey),
+			})
+		} catch (error) {
+			console.error('herdweb: push subscribe failed', error)
+			setStatus('订阅失败（见浏览器控制台）')
+			toggle.checked = false
+			return
+		}
 		let response: Response
 		try {
 			response = await fetchFn(joinBasePath(deps.basePath, '/api/push/subscribe'), {
