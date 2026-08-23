@@ -1,7 +1,7 @@
 /**
- * Spin up a private `herdweb serve` instance for specs that can't share the
- * suite-wide webServer PTY — e.g. because they flip modal terminal state
- * (foreground processes, live mouse modes) that would race parallel specs.
+ * Spin up a private `herdweb serve` instance for specs that need
+ * process/session-specific terminal state (foreground processes, live mouse
+ * modes) without sharing a PTY with another test.
  * Uses a temp HOME so the user's real ~/.config/herdweb/ config can't leak in.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
@@ -62,6 +62,7 @@ export async function waitForHttp(url: string, timeoutMs = 10_000): Promise<void
 interface IsolatedServe {
 	port: number
 	url: string
+	exited: Promise<number | null>
 	/** Isolated HOME passed to the serve process (state lives under here). */
 	home: string
 	/**
@@ -77,14 +78,18 @@ export async function startIsolatedServe(
 		basePath?: string
 		command?: string[]
 		configPath?: string
+		detached?: boolean
 		isolateTmpDir?: boolean
+		killWithParent?: boolean
 	} = {},
 ): Promise<IsolatedServe> {
 	const {
 		basePath,
 		command = ['bash', '--norc', '--noprofile'],
 		configPath,
+		detached = true,
 		isolateTmpDir,
+		killWithParent = true,
 	} = options
 	const port = await reservePort()
 	const home = mkdtempSync(join(tmpdir(), 'herdweb-playwright-home-'))
@@ -108,8 +113,8 @@ export async function startIsolatedServe(
 			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'pipe',
-			detached: true,
-			killWithParent: true,
+			detached,
+			killWithParent,
 		},
 	)
 	let exited = false
@@ -137,6 +142,7 @@ export async function startIsolatedServe(
 	return {
 		port,
 		url,
+		exited: proc.exited,
 		home,
 		tmpDir: serveTmp,
 		async close(): Promise<void> {

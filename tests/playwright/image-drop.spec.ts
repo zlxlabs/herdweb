@@ -6,9 +6,8 @@
  * Runs on both projects (Pixel 5 Chromium, iPhone 13 WebKit) × base paths (/ and /herdweb).
  */
 import { readFileSync, statSync } from 'node:fs'
-import { expect, test } from '@playwright/test'
 import type { Page } from '@playwright/test'
-import { startIsolatedServe } from './isolated-serve'
+import { expect, test } from './fixtures'
 
 /** Minimal PNG the server accepts: magic bytes + payload — format is sniffed from magic bytes only. */
 const PNG_BYTES = Buffer.concat([
@@ -29,12 +28,13 @@ async function terminalTextFlat(page: Page): Promise<string> {
 for (const basePath of [undefined, '/herdweb'] as const) {
 	const label = basePath ?? '/'
 
-	test(`image drop inserts path into PTY without Enter (base path ${label})`, async ({ page }) => {
-		const serve = await startIsolatedServe({ basePath, isolateTmpDir: true })
-		const tmpDir = serve.tmpDir
-		expect(tmpDir).not.toBeNull()
+	test.describe(`image drop base path ${label}`, () => {
+		test.use({ serveOptions: { basePath, isolateTmpDir: true } })
 
-		try {
+		test('image drop inserts path into PTY without Enter', async ({ page, serve }) => {
+			const tmpDir = serve.tmpDir
+			expect(tmpDir).not.toBeNull()
+
 			await page.goto(serve.url)
 			await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 			// bash --norc prompt (e.g. "bash-5.2$") proves the session snapshot synced,
@@ -69,8 +69,6 @@ for (const basePath of [undefined, '/herdweb'] as const) {
 			expect(flat).not.toContain('Permissiondenied')
 			expect(flat).not.toContain('Nosuchfileordirectory')
 			expect(flat.split('bash-').length - 1).toBe(1)
-		} finally {
-			await serve.close()
-		}
+		})
 	})
 }

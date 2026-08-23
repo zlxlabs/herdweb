@@ -4,7 +4,7 @@
  * verified here against the real xterm textarea: the suppressed attribute,
  * focus/blur events, and WS input payloads from button sends.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 declare global {
 	interface Window {
@@ -109,6 +109,10 @@ test('send button produces a WS input payload while the keyboard is suppressed',
 	await expect
 		.poll(() => page.evaluate(() => window.__sentPayloads ?? []))
 		.toContain(JSON.stringify({ type: 'input', data: '\x1b' }))
+
+	// Escape leaves interactive bash's readline waiting for the next byte;
+	// return the PTY to a killable state before isolated-serve teardown.
+	await page.evaluate(() => window.term?.input('\x03', true))
 })
 
 test('⌨ button focuses the terminal in auto mode (wiring: button → registry → controller)', async ({

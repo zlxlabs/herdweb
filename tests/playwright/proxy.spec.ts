@@ -1,7 +1,10 @@
 import { createServer, request as httpRequest } from 'node:http'
 import { type Socket, connect } from 'node:net'
-import { expect, test } from '@playwright/test'
-import { reservePort, startIsolatedServe, waitForHttp } from './isolated-serve'
+import { expect, test } from './fixtures'
+import { reservePort, waitForHttp } from './isolated-serve'
+
+const basePath = '/random-token'
+test.use({ serveOptions: { basePath } })
 
 function rewriteProxyPath(requestUrl: string | undefined, basePath: string): string | null {
 	const path = requestUrl ?? '/'
@@ -123,12 +126,11 @@ async function createReverseProxy(
 
 test('reverse-proxied subpath access uses request-scoped CSP and a live websocket', async ({
 	page,
+	serve,
 }) => {
 	const proxyPort = await reservePort()
-	const basePath = '/random-token'
-	const backend = await startIsolatedServe({ basePath })
 
-	const proxy = await createReverseProxy(backend.port, proxyPort, basePath)
+	const proxy = await createReverseProxy(serve.port, proxyPort, basePath)
 	const consoleErrors: string[] = []
 	page.on('console', (message) => {
 		if (message.type() === 'error') {
@@ -149,7 +151,7 @@ test('reverse-proxied subpath access uses request-scoped CSP and a live websocke
 		expect(page.url()).toBe(`http://127.0.0.1:${proxyPort}${basePath}/`)
 		expect(csp).toContain(`ws://127.0.0.1:${proxyPort}`)
 		expect(csp).toContain(`wss://127.0.0.1:${proxyPort}`)
-		expect(csp).not.toContain(`ws://127.0.0.1:${backend.port}`)
+		expect(csp).not.toContain(`ws://127.0.0.1:${serve.port}`)
 
 		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 		await expect.poll(() => page.evaluate(() => window.__herdwebSockets?.[0]?.readyState)).toBe(1)
@@ -162,6 +164,5 @@ test('reverse-proxied subpath access uses request-scoped CSP and a live websocke
 		expect(consoleErrors).toEqual([])
 	} finally {
 		await proxy.close()
-		await backend.close()
 	}
 })
