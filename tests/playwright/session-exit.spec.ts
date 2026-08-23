@@ -1,7 +1,9 @@
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import noReconnectConfig from './session-exit.config'
 
 const noReconnectConfigPath = join(import.meta.dirname, 'session-exit.config.ts')
+void noReconnectConfig
 const naturalExitServeOptions = { detached: false, killWithParent: false }
 
 const endingCommand = (marker: string): string[] => [

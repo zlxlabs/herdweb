@@ -6,8 +6,8 @@
  * Runs on both projects (Pixel 5 Chromium, iPhone 13 WebKit) × base paths (/ and /herdweb).
  */
 import { readFileSync, statSync } from 'node:fs'
-import { expect, test } from './fixtures'
 import type { Page } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 /** Minimal PNG the server accepts: magic bytes + payload — format is sniffed from magic bytes only. */
 const PNG_BYTES = Buffer.concat([
@@ -31,7 +31,7 @@ for (const basePath of [undefined, '/herdweb'] as const) {
 	test.describe(`image drop base path ${label}`, () => {
 		test.use({ serveOptions: { basePath, isolateTmpDir: true } })
 
-		test(`image drop inserts path into PTY without Enter`, async ({ page, serve }) => {
+		test('image drop inserts path into PTY without Enter', async ({ page, serve }) => {
 			const tmpDir = serve.tmpDir
 			expect(tmpDir).not.toBeNull()
 

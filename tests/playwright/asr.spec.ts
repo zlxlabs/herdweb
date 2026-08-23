@@ -1,6 +1,6 @@
 import { join } from 'node:path'
-import { expect, test } from './fixtures'
 import asrConfig from './asr.config'
+import { expect, test } from './fixtures'
 
 declare global {
 	interface Window {
