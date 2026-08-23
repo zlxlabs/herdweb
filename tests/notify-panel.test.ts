@@ -4,6 +4,7 @@ import { createNotifyPanel } from '../src/controls/notify-panel'
 
 beforeEach(() => GlobalRegistrator.register())
 afterEach(() => {
+	vi.useRealTimers()
 	vi.restoreAllMocks()
 	GlobalRegistrator.unregister()
 })
@@ -412,6 +413,169 @@ test('refreshToggle degrades when service worker ready never resolves', async ()
 	expect(toggle.disabled).toBe(true)
 	expect(status.textContent).toContain('timed out')
 	vi.useRealTimers()
+})
+
+const SW_STATUS_CASES: ReadonlyArray<{
+	name: string
+	setup: () => void
+	advanceMs: number
+	expected: string
+}> = [
+	{
+		name: 'unsupported browser',
+		setup: () => {
+			Reflect.deleteProperty(navigator, 'serviceWorker')
+		},
+		advanceMs: 0,
+		expected: 'Service Worker：此浏览器不支持',
+	},
+	{
+		name: 'unregistered browser',
+		setup: () => {
+			Object.defineProperty(navigator, 'serviceWorker', {
+				value: {
+					ready: new Promise<never>(() => {}),
+					getRegistration: vi.fn().mockResolvedValue(null),
+				},
+				configurable: true,
+			})
+		},
+		advanceMs: 5000,
+		expected: 'Service Worker：未注册',
+	},
+	{
+		name: 'active registration',
+		setup: () => {
+			const registration = {
+				active: {},
+				pushManager: {
+					getSubscription: vi.fn().mockResolvedValue(null),
+				},
+			}
+			Object.defineProperty(navigator, 'serviceWorker', {
+				value: {
+					ready: Promise.resolve(registration),
+					getRegistration: vi.fn().mockResolvedValue(registration),
+				},
+				configurable: true,
+			})
+		},
+		advanceMs: 0,
+		expected: 'Service Worker：已激活',
+	},
+	{
+		name: 'installing registration',
+		setup: () => {
+			const registration = {
+				active: null,
+				installing: {},
+				pushManager: {
+					getSubscription: vi.fn().mockResolvedValue(null),
+				},
+			}
+			Object.defineProperty(navigator, 'serviceWorker', {
+				value: {
+					ready: new Promise<never>(() => {}),
+					getRegistration: vi.fn().mockResolvedValue(registration),
+				},
+				configurable: true,
+			})
+		},
+		advanceMs: 2000,
+		expected: 'Service Worker：注册中',
+	},
+]
+
+for (const { name, setup, advanceMs, expected } of SW_STATUS_CASES) {
+	test(`service worker status line renders ${name}`, async () => {
+		vi.useFakeTimers()
+		setup()
+		const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+		document.body.appendChild(panel.element)
+		panel.open()
+
+		await vi.advanceTimersByTimeAsync(advanceMs)
+		await vi.runAllTimersAsync()
+
+		const swStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-sw-status')
+		if (!swStatus) throw new Error('missing service worker status line')
+		expect(swStatus.textContent).toBe(expected)
+	})
+}
+
+test('service worker check button registers with base path and refreshes toggle', async () => {
+	const registration = {
+		active: {},
+		pushManager: {
+			getSubscription: vi.fn().mockResolvedValue(null),
+		},
+	}
+	const register = vi.fn().mockResolvedValue(registration)
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve(registration),
+			getRegistration: vi.fn().mockResolvedValue(registration),
+			register,
+		},
+		configurable: true,
+	})
+
+	const panel = createNotifyPanel({
+		basePath: '/agent',
+		fetchFn: vi.fn() as unknown as typeof fetch,
+	})
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	const swStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-sw-status')
+	const swCheckBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-sw-check')
+	if (!toggle || !swStatus || !swCheckBtn) throw new Error('missing service worker elements')
+
+	swCheckBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(register).toHaveBeenCalledWith('/agent/sw.js', { scope: '/agent/' })
+	expect(toggle.disabled).toBe(false)
+	expect(swStatus.textContent).toBe('Service Worker：已激活')
+})
+
+test('service worker check button shows registration error', async () => {
+	const registration = {
+		active: {},
+		pushManager: {
+			getSubscription: vi.fn().mockResolvedValue(null),
+		},
+	}
+	const error = new Error('boom-script-url')
+	const register = vi.fn().mockRejectedValue(error)
+	const getRegistration = vi.fn().mockResolvedValue(registration)
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve(registration),
+			getRegistration,
+			register,
+		},
+		configurable: true,
+	})
+	const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const swStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-sw-status')
+	const swCheckBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-sw-check')
+	if (!swStatus || !swCheckBtn) throw new Error('missing service worker elements')
+
+	swCheckBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(swStatus.textContent).toContain('Service Worker：注册失败')
+	expect(swStatus.textContent).toContain('boom-script-url')
+	expect(consoleError).toHaveBeenCalledWith('herdweb: service worker registration failed', error)
 })
 
 function stubNotification(
