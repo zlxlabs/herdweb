@@ -27,7 +27,7 @@ function channelLabel(channel: NotifyChannel): string {
 function formatChannelError(error: unknown): string {
 	if (error instanceof Error && error.name.length > 0) return error.name
 	if (typeof error === 'object' && error !== null && 'name' in error) {
-		const name = (error as { name?: unknown }).name
+		const { name } = error
 		if (typeof name === 'string' && name.length > 0) return name
 	}
 	return 'Error'
