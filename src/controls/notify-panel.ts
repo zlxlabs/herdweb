@@ -15,7 +15,8 @@ interface NotifyPanelResult {
 	readonly close: () => void
 }
 
-const SW_READY_TIMEOUT_MS = 5000
+const SW_ACTIVE_TIMEOUT_MS = 15_000
+const SW_POLL_INTERVAL_MS = 250
 
 const KIND_LABELS: Record<Exclude<NotifyKind, 'test'>, string> = {
 	asking: '等待输入',
@@ -236,34 +237,32 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	}
 
 	/**
-	 * Edge 151: `serviceWorker.ready` never resolves even when an active worker exists for
-	 * the scope (verified on Edge 151.0.4129). Use `getRegistration()` on the hot path;
-	 * fall back to `ready` only on cold start when no registration exists yet.
+	 * The page may be loaded at the bare base path, which is outside a slash-terminated
+	 * scope. Query the intended bare scope explicitly and wait for an active registration;
+	 * `serviceWorker.ready` depends on the current page being controlled, so it is not a
+	 * valid readiness signal here.
 	 */
 	async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
 		if (!('serviceWorker' in navigator)) return null
 		try {
-			const reg = await navigator.serviceWorker.getRegistration?.()
-			if (reg) {
-				if (!reg.active) {
-					const deadline = Date.now() + 2000
-					while (!reg.active && Date.now() < deadline) {
-						await new Promise((resolve) => setTimeout(resolve, 250))
-					}
-				}
-				return reg
+			const deadline = Date.now() + SW_ACTIVE_TIMEOUT_MS
+			while (Date.now() < deadline) {
+				const registration = await navigator.serviceWorker.getRegistration(deps.basePath)
+				if (registration?.active) return registration
+				const remaining = deadline - Date.now()
+				if (remaining <= 0) break
+				await new Promise((resolve) =>
+					setTimeout(resolve, Math.min(SW_POLL_INTERVAL_MS, remaining)),
+				)
 			}
-			const registration = await Promise.race([
-				navigator.serviceWorker.ready,
-				new Promise<null>((resolve) => setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS)),
-			])
-			return registration
+			return null
 		} catch {
 			return null
 		}
 	}
 
 	async function refreshToggle(): Promise<void> {
+		toggle.disabled = true
 		const registration = await getRegistration()
 		if (!registration) {
 			toggle.checked = false
@@ -277,13 +276,15 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		setStatus(sub ? 'Subscribed' : 'Not subscribed')
 	}
 
-	async function refreshSwStatus(): Promise<void> {
-		const registration = await getRegistration()
-		if (!registration) {
-			swStatus.textContent = `Service Worker：${'serviceWorker' in navigator ? '未注册' : '此浏览器不支持'}`
-			return
+	async function refreshSwStatus(): Promise<ServiceWorkerRegistration | null> {
+		if (!('serviceWorker' in navigator)) {
+			swStatus.textContent = 'Service Worker：此浏览器不支持'
+			return null
 		}
-		swStatus.textContent = `Service Worker：${registration.active ? '已激活' : '注册中'}`
+		swStatus.textContent = 'Service Worker：注册中'
+		const registration = await getRegistration()
+		swStatus.textContent = `Service Worker：${registration ? '已激活' : '未注册'}`
+		return registration
 	}
 
 	async function subscribe(): Promise<void> {
@@ -428,11 +429,18 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	onTap(swCheckBtn, () => {
 		void (async () => {
 			try {
+				swStatus.textContent = 'Service Worker：注册中'
 				await navigator.serviceWorker.register(joinBasePath(deps.basePath, '/sw.js'), {
-					scope: deps.basePath === '/' ? '/' : `${deps.basePath}/`,
+					scope: deps.basePath,
 				})
+				const registration = await refreshSwStatus()
+				if (!registration) {
+					toggle.checked = false
+					toggle.disabled = true
+					setStatus('SW 注册失败或超时')
+					return
+				}
 				setStatus('SW 已注册')
-				await refreshSwStatus()
 				await refreshToggle()
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error)
