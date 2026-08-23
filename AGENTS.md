@@ -94,7 +94,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/gestures/` — swipe, pinch, scroll detection + gesture lock
 - `src/controls/` — help overlay, combo picker, floating buttons, scroll buttons, keyboard controller, d-pad
 - `src/controls/keyboard-controller.ts` — keyboard sovereignty: three-signal state controller (`inputPermission`/`textareaFocus`/`keyboardVisible`), escape hatch, fail-loud overlay; also exports the shared touchend focus-steal guard
-- `src/controls/dpad.ts` — moshi-style floating arrow-key pad (← ↑ ↓ → ⌫ ⏎), toggled by the ✥ `dpad-toggle` action; keys are focus-safe (touchend guard) and send via `sendData`
+- `src/controls/dpad.ts` — moshi-style floating arrow-key pad (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥), toggled by the ✥ `dpad-toggle` action; keys are focus-safe (touchend guard) and send via `sendData`
 - `src/controls/image-drop-controller.ts` — `createImageDropController`: POSTs the picked image to `{basePath}/api/image-drop`, then inserts ` ${path} ` into the agent input (never Enter) once the session is unchanged and synced; success is a transient toast (auto-hides after ~2.5s), only failure states show the retry/copy/close panel
 - `src/theme/` — catppuccin-mocha + apply
 - `src/viewport/` — height management, landscape detection

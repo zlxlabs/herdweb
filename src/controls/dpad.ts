@@ -25,13 +25,13 @@ const DPAD_KEYS: ReadonlyArray<{
 	{ label: '←', data: '\x1b[D', description: 'Send Left arrow key' },
 	{ label: '⏎', data: '\r', description: 'Send Enter/Return key' },
 	{ label: '→', data: '\x1b[C', description: 'Send Right arrow key' },
-	null,
+	{ label: '⇥', data: '\t', description: 'Send Tab key' },
 	{ label: '↓', data: '\x1b[B', description: 'Send Down arrow key' },
-	null,
+	{ label: '⇧⇥', data: '\x1b[Z', description: 'Send Shift+Tab key' },
 ]
 
 /**
- * moshi-style floating d-pad: a six-key arrow cluster (← ↑ ↓ → ⌫ ⏎) that
+ * moshi-style floating d-pad: an eight-key arrow cluster (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥) that
  * pops up above the toolbar via the ✥ dpad-toggle button.
  *
  * Focus safety (hard requirement): every key suppresses the synthesised
