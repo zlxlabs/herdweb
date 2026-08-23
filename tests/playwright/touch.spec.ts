@@ -10,7 +10,7 @@
  * Playwright's tap() always dispatches touch + click, so it can't
  * reproduce the bug. dispatchEvent('touchend') is the key.
  */
-import { expect, test } from '@playwright/test'
+import { expect, test } from './fixtures'
 
 test.beforeEach(async ({ page }) => {
 	await page.goto('/')

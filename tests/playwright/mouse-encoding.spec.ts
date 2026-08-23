@@ -10,11 +10,9 @@
  * (foreground cat + live mouse modes) that would race parallel specs sharing
  * the suite webServer.
  */
-import { expect, test } from '@playwright/test'
-import { startIsolatedServe } from './isolated-serve'
+import { expect, test } from './fixtures'
 
-test('late client taps produce SGR mouse reports', async ({ browser }) => {
-	const server = await startIsolatedServe()
+test('late client taps produce SGR mouse reports', async ({ browser, serve }) => {
 	const firstContext = await browser.newContext({
 		viewport: { width: 430, height: 932 },
 		isMobile: true,
@@ -28,7 +26,7 @@ test('late client taps produce SGR mouse reports', async ({ browser }) => {
 
 	try {
 		const firstPage = await firstContext.newPage()
-		await firstPage.goto(server.url)
+		await firstPage.goto(serve.url)
 		await firstPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 
 		// Enable mouse tracking + SGR encoding on the PTY, then run cat so
@@ -41,7 +39,7 @@ test('late client taps produce SGR mouse reports', async ({ browser }) => {
 
 		// Late join: this client only learns the mouse state from the snapshot.
 		const secondPage = await secondContext.newPage()
-		await secondPage.goto(server.url)
+		await secondPage.goto(serve.url)
 		await secondPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 		await expect(secondPage.locator('body')).toContainText('mouse-ready')
 
@@ -54,6 +52,5 @@ test('late client taps produce SGR mouse reports', async ({ browser }) => {
 	} finally {
 		await firstContext.close()
 		await secondContext.close()
-		await server.close()
 	}
 })
