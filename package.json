@@ -64,6 +64,7 @@
 		"@semantic-release/changelog": "^6.0.3",
 		"@semantic-release/git": "^10.0.1",
 		"@types/node": "^22.0.0",
+		"@types/web-push": "3.6.4",
 		"@types/ws": "^8.18.0",
 		"@vitest/coverage-v8": "^3.2.4",
 		"esbuild": "^0.25.0",
@@ -104,6 +105,7 @@
 		"hono": "^4.7.0",
 		"node-pty": "^1.1.0",
 		"valibot": "^1.2.0",
+		"web-push": "3.6.7",
 		"ws": "^8.18.0"
 	},
 	"release": {

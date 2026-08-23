@@ -65,6 +65,40 @@ systemctl --user stop herdweb-debug.service
 `/home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts`。密钥只放在该本地配置或
 本机环境中，不写入 git。
 
+## 通知状态目录（按端口分仓）
+
+Web Push 运行时状态写在 `~/.local/state/herdweb/{port}/`（或 `$XDG_STATE_HOME/herdweb/{port}/`）。
+**生产 7681 与调试 7691 必须使用不同目录**——共享会导致 VAPID、订阅与事件历史互相覆盖。
+
+| 文件 | 说明 |
+| --- | --- |
+| `vapid.json` | VAPID 密钥（`0600`）；首次 `herdweb serve` 缺失时自动生成 |
+| `push-subscriptions.json` | 已注册推送端点 |
+| `events.jsonl` | 事件历史（`kind=test` 不落盘） |
+| `last-session.json` | 按 `herdr --session` 键控，供健康车道判断退出/重启 |
+
+轮换 VAPID：在 `herdweb.config.local.ts` 设置 `notify.vapid.*` 覆盖；用户需重新订阅。
+
+`POST /api/events` 仅接受本机回环；外部 badge 车道（asking/done/ci-red）须与 herdweb 同机部署
+（agent-config 出站见 [agent-config#495](https://github.com/zlxlabs/agent-config/issues/495)）。
+
+### 重启与通知预期
+
+- **PTY 退出**：健康车道推送「会话结束」通知（任意退出码/信号均推——监控面消失必须可见）。
+- **服务重启**：仅当新 session 的 `sessionId` 与上次不同，且上次 `exitedAt` 距今 **>120 秒**，
+  才额外推送「服务已重启」。120 秒内 crash-loop（反复退出又拉起）**只应收到一条**退出类通知，
+  不应刷屏。
+- **停机顺序**：PTY exit → 写 `last-session.json` → await 在途推送 → `server.close()`。
+  运维 `systemctl --user restart herdweb.service` 后，已订阅手机应在一次事故内只收到符合上述
+  规则的通知条数（典型：一次退出 + 可能一次重启，或 crash-loop 内仅一条）。
+
+重启后除端口监听外，可检查状态目录是否按端口隔离：
+
+```bash
+ls -la ~/.local/state/herdweb/7681/
+ls -la ~/.local/state/herdweb/7691/   # 仅调试实例运行时应存在
+```
+
 ## 重启后检查
 
 ```bash

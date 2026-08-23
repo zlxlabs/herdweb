@@ -7,3 +7,4 @@ playwright-report/
 .playwright-cli/
 demo/
 .omo/
+herdweb.config.ts

@@ -19,6 +19,7 @@ export interface ActionExecutionContext {
 	readonly font?: FontConfig
 	/** Opens the help overlay — supplied per call or via registry deps */
 	readonly openHelp?: () => void
+	readonly openNotifyPanel?: () => void
 	/** Toggles the soft keyboard — supplied per call or via registry deps */
 	readonly toggleKeyboard?: () => void
 	/** Toggles the floating d-pad — supplied per call or via registry deps */
@@ -123,6 +124,7 @@ function changeFontSize(term: XTerminal, delta: number, font: FontConfig): void 
 interface DefaultActionDeps {
 	readonly font?: FontConfig
 	readonly openHelp?: () => void
+	readonly openNotifyPanel?: () => void
 	readonly toggleKeyboard?: () => void
 	readonly toggleDpad?: () => void
 	/** Opens the single-file image picker — T3 wires this to the image-drop controller from src/client-entry.ts */
@@ -249,6 +251,18 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 			throw error
 		}
 		openHelp()
+	})
+
+	registry.register('notify-panel', (_action, context) => {
+		const openNotifyPanel = context.openNotifyPanel ?? deps.openNotifyPanel
+		if (!openNotifyPanel) {
+			const error = new Error(
+				'herdweb: notify-panel action requires an openNotifyPanel callback (context.openNotifyPanel or registry deps)',
+			)
+			console.error(error)
+			throw error
+		}
+		openNotifyPanel()
 	})
 
 	registry.register('keyboard-toggle', (_action, context) => {
