@@ -1,3 +1,15 @@
+# [1.3.0](https://github.com/zlxlabs/herdweb/compare/v1.2.0...v1.3.0) (2026-08-23)
+
+
+### Bug Fixes
+
+* **notify:** drop type assertion in channel error formatting ([421990e](https://github.com/zlxlabs/herdweb/commit/421990ec00014dd35d654db4dec887040687f062))
+
+
+### Features
+
+* **notify:** add outbound notification channels ([d256866](https://github.com/zlxlabs/herdweb/commit/d256866284e5b2d956ceeccb1a8c8601c60ed235))
+
 # [1.2.0](https://github.com/zlxlabs/herdweb/compare/v1.1.0...v1.2.0) (2026-08-23)
 
 
