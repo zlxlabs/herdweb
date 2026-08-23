@@ -13,17 +13,15 @@ function isPortListening(port: number): Promise<boolean> {
 	return new Promise((resolve) => {
 		const socket = createConnection({ host: '127.0.0.1', port })
 		let settled = false
-		let timeout: ReturnType<typeof setTimeout>
 		const settle = (listening: boolean): void => {
 			if (settled) return
 			settled = true
-			clearTimeout(timeout)
 			socket.destroy()
 			resolve(listening)
 		}
 		socket.once('connect', () => settle(true))
 		socket.once('error', () => settle(false))
-		timeout = setTimeout(() => settle(false), 1_000)
+		setTimeout(() => settle(false), 1_000)
 	})
 }
 
@@ -42,29 +40,30 @@ function orphanedServePids(port: number): number[] {
 		.split('\n')
 		.map((line) => line.trim().split(/\s+/, 3))
 		.filter(
-			(fields) =>
-				fields[1] === '1' &&
-				fields[2]?.includes(`cli.ts serve --port ${port}`) === true,
+			(fields) => fields[1] === '1' && fields[2]?.includes(`cli.ts serve --port ${port}`) === true,
 		)
 		.map((fields) => Number(fields[0]))
 		.filter((pid) => Number.isInteger(pid) && pid > 0)
 }
 
 async function readPort(proc: ReturnType<typeof spawnProcess>): Promise<number> {
-		if (!proc.stdout) throw new Error('caller stdout is not piped')
-		return new Promise((resolve, reject) => {
-			let output = ''
-			const onData = (chunk: Buffer): void => {
-				output += chunk.toString('utf8')
-				const line = output.split('\n')[0]?.trim()
-				if (line && /^\d+$/.test(line)) {
-					proc.stdout?.off('data', onData)
-					resolve(Number(line))
-				}
+	const stdout = proc.stdout
+	if (!stdout) throw new Error('caller stdout is not piped')
+	return new Promise((resolve, reject) => {
+		let output = ''
+		const onData = (chunk: Buffer): void => {
+			output += chunk.toString('utf8')
+			const line = output.split('\n')[0]?.trim()
+			if (line && /^\d+$/.test(line)) {
+				proc.stdout?.off('data', onData)
+				resolve(Number(line))
 			}
-			proc.stdout.on('data', onData)
-			void proc.exited.then((code) => reject(new Error(`caller exited before reporting port: ${code}`)))
-		})
+		}
+		stdout.on('data', onData)
+		void proc.exited.then((code) =>
+			reject(new Error(`caller exited before reporting port: ${code}`)),
+		)
+	})
 }
 
 test('isolated serve dies with the caller process', async () => {
@@ -96,7 +95,7 @@ test('isolated serve dies with the caller process', async () => {
 		if (port !== undefined) {
 			const output = execFileSync('ps', ['-eo', 'pid=,args='], { encoding: 'utf8' })
 			for (const line of output.split('\n')) {
-				if (!line.includes('cli.ts serve --port ' + port)) continue
+				if (!line.includes(`cli.ts serve --port ${port}`)) continue
 				const pid = Number(line.trim().split(/\s+/, 1)[0])
 				if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL')
 			}

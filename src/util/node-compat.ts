@@ -20,14 +20,17 @@ export function spawnProcess(
 		stdin?: 'ignore' | 'pipe'
 		stdout?: 'ignore' | 'pipe'
 		stderr?: 'ignore' | 'pipe'
+		detached?: boolean
 	},
 ): SpawnedProcess {
 	const [command, ...args] = cmd
 	if (!command) throw new Error('spawnProcess requires at least one argument')
+	const detached = opts?.detached ?? false
 
 	const proc = nodeSpawn(command, args, {
 		cwd: opts?.cwd,
 		env: opts?.env,
+		detached,
 		stdio: [opts?.stdin ?? 'ignore', opts?.stdout ?? 'ignore', opts?.stderr ?? 'ignore'],
 	})
 
@@ -50,6 +53,12 @@ export function spawnProcess(
 			return proc.stdin
 		},
 		kill(signal?: NodeJS.Signals) {
+			if (detached && process.platform !== 'win32') {
+				const pid = proc.pid
+				if (pid === undefined) return false
+				process.kill(-pid, signal)
+				return true
+			}
 			return proc.kill(signal)
 		},
 		exited,
