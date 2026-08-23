@@ -92,6 +92,13 @@ test('notify panel subscribes, receives test push, and focuses on click', async 
 			}
 		})
 
+		await page.evaluate(async () => {
+			const response = await fetch('/api/push/test', { method: 'POST' })
+			if (response.status !== 202) {
+				throw new Error(`push test POST failed: ${response.status}`)
+			}
+		})
+
 		await expect(page.locator('#terminal .xterm')).toBeVisible()
 	} finally {
 		await serve.close()

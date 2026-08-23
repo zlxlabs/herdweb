@@ -138,6 +138,44 @@ test('subscribe rolls back local subscription when POST rejects', async () => {
 	expect(toggle.checked).toBe(false)
 })
 
+test('test button POSTs to /api/push/test', async () => {
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve({
+				pushManager: {
+					getSubscription: vi.fn(() => Promise.resolve(null)),
+					subscribe: vi.fn(),
+				},
+			}),
+		},
+		configurable: true,
+	})
+
+	const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+		if (url.endsWith('/api/events/history')) {
+			return { ok: true, json: async () => ({ events: [] }) }
+		}
+		if (url.endsWith('/api/push/test') && init?.method === 'POST') {
+			return { ok: true, status: 202 }
+		}
+		return { ok: false, status: 500 }
+	})
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const testBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-test')
+	if (!testBtn) throw new Error('missing test button')
+	testBtn.click()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	expect(fetchMock).toHaveBeenCalledWith(
+		'/api/push/test',
+		expect.objectContaining({ method: 'POST' }),
+	)
+})
+
 test('refreshToggle degrades when service worker ready never resolves', async () => {
 	vi.useFakeTimers()
 	Object.defineProperty(navigator, 'serviceWorker', {

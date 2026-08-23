@@ -328,16 +328,8 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 
 	onTap(testBtn, () => {
 		void (async () => {
-			const response = await fetchFn(joinBasePath(deps.basePath, '/api/events'), {
+			const response = await fetchFn(joinBasePath(deps.basePath, '/api/push/test'), {
 				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					v: 1,
-					kind: 'test',
-					title: 'herdweb test',
-					body: 'Test notification from panel',
-					ts: Date.now(),
-				}),
 			})
 			if (response.status === 202) {
 				setStatus('Test event sent')
