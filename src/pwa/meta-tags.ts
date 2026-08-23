@@ -15,7 +15,7 @@ export function escapeAttr(value: string): string {
 export function generatePwaHtml(name: string, pwa: PwaConfig, basePath = '/'): string {
 	const svgDataUri = svgToDataUri(ICON_SVG)
 	return [
-		`<link rel="manifest" href="${escapeAttr(joinBasePath(basePath, '/manifest.json'))}">`,
+		`<link rel="manifest" href="${escapeAttr(joinBasePath(basePath, '/manifest.json'))}" crossorigin="use-credentials">`,
 		`<meta name="theme-color" content="${escapeAttr(pwa.themeColor)}">`,
 		'<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">',
 		`<meta name="apple-mobile-web-app-title" content="${escapeAttr(name)}">`,
