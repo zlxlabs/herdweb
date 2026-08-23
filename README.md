@@ -268,6 +268,14 @@ subscriptions, and event history do not collide.
 Rotate VAPID keys via `notify.vapid.*` in config (see skill / config reference). Old subscriptions
 become invalid after a key change — users must re-subscribe.
 
+Apple Push Notification service validates the VAPID JWT `sub` claim strictly: the subject must be
+a format-legal `mailto:` contact (e.g. `mailto:you@yourdomain.com`). Reserved or non-deliverable
+domains such as `mailto:herdweb@localhost` are rejected with `403 BadJwtToken` — iOS devices
+receive no push and stale subscriptions may be removed server-side, with no obvious error in the
+herdweb UI. Google/FCM does not enforce this check. For production, set
+`notify.vapid.subject: 'mailto:<your-email>'` in config (subject changes do not invalidate
+existing subscriptions).
+
 **Local events API**
 
 `POST {basePath}/api/events` accepts events from **loopback only** (`127.0.0.1` / `::1` /

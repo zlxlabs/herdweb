@@ -213,7 +213,7 @@ State files are per listen port: `~/.local/state/herdweb/{port}/` (`vapid.json`,
 | Field | Default | Notes |
 |-------|---------|-------|
 | `notify.token` | unset | Optional bearer token for `POST /api/events` and push subscribe/delete (loopback-only callers) |
-| `notify.vapid.subject` | auto | VAPID subject URI; override when rotating keys |
+| `notify.vapid.subject` | auto | VAPID subject URI (`mailto:…`); config overrides disk; use a real contact in production — Apple rejects reserved domains like `localhost` (`403 BadJwtToken`) |
 | `notify.vapid.publicKey` | auto | VAPID public key (base64url); stored in state if unset |
 | `notify.vapid.privateKey` | auto | VAPID private key; keep in `.local` config when overriding |
 | `notify.history.limit` | `200` | Max events retained in `events.jsonl` (lazy trim) |
