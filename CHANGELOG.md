@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/zlxlabs/herdweb/compare/v1.3.2...v1.4.0) (2026-08-23)
+
+
+### Features
+
+* **drawer:** drop d-pad-duplicated keys from default buttons ([61c30ae](https://github.com/zlxlabs/herdweb/commit/61c30ae00038d05770a9203f8138db8d991831c6))
+
 ## [1.3.2](https://github.com/zlxlabs/herdweb/compare/v1.3.1...v1.3.2) (2026-08-23)
 
 
