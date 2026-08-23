@@ -17,7 +17,7 @@
 
 ## 失败退出码
 
-- 命令：`... --port 7683 -- bash -c 'printf "t0-failure-probe\\n"; sleep 10; exit 37'`。
+- 命令：`XDG_STATE_HOME=/tmp/herdweb-t0-state.winq3V pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7683 -- bash -c 'printf "t0-failure-probe\\n"; sleep 10; exit 37'`。
 - 观察：真实 WebSocket 先收 25-byte snapshot，再收 `{type:"exit",exitCode:37,signal:0}`；结论：本地 PTY/WS 退出码传递可观测，不能外推远端 pane 状态。
 
 ## 当前手机入口探活
