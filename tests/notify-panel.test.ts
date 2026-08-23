@@ -320,10 +320,82 @@ test('test button POSTs to /api/push/test', async () => {
 	).toBe(true)
 })
 
+test('refreshToggle uses getRegistration when ready hangs (Edge 151)', async () => {
+	vi.useFakeTimers()
+	const registration = {
+		active: {},
+		pushManager: {
+			getSubscription: vi.fn(() => Promise.resolve(null)),
+			subscribe: vi.fn(),
+		},
+	}
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: new Promise<ServiceWorkerRegistration>(() => {}),
+			getRegistration: vi.fn(() => Promise.resolve(registration)),
+		},
+		configurable: true,
+	})
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await vi.runAllTimersAsync()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	const status = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-status')
+	if (!toggle || !status) throw new Error('missing panel elements')
+
+	expect(toggle.disabled).toBe(false)
+	expect(status.textContent).not.toContain('unavailable')
+	expect(status.textContent).not.toContain('timed out')
+	vi.useRealTimers()
+})
+
+test('getRegistration polls until installing worker becomes active', async () => {
+	vi.useFakeTimers()
+	const registration: {
+		active: ServiceWorker | null
+		installing: ServiceWorker | null
+		pushManager: { getSubscription: ReturnType<typeof vi.fn> }
+	} = {
+		active: null,
+		installing: {} as ServiceWorker,
+		pushManager: {
+			getSubscription: vi.fn(() => Promise.resolve(null)),
+		},
+	}
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: new Promise<ServiceWorkerRegistration>(() => {}),
+			getRegistration: vi.fn(() => Promise.resolve(registration)),
+		},
+		configurable: true,
+	})
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	await vi.advanceTimersByTimeAsync(250)
+	registration.active = {} as ServiceWorker
+	registration.installing = null
+	await vi.runAllTimersAsync()
+
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-toggle')
+	if (!toggle) throw new Error('missing toggle')
+
+	expect(toggle.disabled).toBe(false)
+	vi.useRealTimers()
+})
+
 test('refreshToggle degrades when service worker ready never resolves', async () => {
 	vi.useFakeTimers()
 	Object.defineProperty(navigator, 'serviceWorker', {
-		value: { ready: new Promise<ServiceWorkerRegistration>(() => {}) },
+		value: {
+			ready: new Promise<ServiceWorkerRegistration>(() => {}),
+			getRegistration: vi.fn(() => Promise.resolve(undefined)),
+		},
 		configurable: true,
 	})
 

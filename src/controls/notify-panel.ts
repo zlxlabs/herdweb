@@ -227,9 +227,24 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		}
 	}
 
+	/**
+	 * Edge 151: `serviceWorker.ready` never resolves even when an active worker exists for
+	 * the scope (verified on Edge 151.0.4129). Use `getRegistration()` on the hot path;
+	 * fall back to `ready` only on cold start when no registration exists yet.
+	 */
 	async function getRegistration(): Promise<ServiceWorkerRegistration | null> {
 		if (!('serviceWorker' in navigator)) return null
 		try {
+			const reg = await navigator.serviceWorker.getRegistration?.()
+			if (reg) {
+				if (!reg.active) {
+					const deadline = Date.now() + 2000
+					while (!reg.active && Date.now() < deadline) {
+						await new Promise((resolve) => setTimeout(resolve, 250))
+					}
+				}
+				return reg
+			}
 			const registration = await Promise.race([
 				navigator.serviceWorker.ready,
 				new Promise<null>((resolve) => setTimeout(() => resolve(null), SW_READY_TIMEOUT_MS)),
