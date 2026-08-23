@@ -22,6 +22,7 @@
 | M1 | 草稿不丢 | 已完成 | 1 | 高 | 无 | [goals/M1-draft-survives.md](goals/M1-draft-survives.md) |
 | M2 | 画面新鲜可信 | 已完成 | 2 | 高 | 无 | [goals/M2-fresh-screen.md](goals/M2-fresh-screen.md) |
 | M3 | 提交不重不漏 | 已完成 | 3 | 高 | M1、M2 | [goals/M3-atomic-submit.md](goals/M3-atomic-submit.md) |
+| M4 | 注意力层 v1（Web Push 通知） | 进行中 | 4 | 高 | 无 | [goals/M4-notify-attention.md](goals/M4-notify-attention.md) |
 
 ## 路线图审计
 

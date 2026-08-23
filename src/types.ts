@@ -12,6 +12,7 @@ export type ButtonAction =
 	| { readonly type: 'dpad-toggle' }
 	| { readonly type: 'voice-input' }
 	| { readonly type: 'image-upload' }
+	| { readonly type: 'notify-panel' }
 
 /** A generic control button definition used by toolbar and drawer */
 export interface ControlButton {
@@ -205,6 +206,30 @@ export interface PwaConfig {
 	readonly themeColor: string
 }
 
+export interface NotifyVapidConfig {
+	readonly subject?: string
+	readonly publicKey?: string
+	readonly privateKey?: string
+}
+
+export interface NotifyHistoryConfig {
+	readonly limit: number
+}
+
+export interface NotifySilenceConfig {
+	readonly enabled: boolean
+	readonly busyMs: number
+	readonly quietMs: number
+	readonly cooldownMs: number
+}
+
+export interface NotifyConfig {
+	readonly token?: string
+	readonly vapid: NotifyVapidConfig
+	readonly history: NotifyHistoryConfig
+	readonly silence: NotifySilenceConfig
+}
+
 /** Full herdweb configuration */
 export interface HerdwebConfig {
 	readonly name: string
@@ -224,6 +249,7 @@ export interface HerdwebConfig {
 	readonly pwa: PwaConfig
 	readonly reconnect: ReconnectConfig
 	readonly asr: AsrConfig
+	readonly notify: NotifyConfig
 }
 
 /** Deep partial — allows overriding any nested subset of config */

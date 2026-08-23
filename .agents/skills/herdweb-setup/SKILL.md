@@ -147,14 +147,35 @@ herdweb is a remote-control surface — never expose it to the public internet w
 
 For macOS users, mention `--no-sleep` and `references/keep-awake.md`.
 
+#### Push notification onboarding
+
+After deployment and PWA install, walk the user through herdweb’s Web Push subscription (no extra app):
+
+1. **Open the panel**: toolbar **☰** (drawer) → drawer button **🔔** → **Notifications** panel.
+2. **iOS first**: if not already in standalone PWA mode, add herdweb to the Home Screen
+   (Share → Add to Home Screen). Safari tabs cannot subscribe — the panel shows this hint when
+   `display-mode` is not standalone.
+3. **Subscribe**: enable **Push notifications**, accept the browser permission prompt. Status should
+   show `Subscribed`.
+4. **Verify**: tap **Send test notification**. A system notification should arrive; tapping it should
+   focus or open herdweb.
+5. **History**: scroll to **历史** in the same panel to confirm the test event appears (refresh if needed).
+
+**Troubleshooting (one line)**: if subscribe or test fails, check
+`~/.local/state/herdweb/{port}/vapid.json` exists and is readable, and
+`push-subscriptions.json` lists your device after subscribing (port = herdweb listen port, e.g. `7681`).
+
+Mention realistic delays: herdweb’s silence lane is ~3–5 minutes after output stops; badge-lane kinds
+(`asking`, `done`, `ci-red`) need agent-config outbound wiring ([agent-config#495](https://github.com/zlxlabs/agent-config/issues/495)) and are **not** available until that lands — do not promise 60–90s agent alerts yet.
+
 #### Summary
 
 Tell the user:
 1. What was configured and why
 2. How to start: `herdweb serve` (default command: `herdr --session default`)
 3. How to access from their phone
-4. PWA install: Add to Home Screen
-5. Built-in controls: font size, scroll, combo picker, help overlay, d-pad, keyboard sovereignty, voice composer, image upload
+4. PWA install: Add to Home Screen (required on iOS for push)
+5. Built-in controls: font size, scroll, combo picker, help overlay, d-pad, keyboard sovereignty, voice composer, image upload, push notifications (☰ → 🔔)
 6. This is a starting point — run this skill again to tweak
 
 ---
@@ -164,7 +185,7 @@ Tell the user:
 ### Allowed root keys
 
 ```
-name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr
+name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify
 ```
 
 ### ButtonAction union
@@ -183,6 +204,25 @@ name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollBut
 | `dpad-toggle`    | (none)              | Toggles floating d-pad |
 | `voice-input`    | (none)              | Toolbar-only voice composer entry |
 | `image-upload`   | (none)              | Upload image to server tmp dir |
+| `notify-panel`   | (none)              | Opens push notification settings panel (drawer placement) |
+
+### Notify (push notifications)
+
+State files are per listen port: `~/.local/state/herdweb/{port}/` (`vapid.json`, `push-subscriptions.json`, `events.jsonl`, `last-session.json`). Production `7681` and debug `7691` must not share a directory.
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `notify.token` | unset | Optional bearer token for `POST /api/events` and push subscribe/delete (loopback-only callers) |
+| `notify.vapid.subject` | auto | VAPID subject URI; override when rotating keys |
+| `notify.vapid.publicKey` | auto | VAPID public key (base64url); stored in state if unset |
+| `notify.vapid.privateKey` | auto | VAPID private key; keep in `.local` config when overriding |
+| `notify.history.limit` | `200` | Max events retained in `events.jsonl` (lazy trim) |
+| `notify.silence.enabled` | `true` | Internal “output went quiet” lane |
+| `notify.silence.busyMs` | `30000` | Trailing window to detect busy output (ms) |
+| `notify.silence.quietMs` | `180000` | Quiet period after busy before firing (ms) |
+| `notify.silence.cooldownMs` | `600000` | Per-session cooldown between silence notifications (ms) |
+
+`POST /api/events` is loopback-only. Badge kinds `asking`, `done`, `ci-red` require an on-host event source (agent-config#495) — not active until that outbound lane is deployed.
 
 ### Gestures
 
