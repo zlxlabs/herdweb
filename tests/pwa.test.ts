@@ -117,6 +117,11 @@ describe('generatePwaHtml', () => {
 		const html = generatePwaHtml('herdweb', defaultPwa)
 		expect(html).toContain('rel="manifest"')
 		expect(html).toContain('href="/manifest.json"')
+		// Chromium's PWA install check fetches the manifest without cookies unless
+		// crossorigin="use-credentials" is set — required behind auth proxies (e.g. Cloudflare Access)
+		expect(html).toContain(
+			'<link rel="manifest" href="/manifest.json" crossorigin="use-credentials">',
+		)
 	})
 
 	test('prefixes asset links when mounted under a subpath', () => {
