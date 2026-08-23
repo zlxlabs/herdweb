@@ -157,6 +157,12 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		{ type: 'button', class: 'wt-notify-perm-check' },
 		'检测并重新授权',
 	)
+	const swStatus = el('p', { class: 'wt-notify-sw-status' })
+	const swCheckBtn = el(
+		'button',
+		{ type: 'button', class: 'wt-notify-sw-check' },
+		'重新注册 Service Worker',
+	)
 	const testBtn = el(
 		'button',
 		{ type: 'button', class: 'wt-notify-test' },
@@ -175,8 +181,10 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		status,
 		iosHint,
 		permStatus,
+		swStatus,
 		toggleRow,
 		permCheckBtn,
+		swCheckBtn,
 		testBtn,
 		historySection,
 	)
@@ -269,6 +277,15 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		setStatus(sub ? 'Subscribed' : 'Not subscribed')
 	}
 
+	async function refreshSwStatus(): Promise<void> {
+		const registration = await getRegistration()
+		if (!registration) {
+			swStatus.textContent = `Service Worker：${'serviceWorker' in navigator ? '未注册' : '此浏览器不支持'}`
+			return
+		}
+		swStatus.textContent = `Service Worker：${registration.active ? '已激活' : '注册中'}`
+	}
+
 	async function subscribe(): Promise<void> {
 		const registration = await getRegistration()
 		if (!registration) {
@@ -333,6 +350,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			return
 		}
 		setStatus('Subscribed')
+		await refreshSwStatus()
 	}
 
 	async function unsubscribe(): Promise<void> {
@@ -357,6 +375,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		updateIosHint()
 		refreshPermStatus()
 		overlay.style.display = 'block'
+		void refreshSwStatus()
 		void refreshToggle()
 		void fetchHistory()
 	}
@@ -402,6 +421,23 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 				setStatus('权限已允许，可打开推送开关')
 			} else {
 				setStatus('未决定——再次点击可重新弹出授权')
+			}
+		})()
+	})
+
+	onTap(swCheckBtn, () => {
+		void (async () => {
+			try {
+				await navigator.serviceWorker.register(joinBasePath(deps.basePath, '/sw.js'), {
+					scope: deps.basePath === '/' ? '/' : `${deps.basePath}/`,
+				})
+				setStatus('SW 已注册')
+				await refreshSwStatus()
+				await refreshToggle()
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error)
+				swStatus.textContent = `Service Worker：注册失败（${message}）`
+				console.error('herdweb: service worker registration failed', error)
 			}
 		})()
 	})
