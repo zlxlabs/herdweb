@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/zlxlabs/herdweb/compare/v1.3.0...v1.3.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **config:** gitignore .local config overrides where credentials belong ([6224e01](https://github.com/zlxlabs/herdweb/commit/6224e01ed90ff7f54bb5ae1779b8d5539c33c7fb))
+
 # [1.3.0](https://github.com/zlxlabs/herdweb/compare/v1.2.0...v1.3.0) (2026-08-23)
 
 
