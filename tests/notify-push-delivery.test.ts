@@ -6,10 +6,14 @@ import type { IncomingMessage } from 'node:http'
 import { Agent as HttpsAgent, createServer } from 'node:https'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import webpush from 'web-push'
 import { parseNotifyEvent } from '../src/notify/events'
-import { writeSubscriptions } from '../src/notify/push'
+import {
+	type PushSubscriptionRecord,
+	readSubscriptions,
+	writeSubscriptions,
+} from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
 
 interface CapturedPushRequest {
@@ -34,6 +38,14 @@ function readRequestBody(req: IncomingMessage): Promise<Buffer> {
 		req.on('end', () => resolve(Buffer.concat(chunks)))
 		req.on('error', reject)
 	})
+}
+
+function subscription(id: string, lastSuccessAt: number, key = id): PushSubscriptionRecord {
+	return {
+		endpoint: `https://push.example/${id}`,
+		keys: { p256dh: `${key}-p256dh`, auth: `${key}-auth` },
+		lastSuccessAt,
+	}
 }
 
 function createSelfSignedTlsMaterial(): { key: Buffer; cert: Buffer; cleanup: () => void } {
@@ -145,4 +157,109 @@ test('dispatchEvent sends encrypted WebPush to subscription endpoint', async () 
 	} finally {
 		await endpoint.close()
 	}
+})
+
+const mergeCases = [
+	{
+		name: 'all success preserves a new subscription',
+		initial: [subscription('ok', 1)],
+		outcomes: { ok: 'success' },
+		concurrentWrite: 'append',
+		expected: [subscription('ok', 456), subscription('added', 123)],
+	},
+	{
+		name: 'partial 410 preserves a new subscription',
+		initial: [subscription('gone', 1), subscription('ok', 1)],
+		outcomes: { gone: 'gone', ok: 'success' },
+		concurrentWrite: 'append',
+		expected: [subscription('ok', 456), subscription('added', 123)],
+	},
+	{
+		name: 'partial 410 preserves a resubscribed endpoint',
+		initial: [subscription('gone', 1), subscription('ok', 1)],
+		outcomes: { gone: 'gone', ok: 'success' },
+		concurrentWrite: 'resubscribe',
+		expected: [subscription('gone', 77, 'resubscribed'), subscription('ok', 456)],
+	},
+	{
+		name: 'non-removable failures preserve a new subscription',
+		initial: [subscription('fail', 1)],
+		outcomes: { fail: 'failure' },
+		concurrentWrite: 'append',
+		expected: [subscription('fail', 1), subscription('added', 123)],
+	},
+] as const
+
+test.each(mergeCases)('$name', async (mergeCase) => {
+	stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-delivery-merge-'))
+	writeSubscriptions(stateDir, [...mergeCase.initial])
+
+	let releaseDelivery!: () => void
+	const deliveryGate = new Promise<void>((resolve) => {
+		releaseDelivery = resolve
+	})
+	let markStarted!: () => void
+	const deliveryStarted = new Promise<void>((resolve) => {
+		markStarted = resolve
+	})
+	let firstSend = true
+	const sendPush = vi.fn(async (pushSubscription: { endpoint: string }) => {
+		if (firstSend) {
+			firstSend = false
+			if (mergeCase.concurrentWrite === 'append') {
+				writeSubscriptions(stateDir, [...readSubscriptions(stateDir), subscription('added', 123)])
+			}
+			if (mergeCase.concurrentWrite === 'resubscribe') {
+				writeSubscriptions(stateDir, [
+					subscription('gone', 77, 'resubscribed'),
+					...readSubscriptions(stateDir).filter((sub) => !sub.endpoint.endsWith('/gone')),
+				])
+			}
+			markStarted()
+			await deliveryGate
+		}
+		const id = pushSubscription.endpoint.split('/').pop() ?? ''
+		const outcome = (mergeCase.outcomes as Readonly<Record<string, string>>)[id]
+		if (outcome === 'gone') {
+			throw Object.assign(new Error('gone'), { statusCode: 410 })
+		}
+		if (outcome === 'failure') {
+			throw Object.assign(new Error('server'), { statusCode: 503 })
+		}
+		return { statusCode: 201, body: '', headers: {} }
+	})
+	const notifyService = createNotifyService({
+		stateDir,
+		historyLimit: 200,
+		sendPush,
+		now: () => 456,
+	})
+
+	notifyService.dispatchEvent(
+		parseNotifyEvent(
+			JSON.stringify({ v: 1, id: 'delivery-merge', kind: 'done', title: 'Done', ts: 1 }),
+		),
+	)
+	await deliveryStarted
+	releaseDelivery()
+	await notifyService.awaitInFlight(1000)
+
+	expect(readSubscriptions(stateDir)).toEqual(mergeCase.expected)
+	notifyService.dispose()
+})
+
+test('skipped push does not overwrite a subscription written after dispatch', async () => {
+	stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-delivery-skipped-'))
+	const added = subscription('added', 123)
+	const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
+	notifyService.dispatchEvent(
+		parseNotifyEvent(
+			JSON.stringify({ v: 1, id: 'delivery-skipped', kind: 'test', title: 'Test', ts: 1 }),
+		),
+	)
+	writeSubscriptions(stateDir, [added])
+	await notifyService.awaitInFlight(1000)
+
+	expect(readSubscriptions(stateDir)).toEqual([added])
+	notifyService.dispose()
 })

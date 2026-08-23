@@ -1,6 +1,7 @@
 import webpush from 'web-push'
 import { type NotifyEvent, isRecord } from './events'
 import {
+	type PushSubscriptionRecord,
 	STALE_SUBSCRIPTION_MS,
 	type VapidConfig,
 	type VapidKeys,
@@ -36,6 +37,43 @@ interface NotifyServiceDeps {
 	readonly vapidOverride?: VapidConfig
 	readonly sendPush?: typeof webpush.sendNotification
 	readonly now?: () => number
+}
+
+interface SubscriptionDelta {
+	readonly snapshot: PushSubscriptionRecord
+	readonly lastSuccessAt?: number
+	readonly remove: boolean
+}
+
+function sameSubscriptionRecord(
+	left: PushSubscriptionRecord,
+	right: PushSubscriptionRecord,
+): boolean {
+	return (
+		left.endpoint === right.endpoint &&
+		left.keys.p256dh === right.keys.p256dh &&
+		left.keys.auth === right.keys.auth &&
+		left.lastSuccessAt === right.lastSuccessAt
+	)
+}
+
+/** Apply delivery/prune deltas to the newest on-disk subscription ledger. */
+function mergeSubscriptionDeltas(
+	stateDir: string,
+	deltas: ReadonlyMap<string, SubscriptionDelta>,
+): void {
+	if (deltas.size === 0) return
+
+	const latest = readSubscriptions(stateDir)
+	const merged = latest.flatMap((sub) => {
+		const delta = deltas.get(sub.endpoint)
+		if (delta === undefined || !sameSubscriptionRecord(sub, delta.snapshot)) {
+			return [sub]
+		}
+		if (delta.remove) return []
+		return [{ ...sub, lastSuccessAt: delta.lastSuccessAt ?? sub.lastSuccessAt }]
+	})
+	writeSubscriptions(stateDir, merged)
 }
 
 export interface NotifyService {
@@ -114,7 +152,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 						payload,
 						{ TTL: PUSH_TTL_SECONDS },
 					)
-					sub.lastSuccessAt = now()
+					return now()
 				} catch (error: unknown) {
 					const statusCode = readStatusCode(error)
 					if (statusCode === 401 || statusCode === 404 || statusCode === 410) {
@@ -125,31 +163,30 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}),
 		)
 
-		const removed = new Set<string>()
-		let deliverySucceeded = false
+		const deltas = new Map<string, SubscriptionDelta>()
 		for (let i = 0; i < results.length; i++) {
 			const result = results[i]
 			const sub = subs[i]
 			if (result === undefined || sub === undefined) continue
 			if (result.status === 'fulfilled') {
-				deliverySucceeded = true
+				deltas.set(sub.endpoint, {
+					snapshot: sub,
+					lastSuccessAt: result.value,
+					remove: false,
+				})
 				console.log(`herdweb: notify push delivered → ${formatEndpointForLog(sub.endpoint)}`)
 			}
 			if (result.status === 'rejected') {
 				const reason = result.reason
 				if (isSubscriptionGoneReason(reason)) {
-					removed.add(reason.endpoint)
+					deltas.set(reason.endpoint, { snapshot: sub, remove: true })
 					console.log(
 						`herdweb: notify subscription removed (stale ) → ${formatEndpointForLog(reason.endpoint)}`,
 					)
 				}
 			}
 		}
-
-		const kept = subs.filter((sub) => !removed.has(sub.endpoint))
-		if (removed.size > 0 || deliverySucceeded) {
-			writeSubscriptions(deps.stateDir, kept)
-		}
+		mergeSubscriptionDeltas(deps.stateDir, deltas)
 	}
 
 	function recordLastEvent(event: NotifyEvent): void {
@@ -163,10 +200,13 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		if (inFlight.size > 0) return
 		const subs = readSubscriptions(deps.stateDir)
 		const cutoff = now() - STALE_SUBSCRIPTION_MS
-		const kept = subs.filter((sub) => sub.lastSuccessAt >= cutoff)
-		if (kept.length !== subs.length) {
-			writeSubscriptions(deps.stateDir, kept)
+		const deltas = new Map<string, SubscriptionDelta>()
+		for (const sub of subs) {
+			if (sub.lastSuccessAt < cutoff) {
+				deltas.set(sub.endpoint, { snapshot: sub, remove: true })
+			}
 		}
+		mergeSubscriptionDeltas(deps.stateDir, deltas)
 	}
 
 	staleScanTimer = setInterval(pruneStaleSubscriptions, STALE_SCAN_INTERVAL_MS)
