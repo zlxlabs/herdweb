@@ -61,8 +61,14 @@ export function buildSessionEnv(sourceEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv
 	return { ...rest, TERM: 'xterm-256color' }
 }
 
+interface ActivityRecord {
+	readonly bytes: number
+	readonly ts: number
+}
+
 export class SharedTerminalSession {
 	private readonly sessionId = randomUUID()
+	private readonly startedAt = Date.now()
 	private readonly pty: IPty
 	private readonly mirror: HeadlessTerminalInstance
 	private readonly serializeAddon: SerializeAddon
@@ -74,6 +80,7 @@ export class SharedTerminalSession {
 	private outputSeq = 0
 	private terminalFailed = false
 	private readonly inputActions = new Map<string, string>()
+	private readonly activityRecords: ActivityRecord[] = []
 
 	constructor(command: readonly string[]) {
 		const { file, args } = normaliseCommand(command)
@@ -106,6 +113,7 @@ export class SharedTerminalSession {
 
 		this.pty.onData((data) => {
 			const seq = ++this.outputSeq
+			this.recordActivity(data)
 			this.pendingMirrorWrite = this.pendingMirrorWrite
 				.then(() => {
 					if (this.terminalFailed) return
@@ -139,6 +147,36 @@ export class SharedTerminalSession {
 
 	get onExit(): Promise<SessionExit> {
 		return this.exitPromise
+	}
+
+	/** Stable per-process identity for health notifications. */
+	get id(): string {
+		return this.sessionId
+	}
+
+	/** PTY spawn timestamp (ms) for deterministic health event ids. */
+	get startTime(): number {
+		return this.startedAt
+	}
+
+	/** Sum of PTY output bytes in the trailing window (ms from now). */
+	bytesInWindow(windowMs: number, now = Date.now()): number {
+		const cutoff = now - windowMs
+		this.pruneActivity(cutoff)
+		let total = 0
+		for (const record of this.activityRecords) {
+			if (record.ts >= cutoff) {
+				total += record.bytes
+			}
+		}
+		return total
+	}
+
+	/** Timestamp of the most recent PTY output chunk, or undefined when silent. */
+	lastOutputAt(now = Date.now()): number | undefined {
+		this.pruneActivity(now - 60_000)
+		const last = this.activityRecords.at(-1)
+		return last?.ts
 	}
 
 	async addClient(client: SessionClient): Promise<void> {
@@ -310,6 +348,20 @@ export class SharedTerminalSession {
 	private broadcast(message: ServerMessage): void {
 		for (const client of this.clients) {
 			client.send(message)
+		}
+	}
+
+	private recordActivity(data: string): void {
+		const ts = Date.now()
+		this.activityRecords.push({ bytes: Buffer.byteLength(data, 'utf8'), ts })
+		this.pruneActivity(ts - 60_000)
+	}
+
+	private pruneActivity(cutoff: number): void {
+		let first = this.activityRecords[0]
+		while (first !== undefined && first.ts < cutoff) {
+			this.activityRecords.shift()
+			first = this.activityRecords[0]
 		}
 	}
 }

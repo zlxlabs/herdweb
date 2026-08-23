@@ -62,6 +62,8 @@ export async function waitForHttp(url: string, timeoutMs = 10_000): Promise<void
 interface IsolatedServe {
 	port: number
 	url: string
+	/** Isolated HOME passed to the serve process (state lives under here). */
+	home: string
 	/**
 	 * Isolated TMPDIR of the serve process when `isolateTmpDir` was requested —
 	 * image drops land here instead of the real /tmp; removed by close().
@@ -133,6 +135,7 @@ export async function startIsolatedServe(
 	return {
 		port,
 		url,
+		home,
 		tmpDir: serveTmp,
 		async close(): Promise<void> {
 			if (!exited) {

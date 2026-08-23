@@ -828,7 +828,23 @@ function main(config: HerdwebConfig, version: string | undefined): void {
 		basePath: __herdwebBasePath ?? '/',
 	})
 	document.body.appendChild(imageDrop.element)
-	init(config, hooks, version, { openImageDrop: imageDrop.open })
+
+	const basePath = __herdwebBasePath ?? '/'
+	void registerServiceWorker(basePath)
+
+	init(config, hooks, version, { openImageDrop: imageDrop.open, basePath })
+}
+
+async function registerServiceWorker(basePath: string): Promise<void> {
+	if (!('serviceWorker' in navigator)) return
+	try {
+		const swPath = joinBasePath(basePath, '/sw.js')
+		await navigator.serviceWorker.register(swPath, {
+			scope: basePath === '/' ? '/' : `${basePath}/`,
+		})
+	} catch (error) {
+		console.error('herdweb: service worker registration failed', error)
+	}
 }
 
 main(__herdwebConfig, typeof __herdwebVersion === 'undefined' ? undefined : __herdwebVersion)

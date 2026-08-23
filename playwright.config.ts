@@ -19,7 +19,11 @@ export default defineConfig({
 			use: {
 				...devices['Pixel 5'],
 				launchOptions: {
-					args: ['--use-fake-device-for-media-stream', '--use-fake-ui-for-media-stream'],
+					args: [
+						'--use-fake-device-for-media-stream',
+						'--use-fake-ui-for-media-stream',
+						'--enable-features=WebPush',
+					],
 				},
 			},
 		},
