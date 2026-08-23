@@ -5,15 +5,6 @@ export default defineConfig({
 	// Local request timing does not justify changing the shared suite timeout.
 	timeout: 30_000,
 	retries: process.env.CI ? 2 : 0,
-	use: {
-		baseURL: 'http://127.0.0.1:17681',
-	},
-	webServer: {
-		command: 'tsx cli.ts serve --port 17681 -- bash --norc --noprofile',
-		port: 17681,
-		reuseExistingServer: false,
-		timeout: 15_000,
-	},
 	projects: [
 		{
 			name: 'chromium-android',
