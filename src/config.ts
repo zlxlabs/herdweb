@@ -399,6 +399,7 @@ const defaultAsr: HerdwebConfig['asr'] = {
 }
 
 const defaultNotify: HerdwebConfig['notify'] = {
+	channels: [],
 	vapid: {},
 	history: { limit: 200 },
 	silence: {

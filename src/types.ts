@@ -228,11 +228,32 @@ export interface NotifySilenceConfig {
 	readonly cooldownMs: number
 }
 
+export interface MessagePusherNotifyChannel {
+	readonly type: 'message-pusher'
+	readonly url: string
+	readonly user: string
+	readonly token: string
+}
+
+export interface WecomNotifyChannel {
+	readonly type: 'wecom'
+	readonly url: string
+}
+
+export interface WebhookNotifyChannel {
+	readonly type: 'webhook'
+	readonly url: string
+	readonly headers?: Readonly<Record<string, string>>
+}
+
+export type NotifyChannel = MessagePusherNotifyChannel | WecomNotifyChannel | WebhookNotifyChannel
+
 export interface NotifyConfig {
 	readonly token?: string
 	readonly vapid: NotifyVapidConfig
 	readonly history: NotifyHistoryConfig
 	readonly silence: NotifySilenceConfig
+	readonly channels: readonly NotifyChannel[]
 }
 
 /** Full herdweb configuration */
@@ -262,6 +283,10 @@ export type DeepPartial<T> = {
 	[P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]
 }
 
+export type NotifyConfigOverrides = Omit<DeepPartial<NotifyConfig>, 'channels'> & {
+	readonly channels?: readonly NotifyChannel[]
+}
+
 /**
  * Input form for a button array in config overrides.
  * - Array: replace defaults entirely
@@ -274,7 +299,7 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons'
+	'toolbar' | 'drawer' | 'floatingButtons' | 'notify'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -284,6 +309,7 @@ export type HerdwebConfigOverrides = Omit<
 		readonly buttons?: ButtonArrayInput<ControlButton>
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
+	readonly notify?: NotifyConfigOverrides
 }
 
 /**

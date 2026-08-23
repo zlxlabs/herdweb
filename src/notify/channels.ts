@@ -1,0 +1,105 @@
+import type { NotifyChannel } from '../types'
+import type { NotifyEvent, NotifyKind } from './events'
+
+const KIND_LABELS: Record<NotifyKind, string> = {
+	asking: '等待输入',
+	done: '完成',
+	'ci-red': 'CI 失败',
+	silence: '可能完工或卡住',
+	health: '服务状态',
+	test: '测试',
+}
+
+const CHANNEL_TIMEOUT_MS = 10_000
+
+function formatHost(url: string): string {
+	try {
+		return new URL(url).host
+	} catch {
+		return 'invalid-url'
+	}
+}
+
+function channelLabel(channel: NotifyChannel): string {
+	return channel.type
+}
+
+function formatChannelError(error: unknown): string {
+	if (error instanceof Error && error.name.length > 0) return error.name
+	if (typeof error === 'object' && error !== null && 'name' in error) {
+		const name = (error as { name?: unknown }).name
+		if (typeof name === 'string' && name.length > 0) return name
+	}
+	return 'Error'
+}
+
+export function buildNotifyContent(event: NotifyEvent): string {
+	const lines = [`【${KIND_LABELS[event.kind]}】${event.title}`]
+	if (event.body !== undefined) lines.push(event.body)
+	if (event.session !== undefined) lines.push(`会话：${event.session}`)
+	if (event.reason !== undefined) lines.push(`原因：${event.reason}`)
+	return lines.join('\n')
+}
+
+function requestForChannel(channel: NotifyChannel, event: NotifyEvent, content: string): Request {
+	const body =
+		channel.type === 'message-pusher'
+			? {
+					title: event.title,
+					desp: event.body ?? '',
+					content,
+					token: channel.token,
+				}
+			: channel.type === 'wecom'
+				? { msgtype: 'text', text: { content } }
+				: event
+
+	const target =
+		channel.type === 'message-pusher'
+			? `${channel.url.replace(/\/+$/, '')}/push/${encodeURIComponent(channel.user)}`
+			: channel.url
+	const headers =
+		channel.type === 'webhook'
+			? { ...channel.headers, 'content-type': 'application/json' }
+			: { 'content-type': 'application/json' }
+
+	return new Request(target, {
+		method: 'POST',
+		headers,
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(CHANNEL_TIMEOUT_MS),
+	})
+}
+
+async function deliverChannel(
+	channel: NotifyChannel,
+	event: NotifyEvent,
+	content: string,
+): Promise<void> {
+	const host = formatHost(channel.url)
+	try {
+		const response = await fetch(requestForChannel(channel, event, content))
+		if (response.ok) {
+			console.log(
+				`herdweb: notify channel ${channelLabel(channel)} delivered → ${host} (${response.status})`,
+			)
+			return
+		}
+		console.log(
+			`herdweb: notify channel ${channelLabel(channel)} failed → ${host} (${response.status})`,
+		)
+	} catch (error: unknown) {
+		console.log(
+			`herdweb: notify channel ${channelLabel(channel)} failed → ${host} (${formatChannelError(error)})`,
+		)
+	}
+}
+
+export async function sendNotifyChannels(
+	channels: readonly NotifyChannel[],
+	event: NotifyEvent,
+): Promise<void> {
+	if (channels.length === 0) return
+	const content = buildNotifyContent(event)
+	await Promise.allSettled(channels.map((channel) => deliverChannel(channel, event, content)))
+}

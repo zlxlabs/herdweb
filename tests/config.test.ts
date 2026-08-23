@@ -221,6 +221,10 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.gestures.swipe.leftLabel).toBe('Next herdr tab')
 		expect(defaultConfig.gestures.swipe.rightLabel).toBe('Previous herdr tab')
 	})
+
+	test('outbound notification channels default to disabled', () => {
+		expect(defaultConfig.notify.channels).toEqual([])
+	})
 })
 
 describe('withVoiceComposerEntry', () => {
