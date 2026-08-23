@@ -40,9 +40,18 @@ describe('createDpad', () => {
 		expect(dpad.element.classList.contains('open')).toBe(false)
 	})
 
-	test('renders exactly the six keys ← ↑ ↓ → ⌫ ⏎', () => {
+	test('renders exactly the eight keys ← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥', () => {
 		const dpad = createDpad(mockTerminalWithSent())
-		expect(dpadKeys(dpad.element).map((b) => b.textContent)).toEqual(['⌫', '↑', '←', '⏎', '→', '↓'])
+		expect(dpadKeys(dpad.element).map((b) => b.textContent)).toEqual([
+			'⌫',
+			'↑',
+			'←',
+			'⏎',
+			'→',
+			'⇥',
+			'↓',
+			'⇧⇥',
+		])
 	})
 
 	test('each key sends its exact byte sequence via term.input', () => {
@@ -55,6 +64,8 @@ describe('createDpad', () => {
 			'→': '\x1b[C',
 			'⌫': '\x7f',
 			'⏎': '\r',
+			'⇥': '\t',
+			'⇧⇥': '\x1b[Z',
 		}
 
 		for (const button of dpadKeys(dpad.element)) {
@@ -62,7 +73,7 @@ describe('createDpad', () => {
 			button.click()
 			expect(term.sent[term.sent.length - 1]).toBe(expected[label])
 		}
-		expect(term.sent).toHaveLength(6)
+		expect(term.sent).toHaveLength(8)
 	})
 
 	test('focus safety: touchend on a d-pad key is defaultPrevented (no focus steal)', () => {
@@ -96,6 +107,6 @@ describe('createDpad', () => {
 
 		expect(focused).toBe(0)
 		expect(blurred).toBe(0)
-		expect(probe.sent).toHaveLength(6)
+		expect(probe.sent).toHaveLength(8)
 	})
 })
