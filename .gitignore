@@ -7,4 +7,11 @@ playwright-report/
 .playwright-cli/
 demo/
 .omo/
+# User config, including the `.local` overrides where credentials belong
+# (ASR provider keys, notify channel tokens, VAPID private key overrides).
+# `cli.ts` loads the `.local` sibling of every config path, so all four names
+# must be ignored — otherwise following the setup docs commits secrets.
 herdweb.config.ts
+herdweb.config.js
+herdweb.config.local.ts
+herdweb.config.local.js
