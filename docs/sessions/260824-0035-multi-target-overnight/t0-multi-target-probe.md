@@ -6,7 +6,7 @@
 
 ### 1. 首次/再次连接延迟 — done
 
-- 环境/命令：隔离配置与状态目录，`7682 -- herdr --remote mac-studio --session t0-multi-target-20260824`；真实 WS `/ws` 连续连接两次。
+- 环境/命令：`XDG_CONFIG_HOME=/tmp/herdweb-t0-named-config.OAke79 XDG_STATE_HOME=/tmp/herdweb-t0-named-state.4mjKwL pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7682 -- herdr --remote mac-studio --session t0-multi-target-20260824`；真实 WS `/ws` 连续连接两次。
 - 结果：首次 open/snapshot `6.9/7.4ms`，再次 `1.8/2.5ms`；均为 3200 bytes、watermark 14、sessionId 非空。
 
 ### 2. 锁屏、前后台、网络切换恢复 — blocked
