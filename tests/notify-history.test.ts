@@ -197,4 +197,12 @@ describe('GET /api/events/history', () => {
 		const body = (await response.json()) as { events: unknown[] }
 		expect(body.events).toEqual([])
 	})
+
+	test('returns 200 without Origin on non-loopback Host', async () => {
+		harness = await createHistoryHarness()
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events/history`, {
+			headers: { Host: 'term.example.ts.net' },
+		})
+		expect(response.status).toBe(200)
+	})
 })

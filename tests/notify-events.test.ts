@@ -20,6 +20,7 @@ interface TestHarness {
 	readonly port: number
 	readonly stateDir: string
 	readonly notifyService: ReturnType<typeof createNotifyService>
+	readonly fetchApp: (request: Request) => Response | Promise<Response>
 	close(): void
 }
 
@@ -45,6 +46,7 @@ async function createHarness(token?: string): Promise<TestHarness> {
 				port: info.port,
 				stateDir,
 				notifyService,
+				fetchApp: (request) => app.fetch(request),
 				close() {
 					server.close()
 					notifyService.dispose()
@@ -242,5 +244,77 @@ describe('SlidingWindowRateLimiter', () => {
 			expect(limiter.allow()).toBe(true)
 		}
 		expect(limiter.allow()).toBe(false)
+	})
+})
+
+describe('GET /api/push/vapid-key', () => {
+	let harness: TestHarness
+
+	afterEach(() => {
+		harness?.close()
+	})
+
+	test('returns 200 without Origin on non-loopback Host', async () => {
+		harness = await createHarness()
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/push/vapid-key`, {
+			headers: { Host: 'term.example.ts.net' },
+		})
+		expect(response.status).toBe(200)
+		const body = (await response.json()) as { publicKey: string }
+		expect(body.publicKey.length).toBeGreaterThan(0)
+	})
+})
+
+describe('POST /api/push/test', () => {
+	let harness: TestHarness
+
+	afterEach(() => {
+		harness?.close()
+	})
+
+	test('returns 202 and dispatches kind=test with matching Origin', async () => {
+		harness = await createHarness()
+		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
+		const host = `127.0.0.1:${harness.port}`
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/push/test`, {
+			method: 'POST',
+			headers: {
+				Origin: `http://${host}`,
+				Host: host,
+			},
+		})
+		expect(response.status).toBe(202)
+		expect(dispatchSpy).toHaveBeenCalledWith(
+			expect.objectContaining({
+				kind: 'test',
+				title: 'herdweb test',
+				body: 'Test notification from panel',
+			}),
+		)
+	})
+
+	test('returns 403 without Origin on non-loopback Host', async () => {
+		harness = await createHarness()
+		const response = await harness.fetchApp(
+			new Request('http://term.example.ts.net/api/push/test', { method: 'POST' }),
+		)
+		expect(response.status).toBe(403)
+	})
+
+	test('returns 429 after 60 requests per minute', async () => {
+		harness = await createHarness()
+		const host = `127.0.0.1:${harness.port}`
+		let lastStatus = 202
+		for (let i = 0; i < 61; i++) {
+			const response = await fetch(`http://127.0.0.1:${harness.port}/api/push/test`, {
+				method: 'POST',
+				headers: {
+					Origin: `http://${host}`,
+					Host: host,
+				},
+			})
+			lastStatus = response.status
+		}
+		expect(lastStatus).toBe(429)
 	})
 })

@@ -144,8 +144,6 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 	for (const route of deps.routeVariants(deps.basePath, '/api/events/history')) {
 		app.get(route, (c) => {
 			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
-			const denied = requireOrigin(c, deps, securityHeaders)
-			if (denied) return denied
 			if (!pushLimiter.allow()) {
 				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
 			}
@@ -158,13 +156,34 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 	for (const route of deps.routeVariants(deps.basePath, '/api/push/vapid-key')) {
 		app.get(route, (c) => {
 			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
-			const denied = requireOrigin(c, deps, securityHeaders)
-			if (denied) return denied
 			if (!pushLimiter.allow()) {
 				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
 			}
 			const keys = ensureVapidKeys(deps.stateDir, deps.vapidOverride)
 			return deps.withSecurityHeaders(c.json({ publicKey: keys.publicKey }), securityHeaders)
+		})
+	}
+
+	for (const route of deps.routeVariants(deps.basePath, '/api/push/test')) {
+		app.post(route, (c) => {
+			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
+			const denied = requireOrigin(c, deps, securityHeaders)
+			if (denied) return denied
+			if (!pushLimiter.allow()) {
+				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
+			}
+
+			const event = parseNotifyEvent(
+				JSON.stringify({
+					v: 1,
+					kind: 'test',
+					title: 'herdweb test',
+					body: 'Test notification from panel',
+					ts: Date.now(),
+				}),
+			)
+			deps.notifyService.dispatchEvent(event)
+			return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
 		})
 	}
 
