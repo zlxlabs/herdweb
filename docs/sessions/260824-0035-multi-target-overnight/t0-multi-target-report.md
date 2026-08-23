@@ -1,4 +1,5 @@
 <!-- delegate-outcome: failed -->
+<!-- delegate-blocked: 缺真实 iOS/Android 设备锁屏切网与软键盘触控证据，远程 silence 未满足 busy-byte armed 条件 -->
 ## 结论
 
 T0 按原计划七项探针已逐项落盘，但结果为 partial/blocked：2、6 缺真实手机设备证据，7 的 silence 未被 armed；不能宣称完成。未修改产品代码、测试、配置、CI 或 `GOALS.md`。
