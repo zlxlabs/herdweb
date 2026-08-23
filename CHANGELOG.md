@@ -1,3 +1,11 @@
+# [1.1.0](https://github.com/zlxlabs/herdweb/compare/v1.0.2...v1.1.0) (2026-08-23)
+
+
+### Features
+
+* **dpad:** add Tab and Shift+Tab keys ([f4b8398](https://github.com/zlxlabs/herdweb/commit/f4b8398c87796010b6cea46568376ab8da28ce79))
+* **drawer:** group buttons into sections with headings ([5798ed8](https://github.com/zlxlabs/herdweb/commit/5798ed83d678d5c609d8d5e29b013101b6b80db2))
+
 ## [1.0.2](https://github.com/zlxlabs/herdweb/compare/v1.0.1...v1.0.2) (2026-08-22)
 
 
