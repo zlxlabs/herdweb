@@ -1,3 +1,10 @@
+# [1.5.0](https://github.com/zlxlabs/herdweb/compare/v1.4.0...v1.5.0) (2026-08-23)
+
+
+### Features
+
+* **deploy:** move production to a dedicated XDG clone ([e410c51](https://github.com/zlxlabs/herdweb/commit/e410c5108d6136cc3570d48bffad94a8a57c3d44))
+
 # [1.4.0](https://github.com/zlxlabs/herdweb/compare/v1.3.2...v1.4.0) (2026-08-23)
 
 
