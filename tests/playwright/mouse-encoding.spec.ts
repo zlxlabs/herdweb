@@ -7,8 +7,7 @@
  * term.onBinary — which the client never forwards. The tap dies silently.
  *
  * Runs against an isolated server: the test holds the PTY in a modal state
- * (foreground cat + live mouse modes) that would race parallel specs sharing
- * the suite webServer.
+ * (foreground cat + live mouse modes) that must not leak into another test.
  */
 import { expect, test } from './fixtures'
 

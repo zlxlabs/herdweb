@@ -1,7 +1,7 @@
 /**
- * Spin up a private `herdweb serve` instance for specs that can't share the
- * suite-wide webServer PTY — e.g. because they flip modal terminal state
- * (foreground processes, live mouse modes) that would race parallel specs.
+ * Spin up a private `herdweb serve` instance for specs that need
+ * process/session-specific terminal state (foreground processes, live mouse
+ * modes) without sharing a PTY with another test.
  * Uses a temp HOME so the user's real ~/.config/herdweb/ config can't leak in.
  */
 import { mkdtempSync, rmSync } from 'node:fs'
