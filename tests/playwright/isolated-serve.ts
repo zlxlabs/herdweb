@@ -76,14 +76,18 @@ export async function startIsolatedServe(
 		basePath?: string
 		command?: string[]
 		configPath?: string
+		detached?: boolean
 		isolateTmpDir?: boolean
+		killWithParent?: boolean
 	} = {},
 ): Promise<IsolatedServe> {
 	const {
 		basePath,
 		command = ['bash', '--norc', '--noprofile'],
 		configPath,
+		detached = true,
 		isolateTmpDir,
+		killWithParent = true,
 	} = options
 	const port = await reservePort()
 	const home = mkdtempSync(join(tmpdir(), 'herdweb-playwright-home-'))
@@ -107,8 +111,8 @@ export async function startIsolatedServe(
 			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'pipe',
-			detached: true,
-			killWithParent: true,
+			detached,
+			killWithParent,
 		},
 	)
 	let exited = false

@@ -1,6 +1,5 @@
 import { join } from 'node:path'
-import { expect, test } from '@playwright/test'
-import { startIsolatedServe } from './isolated-serve'
+import { expect, test } from './fixtures'
 
 async function installSocketProbe(page: import('@playwright/test').Page): Promise<void> {
 	await page.addInitScript(() => {
@@ -231,21 +230,15 @@ test('freeze and resume events force a fresh epoch and snapshot', async ({ page 
 test.describe('composer action weak network', () => {
 	const repoRoot = join(import.meta.dirname, '../..')
 	const configPath = join(repoRoot, 'tests/playwright/asr.config.ts')
-	let server: Awaited<ReturnType<typeof startIsolatedServe>>
-
-	test.beforeAll(async () => {
-		server = await startIsolatedServe({ configPath })
-	})
-	test.afterAll(async () => {
-		await server.close()
-	})
+	test.use({ serveOptions: { configPath } })
 
 	test('lost accepted retries the same action once and writes PTY once', async ({
 		page,
 		context,
+		serve,
 	}) => {
 		let dropped = false
-		await page.routeWebSocket(`${server.url.replace('http', 'ws')}/ws`, (socket) => {
+		await page.routeWebSocket(`${serve.url.replace('http', 'ws')}/ws`, (socket) => {
 			const upstream = socket.connectToServer()
 			upstream.onMessage((message) => {
 				const parsed = typeof message === 'string' ? JSON.parse(message) : null
@@ -257,7 +250,7 @@ test.describe('composer action weak network', () => {
 			})
 		})
 		await installSocketProbe(page)
-		await page.goto(server.url)
+		await page.goto(serve.url)
 		await waitForSynced(page)
 		await page.locator('[data-herdweb-action="voice-input"]').click()
 		const marker = `T4-${Date.now()}`
@@ -287,9 +280,13 @@ test.describe('composer action weak network', () => {
 		await page.screenshot({ path: 'test-results/composer-accepted.png' })
 	})
 
-	test('offline before send keeps draft and emits no action frame', async ({ page, context }) => {
+	test('offline before send keeps draft and emits no action frame', async ({
+		page,
+		context,
+		serve,
+	}) => {
 		await installSocketProbe(page)
-		await page.goto(server.url)
+		await page.goto(serve.url)
 		await waitForSynced(page)
 		await page.locator('[data-herdweb-action="voice-input"]').click()
 		const composer = page.locator('#wt-asr-composer')
