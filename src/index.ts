@@ -13,6 +13,7 @@ import {
 } from './controls/keyboard-controller'
 import { createMicController } from './controls/mic-controller'
 import type { MicController } from './controls/mic-controller'
+import { createNotifyPanel } from './controls/notify-panel'
 import { createScrollButtons } from './controls/scroll-buttons'
 import { createDrawer } from './drawer/drawer'
 import { attachDoubleTapGesture } from './gestures/double-tap'
@@ -92,6 +93,17 @@ function setupHelpOverlay(
 	}
 }
 
+function setupNotifyPanel(basePath: string): (() => void) | undefined {
+	try {
+		const panel = createNotifyPanel({ basePath })
+		document.body.appendChild(panel.element)
+		return panel.open
+	} catch (error) {
+		console.error('herdweb: failed to initialise notify panel', error)
+		return undefined
+	}
+}
+
 /**
  * Keyboard sovereignty setup: escape hatch (V2) + shared controller (T-B).
  * Returns the effective config — with the default ⌨ button injected into
@@ -126,9 +138,10 @@ export function init(
 	config: HerdwebConfig = defaultConfig,
 	hooks: HookRegistry = createHookRegistry(),
 	version?: string,
-	deps?: { openImageDrop?: () => void },
+	deps?: { openImageDrop?: () => void; basePath?: string },
 ): void {
 	void waitForTerm()
+		// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: mobile overlay bootstrap is intentionally sequential
 		.then(async (term) => {
 			// Reconnect overlay — works on both mobile and desktop
 			const disposeReconnect = setupReconnect(term, config.reconnect)
@@ -191,6 +204,7 @@ export function init(
 				// Help overlay first — the drawer's Guide button opens it via the
 				// action registry.
 				const openHelp = setupHelpOverlay(term, config, version)
+				const openNotifyPanel = setupNotifyPanel(deps?.basePath ?? '/')
 
 				// Keyboard sovereignty: escape hatch (V2) injects a ⌨ button into
 				// row1 when manual mode lacks one; the controller must exist before
@@ -216,6 +230,7 @@ export function init(
 				const actions = createDefaultActionRegistry({
 					font: config.font,
 					openHelp,
+					openNotifyPanel,
 					toggleKeyboard: () => keyboardController.toggle(),
 					toggleDpad: dpad.toggle,
 					openImageDrop: deps?.openImageDrop,

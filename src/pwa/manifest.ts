@@ -23,7 +23,7 @@ export function generateManifest(name: string, pwa: PwaConfig, basePath = '/'): 
 		name,
 		short_name: pwa.shortName ?? name,
 		start_url: documentRoute(basePath),
-		scope: documentRoute(basePath),
+		scope: basePath,
 		display: 'standalone',
 		background_color: pwa.themeColor,
 		theme_color: pwa.themeColor,

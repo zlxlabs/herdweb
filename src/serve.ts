@@ -8,8 +8,19 @@ import { createNodeWebSocket } from '@hono/node-ws'
 import { type Context, Hono } from 'hono'
 import type { WSContext } from 'hono/ws'
 import type WebSocket from 'ws'
-import { bundleClientAssets, bundleWorkletAsset, renderClientHtml } from '../build'
+import { bundleClientAssets, bundleSwAsset, bundleWorkletAsset, renderClientHtml } from '../build'
 import { bareDocumentRoute, documentRoute, joinBasePath } from './base-path'
+import {
+	buildRestartEvent,
+	buildSessionEndEvent,
+	extractSessionKey,
+	shouldAnnounceRestart,
+} from './notify/health'
+import { ensureVapidKeys } from './notify/push'
+import { registerNotifyRoutes } from './notify/routes'
+import { type NotifyService, createNotifyService, notifyDrain } from './notify/service'
+import { type SilenceDetector, createSilenceDetector } from './notify/silence'
+import { readLastSessionStore, resolveNotifyStateDir, updateLastSessionEntry } from './notify/state'
 import { manifestToJson } from './pwa/manifest'
 import type { SessionClient, SharedTerminalSession } from './session'
 import {
@@ -165,7 +176,7 @@ export function buildSecurityHeaders(
 		? `'self' ws://${authority} wss://${authority} wss://openspeech.bytedance.com`
 		: `'self' ws://${authority} wss://${authority}`
 	return {
-		'content-security-policy': `default-src 'self'; script-src 'self' 'nonce-${scriptNonce}'; style-src 'self' 'unsafe-inline' https:; font-src 'self' https:; img-src 'self' data:; connect-src ${connectSrc}; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
+		'content-security-policy': `default-src 'self'; script-src 'self' 'nonce-${scriptNonce}'; style-src 'self' 'unsafe-inline' https:; font-src 'self' https:; img-src 'self' data:; connect-src ${connectSrc}; worker-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'`,
 		'x-frame-options': 'DENY',
 		'x-content-type-options': 'nosniff',
 		'referrer-policy': 'no-referrer',
@@ -401,7 +412,82 @@ export function describeCommandForLogs(command: readonly string[]): string {
 	return `${file} (${args.length} arg${args.length === 1 ? '' : 's'})`
 }
 
+function mountNotifyStack(
+	app: Hono,
+	config: HerdwebConfig,
+	port: number,
+	basePath: string,
+	swJs: string,
+	securityHeadersForRequest: (hostHeader: string | undefined) => Record<string, string>,
+): ReturnType<typeof createNotifyService> {
+	const stateDir = resolveNotifyStateDir(port)
+	ensureVapidKeys(stateDir, config.notify.vapid)
+	console.log('herdweb: notify state directory ready (VAPID keys loaded or generated)')
+	const notifyService = createNotifyService({
+		stateDir,
+		historyLimit: config.notify.history.limit,
+		vapidOverride: config.notify.vapid,
+		channels: config.notify.channels,
+	})
+	registerNotifyRoutes(app, {
+		basePath,
+		notifyService,
+		stateDir,
+		token: config.notify.token,
+		vapidOverride: config.notify.vapid,
+		securityHeadersForRequest,
+		routeVariants,
+		withSecurityHeaders,
+		isAllowedOrigin,
+	})
+	for (const route of routeVariants(basePath, '/sw.js')) {
+		app.get(route, (c) =>
+			withSecurityHeaders(
+				new Response(swJs, {
+					headers: {
+						'content-type': 'application/javascript',
+						'cache-control': 'no-cache',
+						'Service-Worker-Allowed': basePath === '/' ? '/' : basePath,
+					},
+				}),
+				securityHeadersForRequest(c.req.header('host')),
+			),
+		)
+	}
+	return notifyService
+}
+
+export { extractSessionKey } from './notify/health'
+
+async function handleSessionExit(deps: {
+	readonly notifyService: NotifyService
+	readonly stateDir: string
+	readonly sessionKey: string
+	readonly sessionId: string
+	readonly startTime: number
+	readonly exitCode: number
+	readonly signal: number | null
+}): Promise<void> {
+	const ts = Date.now()
+	deps.notifyService.dispatchEvent(
+		buildSessionEndEvent({
+			sessionKey: deps.sessionKey,
+			startTime: deps.startTime,
+			exitCode: deps.exitCode,
+			signal: deps.signal,
+			ts,
+		}),
+	)
+	updateLastSessionEntry(deps.stateDir, deps.sessionKey, {
+		sessionId: deps.sessionId,
+		exitedAt: ts,
+		exitCode: deps.exitCode,
+		signal: deps.signal,
+	})
+}
+
 /** Start herdweb serve: build client assets, spawn the PTY, and serve HTTP + WS */
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: serve bootstraps HTTP, WS, notify, and PTY lifecycle
 export async function serve(
 	config: HerdwebConfig,
 	port: number = DEFAULT_PORT,
@@ -416,9 +502,11 @@ export async function serve(
 	console.log('herdweb: building client...')
 	const scriptNonce = createScriptNonce()
 	const { js, css } = await bundleClientAssets(config, version, basePath)
+	const swJs = await bundleSwAsset()
 	const worklet = config.asr.enabled ? await bundleWorkletAsset() : undefined
 	const html = renderClientHtml(js, css, config, scriptNonce, basePath)
 	console.log('herdweb: client ready')
+
 	let session: SharedTerminalSession | null = null
 	let caffeinateProc: SpawnedProcess | null = null
 
@@ -622,15 +710,50 @@ export async function serve(
 
 	registerImageDropRoutes(app, basePath, securityHeadersForRequest)
 
+	const notifyService = mountNotifyStack(
+		app,
+		config,
+		port,
+		basePath,
+		swJs,
+		securityHeadersForRequest,
+	)
+	const notifyStateDir = resolveNotifyStateDir(port)
+	const sessionKey = extractSessionKey(command)
+	const prevSession = readLastSessionStore(notifyStateDir)[sessionKey]
+
 	const server = honoServe({ fetch: app.fetch, port, hostname: host })
 	injectWebSocket(server)
 	await waitForServerListening(server, port, host)
 
+	let silenceDetector: SilenceDetector | undefined
+
 	try {
 		console.log(`herdweb: starting command ${describeCommandForLogs(command)}...`)
 		session = new SharedTerminalSession(command)
+		const activeSession = session
+		if (shouldAnnounceRestart(prevSession, activeSession.id, Date.now())) {
+			notifyService.dispatchEvent(
+				buildRestartEvent({
+					sessionKey,
+					startTime: activeSession.startTime,
+					ts: Date.now(),
+				}),
+			)
+		}
+		silenceDetector = createSilenceDetector({
+			sessionKey,
+			config: config.notify.silence,
+			bytesInWindow: (windowMs) => activeSession.bytesInWindow(windowMs),
+			lastOutputAt: () => activeSession.lastOutputAt(),
+			dispatch: (event) => {
+				notifyService.dispatchEvent(event)
+			},
+			lastEventAt: (key) => notifyService.lastEventAt(key),
+		})
 		caffeinateProc = noSleep ? spawnCaffeinate(session.pid) : null
 	} catch (error) {
+		silenceDetector?.dispose()
 		server.close()
 		throw error
 	}
@@ -645,6 +768,9 @@ export async function serve(
 		if (shuttingDown) return
 		shuttingDown = true
 		console.log('\nherdweb: shutting down...')
+		silenceDetector?.dispose()
+		await notifyDrain(notifyService)
+		notifyService.dispose()
 		server.close()
 		caffeinateProc?.kill()
 		await session?.dispose()
@@ -658,7 +784,20 @@ export async function serve(
 		void cleanup()
 	})
 
-	await session.onExit
+	const exit = await session.onExit
+	await handleSessionExit({
+		notifyService,
+		stateDir: notifyStateDir,
+		sessionKey,
+		sessionId: session.id,
+		startTime: session.startTime,
+		exitCode: exit.exitCode,
+		signal: exit.signal,
+	})
+	silenceDetector.dispose()
+	await notifyDrain(notifyService)
+	notifyService.dispose()
 	server.close()
 	caffeinateProc?.kill()
+	await session?.dispose()
 }

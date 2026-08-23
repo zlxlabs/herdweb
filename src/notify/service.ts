@@ -1,0 +1,286 @@
+import webpush from 'web-push'
+import type { NotifyChannel } from '../types'
+import { sendNotifyChannels } from './channels'
+import { type NotifyEvent, isRecord } from './events'
+import {
+	type PushSubscriptionRecord,
+	STALE_SUBSCRIPTION_MS,
+	type VapidConfig,
+	type VapidKeys,
+	ensureVapidKeys,
+	readSubscriptions,
+	writeSubscriptions,
+} from './push'
+import { appendEventLine } from './state'
+
+const PUSH_TTL_SECONDS = 3600
+const STALE_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000
+
+function readStatusCode(error: unknown): number | undefined {
+	if (!isRecord(error) || typeof error.statusCode !== 'number') return undefined
+	return error.statusCode
+}
+
+function isSubscriptionGoneReason(reason: unknown): reason is { endpoint: string } {
+	return isRecord(reason) && typeof reason.endpoint === 'string'
+}
+
+function formatEndpointForLog(endpoint: string): string {
+	try {
+		return new URL(endpoint).host
+	} catch {
+		return endpoint.slice(0, 40)
+	}
+}
+
+interface NotifyServiceDeps {
+	readonly stateDir: string
+	readonly historyLimit: number
+	readonly vapidOverride?: VapidConfig
+	readonly sendPush?: typeof webpush.sendNotification
+	readonly channels?: readonly NotifyChannel[]
+	readonly now?: () => number
+}
+
+interface SubscriptionDelta {
+	readonly snapshot: PushSubscriptionRecord
+	readonly lastSuccessAt?: number
+	readonly remove: boolean
+}
+
+function sameSubscriptionRecord(
+	left: PushSubscriptionRecord,
+	right: PushSubscriptionRecord,
+): boolean {
+	return (
+		left.endpoint === right.endpoint &&
+		left.keys.p256dh === right.keys.p256dh &&
+		left.keys.auth === right.keys.auth &&
+		left.lastSuccessAt === right.lastSuccessAt
+	)
+}
+
+/** Apply delivery/prune deltas to the newest on-disk subscription ledger. */
+function mergeSubscriptionDeltas(
+	stateDir: string,
+	deltas: ReadonlyMap<string, SubscriptionDelta>,
+): void {
+	if (deltas.size === 0) return
+
+	const latest = readSubscriptions(stateDir)
+	const merged = latest.flatMap((sub) => {
+		const delta = deltas.get(sub.endpoint)
+		if (delta === undefined || !sameSubscriptionRecord(sub, delta.snapshot)) {
+			return [sub]
+		}
+		if (delta.remove) return []
+		return [{ ...sub, lastSuccessAt: delta.lastSuccessAt ?? sub.lastSuccessAt }]
+	})
+	writeSubscriptions(stateDir, merged)
+}
+
+export interface NotifyService {
+	dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate'
+	awaitInFlight(timeoutMs: number): Promise<void>
+	lastEventAt(session?: string): number | undefined
+	dispose(): void
+}
+
+class DedupStore {
+	private readonly ids = new Set<string>()
+	private readonly fifo: string[] = []
+	private readonly capacity: number
+
+	constructor(capacity: number) {
+		this.capacity = capacity
+	}
+
+	has(id: string): boolean {
+		return this.ids.has(id)
+	}
+
+	add(id: string): void {
+		if (this.ids.has(id)) return
+		this.ids.add(id)
+		this.fifo.push(id)
+		while (this.fifo.length > this.capacity) {
+			const evicted = this.fifo.shift()
+			if (evicted !== undefined) this.ids.delete(evicted)
+		}
+	}
+}
+
+export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
+	const now = deps.now ?? Date.now
+	let testCounter = 0
+	const dedup = new DedupStore(1000)
+	const inFlight = new Set<Promise<void>>()
+	const lastBySession = new Map<string, number>()
+	let globalLastEventAt: number | undefined
+	let vapid: VapidKeys | undefined
+	let staleScanTimer: ReturnType<typeof setInterval> | undefined
+
+	function ensureVapid(): VapidKeys {
+		vapid ??= ensureVapidKeys(deps.stateDir, deps.vapidOverride)
+		webpush.setVapidDetails(vapid.subject, vapid.publicKey, vapid.privateKey)
+		return vapid
+	}
+
+	function normalizeEvent(event: NotifyEvent): NotifyEvent {
+		if (event.kind === 'test' && event.id.length === 0) {
+			testCounter += 1
+			return { ...event, id: `test:${testCounter}` }
+		}
+		return event
+	}
+
+	async function pushToAll(event: NotifyEvent): Promise<void> {
+		ensureVapid()
+		const subs = readSubscriptions(deps.stateDir)
+		if (subs.length === 0) {
+			console.log('herdweb: notify push skipped — no subscriptions')
+			return
+		}
+
+		const payload = JSON.stringify(event)
+		const send = deps.sendPush ?? webpush.sendNotification.bind(webpush)
+		const results = await Promise.allSettled(
+			subs.map(async (sub) => {
+				try {
+					await send(
+						{
+							endpoint: sub.endpoint,
+							keys: sub.keys,
+						},
+						payload,
+						{ TTL: PUSH_TTL_SECONDS },
+					)
+					return now()
+				} catch (error: unknown) {
+					const statusCode = readStatusCode(error)
+					if (statusCode === 401 || statusCode === 404 || statusCode === 410) {
+						throw Object.assign(new Error('subscription gone'), { endpoint: sub.endpoint })
+					}
+					throw error
+				}
+			}),
+		)
+
+		const deltas = new Map<string, SubscriptionDelta>()
+		for (let i = 0; i < results.length; i++) {
+			const result = results[i]
+			const sub = subs[i]
+			if (result === undefined || sub === undefined) continue
+			if (result.status === 'fulfilled') {
+				deltas.set(sub.endpoint, {
+					snapshot: sub,
+					lastSuccessAt: result.value,
+					remove: false,
+				})
+				console.log(`herdweb: notify push delivered → ${formatEndpointForLog(sub.endpoint)}`)
+			}
+			if (result.status === 'rejected') {
+				const reason = result.reason
+				if (isSubscriptionGoneReason(reason)) {
+					deltas.set(reason.endpoint, { snapshot: sub, remove: true })
+					console.log(
+						`herdweb: notify subscription removed (stale ) → ${formatEndpointForLog(reason.endpoint)}`,
+					)
+				}
+			}
+		}
+		mergeSubscriptionDeltas(deps.stateDir, deltas)
+	}
+
+	function recordLastEvent(event: NotifyEvent): void {
+		globalLastEventAt = event.ts
+		if (event.session !== undefined) {
+			lastBySession.set(event.session, event.ts)
+		}
+	}
+
+	function pruneStaleSubscriptions(): void {
+		if (inFlight.size > 0) return
+		const subs = readSubscriptions(deps.stateDir)
+		const cutoff = now() - STALE_SUBSCRIPTION_MS
+		const deltas = new Map<string, SubscriptionDelta>()
+		for (const sub of subs) {
+			if (sub.lastSuccessAt < cutoff) {
+				deltas.set(sub.endpoint, { snapshot: sub, remove: true })
+			}
+		}
+		mergeSubscriptionDeltas(deps.stateDir, deltas)
+	}
+
+	staleScanTimer = setInterval(pruneStaleSubscriptions, STALE_SCAN_INTERVAL_MS)
+	if (typeof staleScanTimer === 'object' && 'unref' in staleScanTimer) {
+		staleScanTimer.unref()
+	}
+
+	return {
+		dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate' {
+			const normalized = normalizeEvent(event)
+
+			if (normalized.kind !== 'test') {
+				if (dedup.has(normalized.id)) {
+					return 'duplicate'
+				}
+				dedup.add(normalized.id)
+				appendEventLine(deps.stateDir, normalized, deps.historyLimit)
+			}
+
+			recordLastEvent(normalized)
+			const pushPromise = pushToAll(normalized)
+				.catch((error: unknown) => {
+					console.error('herdweb: notify push failed', error)
+				})
+				.finally(() => {
+					inFlight.delete(pushPromise)
+				})
+			inFlight.add(pushPromise)
+			if (deps.channels !== undefined && deps.channels.length > 0) {
+				const channelPromise = sendNotifyChannels(deps.channels, normalized).finally(() => {
+					inFlight.delete(channelPromise)
+				})
+				inFlight.add(channelPromise)
+			}
+			return 'accepted'
+		},
+
+		async awaitInFlight(timeoutMs: number): Promise<void> {
+			const pending = [...inFlight]
+			if (pending.length === 0) return
+			let timer: ReturnType<typeof setTimeout> | undefined
+			try {
+				await Promise.race([
+					Promise.allSettled(pending),
+					new Promise<void>((resolve) => {
+						timer = setTimeout(resolve, timeoutMs)
+						timer.unref()
+					}),
+				])
+			} finally {
+				if (timer !== undefined) clearTimeout(timer)
+			}
+		},
+
+		lastEventAt(session?: string): number | undefined {
+			if (session !== undefined) {
+				return lastBySession.get(session)
+			}
+			return globalLastEventAt
+		},
+
+		dispose(): void {
+			if (staleScanTimer !== undefined) {
+				clearInterval(staleScanTimer)
+				staleScanTimer = undefined
+			}
+		},
+	}
+}
+
+/** Drain hook for serve shutdown — card 2 inserts last-session / health here. */
+export async function notifyDrain(service: NotifyService): Promise<void> {
+	await service.awaitInFlight(10_000)
+}

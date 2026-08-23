@@ -71,9 +71,9 @@ describe('generateManifest', () => {
 	})
 
 	test('prefixes start_url, scope, and icon paths when mounted under a subpath', () => {
-		const manifest = generateManifest('herdweb', defaultPwa, '/proxy')
+		const manifest = JSON.parse(manifestToJson('herdweb', defaultPwa, '/proxy'))
 		expect(manifest.start_url).toBe('/proxy/')
-		expect(manifest.scope).toBe('/proxy/')
+		expect(manifest.scope).toBe('/proxy')
 		for (const icon of manifest.icons) {
 			expect(icon.src.startsWith('/proxy/')).toBe(true)
 		}

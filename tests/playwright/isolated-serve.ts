@@ -63,6 +63,8 @@ interface IsolatedServe {
 	port: number
 	url: string
 	exited: Promise<number | null>
+	/** Isolated HOME passed to the serve process (state lives under here). */
+	home: string
 	/**
 	 * Isolated TMPDIR of the serve process when `isolateTmpDir` was requested —
 	 * image drops land here instead of the real /tmp; removed by close().
@@ -141,6 +143,7 @@ export async function startIsolatedServe(
 		port,
 		url,
 		exited: proc.exited,
+		home,
 		tmpDir: serveTmp,
 		async close(): Promise<void> {
 			if (!exited) {

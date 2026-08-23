@@ -12,6 +12,7 @@ export type ButtonAction =
 	| { readonly type: 'dpad-toggle' }
 	| { readonly type: 'voice-input' }
 	| { readonly type: 'image-upload' }
+	| { readonly type: 'notify-panel' }
 
 /** A generic control button definition used by toolbar and drawer */
 export interface ControlButton {
@@ -210,6 +211,51 @@ export interface PwaConfig {
 	readonly themeColor: string
 }
 
+export interface NotifyVapidConfig {
+	readonly subject?: string
+	readonly publicKey?: string
+	readonly privateKey?: string
+}
+
+export interface NotifyHistoryConfig {
+	readonly limit: number
+}
+
+export interface NotifySilenceConfig {
+	readonly enabled: boolean
+	readonly busyMs: number
+	readonly quietMs: number
+	readonly cooldownMs: number
+}
+
+export interface MessagePusherNotifyChannel {
+	readonly type: 'message-pusher'
+	readonly url: string
+	readonly user: string
+	readonly token: string
+}
+
+export interface WecomNotifyChannel {
+	readonly type: 'wecom'
+	readonly url: string
+}
+
+export interface WebhookNotifyChannel {
+	readonly type: 'webhook'
+	readonly url: string
+	readonly headers?: Readonly<Record<string, string>>
+}
+
+export type NotifyChannel = MessagePusherNotifyChannel | WecomNotifyChannel | WebhookNotifyChannel
+
+export interface NotifyConfig {
+	readonly token?: string
+	readonly vapid: NotifyVapidConfig
+	readonly history: NotifyHistoryConfig
+	readonly silence: NotifySilenceConfig
+	readonly channels: readonly NotifyChannel[]
+}
+
 /** Full herdweb configuration */
 export interface HerdwebConfig {
 	readonly name: string
@@ -229,11 +275,16 @@ export interface HerdwebConfig {
 	readonly pwa: PwaConfig
 	readonly reconnect: ReconnectConfig
 	readonly asr: AsrConfig
+	readonly notify: NotifyConfig
 }
 
 /** Deep partial — allows overriding any nested subset of config */
 export type DeepPartial<T> = {
 	[P in keyof T]?: T[P] extends object ? DeepPartial<T[P]> : T[P]
+}
+
+export type NotifyConfigOverrides = Omit<DeepPartial<NotifyConfig>, 'channels'> & {
+	readonly channels?: readonly NotifyChannel[]
 }
 
 /**
@@ -248,7 +299,7 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons'
+	'toolbar' | 'drawer' | 'floatingButtons' | 'notify'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -258,6 +309,7 @@ export type HerdwebConfigOverrides = Omit<
 		readonly buttons?: ButtonArrayInput<ControlButton>
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
+	readonly notify?: NotifyConfigOverrides
 }
 
 /**

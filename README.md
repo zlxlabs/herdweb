@@ -215,6 +215,139 @@ export default {
 The `voice-input` action is toolbar-only; putting it in `drawer.buttons` or `floatingButtons` is
 rejected by config validation.
 
+### Push notifications
+
+herdweb can push Web Push notifications to your phone when agents need attention, when output
+goes quiet, or when the service restarts. Subscribe from the in-app panel — no separate app install.
+
+**Prerequisites**
+
+- **Android**: Chrome (or another browser with Web Push + service workers).
+- **iOS**: herdweb must be **added to the Home Screen** as a standalone PWA (iOS 16.4+). Safari
+  tabs do not expose the Push API — subscription will not work in a normal browser tab.
+- **HTTPS** on phones (Tailscale Serve, reverse proxy, etc.). `localhost` / `127.0.0.1` work for
+  local dev only.
+
+**Subscribe and test**
+
+1. Open herdweb on your phone.
+2. Tap **☰** (drawer) in the toolbar, then **🔔** in the drawer grid.
+3. In the **Notifications** panel, enable **Push notifications** and accept the browser permission prompt.
+4. Tap **Send test notification** — a system notification should arrive within a few seconds.
+5. Tap the notification — herdweb should focus (or open) in the browser/PWA.
+
+On iPhone, if you are not in standalone mode, the panel shows a hint to add herdweb to the Home
+Screen first.
+
+**Outbound notification channels**
+
+Web Push and outbound channels run in parallel. Channels are disabled by default; configure one or
+more fixed-shape webhook destinations under `notify.channels` when a device cannot reach its push
+provider. Each event is posted once to every configured channel. A failed channel is logged with
+its type, host, and status/error name, but does not block Web Push or another channel; there is no
+retry queue in v1.
+
+```ts
+export default {
+  notify: {
+    channels: [
+      {
+        type: 'message-pusher',
+        url: 'https://push.example.com',
+        user: 'someone',
+        token: 'token-placeholder',
+      },
+      {
+        type: 'wecom',
+        url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder',
+      },
+      {
+        type: 'webhook',
+        url: 'https://example.com/hook',
+        headers: { 'x-source': 'herdweb' },
+      },
+    ],
+  },
+}
+```
+
+`message-pusher` posts JSON to `{url}/push/{user}` with `{ title, desp, content, token }`.
+`wecom` posts `{ msgtype: 'text', text: { content } }` to the configured URL. `webhook` posts the
+event object itself and applies the configured headers. All requests are JSON and time out after
+10 seconds. Keep webhook query keys, tokens, and custom header values in a local, uncommitted
+config file.
+
+**What gets notified (and how fast)**
+
+| Lane | Source | Typical delay | v1 status |
+|------|--------|---------------|-----------|
+| Silence | herdweb (PTY output stops after busy period) | ~3–5 minutes after agent output stops | Available |
+| Health | herdweb (PTY exit / service restart) | Seconds after exit or restart | Available |
+| Test | Panel **Send test notification** button | Immediate | Available |
+| asking / done / ci-red | External `POST /api/events` (badge lane from agent-config) | ~60–90 seconds when wired | **Not available yet** — requires [agent-config#495](https://github.com/zlxlabs/agent-config/issues/495) on the machine running herdweb |
+
+The silence lane cannot distinguish “waiting for you” from “running a long task” — titles use
+“may be done / stuck” wording. A `202` response from `POST /api/events` means the event was
+accepted and queued for push — not that the phone has already displayed it.
+
+**Known limitations**
+
+Some Android devices cannot receive any Web Push notification when the device's long-lived
+connection from Google Play services to FCM is unreachable. This is not a herdweb-specific issue:
+the official Google push demo is also unable to deliver in that environment. A browser being able
+to browse the web does not imply that FCM is reachable; Web Push depends on Google Play services
+maintaining a long-lived connection to `mtalk.google.com` on ports `5228`, `5229`, or `5230`.
+Configure an outbound channel above as the workaround for those devices; message-pusher and the
+WeCom webhook do not depend on the device's FCM connection.
+
+**State directory (per port)**
+
+Runtime files live under `~/.local/state/herdweb/{port}/` (or `$XDG_STATE_HOME/herdweb/{port}/`).
+Production (`7681`) and debug (`7691`) instances use separate directories so VAPID keys,
+subscriptions, and event history do not collide.
+
+| File | Purpose |
+|------|---------|
+| `vapid.json` | VAPID keys (mode `0600`). Auto-generated on first `herdweb serve` if missing; startup logs a one-line hint. |
+| `push-subscriptions.json` | Registered device endpoints |
+| `events.jsonl` | Event history (`kind=test` events are not persisted) |
+| `last-session.json` | Per `herdr --session` key — used for restart / exit health notifications |
+
+Rotate VAPID keys via `notify.vapid.*` in config (see skill / config reference). Old subscriptions
+become invalid after a key change — users must re-subscribe.
+
+Apple Push Notification service validates the VAPID JWT `sub` claim strictly: the subject must be
+a format-legal `mailto:` contact (e.g. `mailto:you@yourdomain.com`). Reserved or non-deliverable
+domains such as `mailto:herdweb@localhost` are rejected with `403 BadJwtToken` — iOS devices
+receive no push and stale subscriptions may be removed server-side, with no obvious error in the
+herdweb UI. Google/FCM does not enforce this check. For production, set
+`notify.vapid.subject: 'mailto:<your-email>'` in config (subject changes do not invalidate
+existing subscriptions).
+
+**Local events API**
+
+`POST {basePath}/api/events` accepts events from **loopback only** (`127.0.0.1` / `::1` /
+`localhost`). Optional `notify.token` in config requires matching `Authorization: Bearer …` on
+the request. External event sources (e.g. agent-config badge outbound) must run on the **same
+machine** as herdweb — cross-host posting is not supported in v1.
+
+Smoke test (with `herdweb serve` on port 7681, after subscribing on a device):
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
+  -H 'content-type: application/json' \
+  -d '{"v":1,"id":"smoke-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
+```
+
+Expect HTTP `202`. If `notify.token` is set, add `-H 'authorization: Bearer <token>'`.
+
+**Restart behaviour**
+
+When herdweb or the PTY session restarts, the health lane sends **one** notification per incident:
+exit notifications on PTY shutdown; a separate “service restarted” notification only if the new
+session starts more than 120 seconds after the previous exit (crash-loops inside that window
+collapse to a single exit notification).
+
 `gestures.scroll.strategy` controls touch scroll behaviour:
 
 - `wheel` (default): sends SGR mouse wheel events with touch-mapped terminal coordinates.

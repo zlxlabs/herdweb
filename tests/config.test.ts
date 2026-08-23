@@ -149,8 +149,8 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.toolbar.row2).toEqual([])
 	})
 
-	test('has 30 drawer buttons', () => {
-		expect(defaultConfig.drawer.buttons).toHaveLength(30)
+	test('has 31 drawer buttons', () => {
+		expect(defaultConfig.drawer.buttons).toHaveLength(31)
 	})
 
 	test('default row1 contains the image-upload button; the drawer does not', () => {
@@ -220,6 +220,10 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.gestures.swipe.right).toBe('\x02p')
 		expect(defaultConfig.gestures.swipe.leftLabel).toBe('Next herdr tab')
 		expect(defaultConfig.gestures.swipe.rightLabel).toBe('Previous herdr tab')
+	})
+
+	test('outbound notification channels default to disabled', () => {
+		expect(defaultConfig.notify.channels).toEqual([])
 	})
 })
 

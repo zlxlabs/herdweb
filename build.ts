@@ -109,6 +109,32 @@ export async function bundleWorkletAsset(): Promise<string> {
 	return bundleWorkletFromSource()
 }
 
+async function bundleSwFromSource(): Promise<string> {
+	const esbuild = await import('esbuild')
+	const result = await esbuild.build({
+		entryPoints: [resolveProjectFile('src/sw-entry.ts')],
+		bundle: true,
+		platform: 'browser',
+		minify: true,
+		format: 'iife',
+		outdir: 'out',
+		write: false,
+	})
+	const output = result.outputFiles.find((file) => file.path.endsWith('.js'))
+	if (!output) throw new Error('herdweb service worker build produced no JavaScript output')
+	return output.text
+}
+
+/** Bundle the service worker for browser push notifications. */
+export async function bundleSwAsset(): Promise<string> {
+	const prebuilt = readPrebuiltAsset('sw.iife.js')
+	if (prebuilt !== null) return prebuilt
+	if (!IS_SOURCE_RUNTIME) {
+		throw new Error('herdweb package is missing dist/sw.iife.js')
+	}
+	return bundleSwFromSource()
+}
+
 export function renderClientHtml(
 	js: string,
 	css: string,
@@ -170,6 +196,10 @@ export async function writeClientBundle(outputPath: string): Promise<void> {
 
 	writeFileSync(resolve(outputPath, 'client.iife.js'), jsOutput.text)
 	writeFileSync(resolve(outputPath, 'client.css'), cssOutput.text)
+}
+
+export async function writeSwBundle(outputPath: string): Promise<void> {
+	writeFileSync(resolve(outputPath, 'sw.iife.js'), await bundleSwFromSource())
 }
 
 export async function writeWorkletBundle(outputPath: string): Promise<void> {

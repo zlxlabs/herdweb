@@ -37,6 +37,7 @@ const keyboardToggleActionSchema = v.strictObject({ type: v.literal('keyboard-to
 const dpadToggleActionSchema = v.strictObject({ type: v.literal('dpad-toggle') })
 const voiceInputActionSchema = v.strictObject({ type: v.literal('voice-input') })
 const imageUploadActionSchema = v.strictObject({ type: v.literal('image-upload') })
+const notifyPanelActionSchema = v.strictObject({ type: v.literal('notify-panel') })
 
 const buttonActionSchema = v.variant('type', [
 	sendActionSchema,
@@ -51,6 +52,7 @@ const buttonActionSchema = v.variant('type', [
 	dpadToggleActionSchema,
 	voiceInputActionSchema,
 	imageUploadActionSchema,
+	notifyPanelActionSchema,
 ])
 
 // --- Control button ---
@@ -481,6 +483,68 @@ function voiceInputPlacementCheck<T extends Record<string, unknown>>() {
 	})
 }
 
+const notifyVapidOverridesSchema = v.strictObject({
+	subject: v.optional(v.string()),
+	publicKey: v.optional(v.string()),
+	privateKey: v.optional(v.string()),
+})
+
+const notifyChannelSchemas = [
+	v.strictObject({
+		type: v.literal('message-pusher'),
+		url: v.string(),
+		user: v.string(),
+		token: v.string(),
+	}),
+	v.strictObject({
+		type: v.literal('wecom'),
+		url: v.string(),
+	}),
+	v.strictObject({
+		type: v.literal('webhook'),
+		url: v.string(),
+		headers: v.optional(v.record(v.string(), v.string())),
+	}),
+] as const
+
+const notifyChannelSchema = v.variant('type', notifyChannelSchemas)
+
+const notifySilenceOverridesSchema = v.strictObject({
+	enabled: v.optional(v.boolean()),
+	busyMs: v.optional(finiteNumber),
+	quietMs: v.optional(finiteNumber),
+	cooldownMs: v.optional(finiteNumber),
+})
+
+const notifyOverridesSchema = v.strictObject({
+	token: v.optional(v.string()),
+	channels: v.optional(v.array(notifyChannelSchema)),
+	vapid: v.optional(notifyVapidOverridesSchema),
+	history: v.optional(v.strictObject({ limit: v.optional(finiteNumber) })),
+	silence: v.optional(notifySilenceOverridesSchema),
+})
+
+const notifyVapidResolvedSchema = v.strictObject({
+	subject: v.optional(v.string()),
+	publicKey: v.optional(v.string()),
+	privateKey: v.optional(v.string()),
+})
+
+const notifySilenceResolvedSchema = v.strictObject({
+	enabled: v.boolean(),
+	busyMs: finiteNumber,
+	quietMs: finiteNumber,
+	cooldownMs: finiteNumber,
+})
+
+const notifyResolvedSchema = v.strictObject({
+	token: v.optional(v.string()),
+	channels: v.array(notifyChannelSchema),
+	vapid: notifyVapidResolvedSchema,
+	history: v.strictObject({ limit: finiteNumber }),
+	silence: notifySilenceResolvedSchema,
+})
+
 const herdwebConfigOverridesBaseSchema = v.strictObject({
 	name: v.optional(v.string()),
 	theme: v.optional(termThemeOverridesSchema),
@@ -503,6 +567,7 @@ const herdwebConfigOverridesBaseSchema = v.strictObject({
 	pwa: v.optional(pwaOverridesSchema),
 	reconnect: v.optional(reconnectOverridesSchema),
 	asr: v.optional(asrOverridesSchema),
+	notify: v.optional(notifyOverridesSchema),
 })
 
 /** Schema for config overrides (all fields optional, button arrays accept array | function) */
@@ -530,6 +595,7 @@ const herdwebConfigResolvedBaseSchema = v.strictObject({
 	pwa: pwaResolvedSchema,
 	reconnect: reconnectResolvedSchema,
 	asr: asrResolvedSchema,
+	notify: notifyResolvedSchema,
 })
 
 export const herdwebConfigResolvedSchema = v.pipe(
