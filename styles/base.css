@@ -349,6 +349,8 @@ body.wt-composer-open #wt-toolbar {
 	bottom: var(--kb-inset, 0px);
 	left: 0;
 	right: 0;
+	max-width: 480px;
+	margin: 0 auto;
 	background: #313244;
 	border-radius: 16px 16px 0 0;
 	padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
@@ -426,9 +428,24 @@ body.wt-composer-open #wt-toolbar {
 	color: #1e1e2e;
 }
 
+/*
+ * Fixed 4 columns — do not change to auto-fill or back to 3.
+ * The drawer is a low-frequency command panel with three hard constraints:
+ * 1. Labels must stay readable: >=80px per button (24 buttons over 4 columns
+ *    inside a 480px panel gives ~108px each).
+ * 2. One screen without scrolling: 24 buttons at 4 columns = 7 rows (~476px),
+ *    which fits most viewports; 3 columns = 10 rows (~700px) would scroll.
+ * 3. Muscle memory: geometry must be fixed. auto-fill would re-flow button
+ *    positions on rotation, which hurts more than over-wide buttons.
+ * The panel is capped at 480px and centred (see #wt-drawer) so every button
+ * sits at the same position on every device in every orientation (tablet
+ * portrait and landscape are both real use cases). 480px = 4 comfortable
+ * 108px buttons + gaps + padding. Phones (<480px) are unaffected: the panel
+ * is full-width there, same as before.
+ */
 #wt-drawer-grid {
 	display: grid;
-	grid-template-columns: repeat(3, 1fr);
+	grid-template-columns: repeat(4, 1fr);
 	gap: 8px;
 }
 
