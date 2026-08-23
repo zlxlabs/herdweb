@@ -13,7 +13,7 @@
 先做这些动作：
 1. 运行 pickup；`git fetch origin` 后检查 `gh pr list`、`gh pr list --state merged --limit 20`、`git log origin/main --oneline -20`，确认本范围尚未落地。
 2. 读取本 prompt 列出的 plan、test plan、任务 JSONL 和 review-discipline；对照当前代码确认实现边界。执行器报告不能替代独立证据。
-3. 每张卡用 `worktree-bootstrap` 创建隔离 worktree 和分支，分支创建即开 draft PR；TDD，小提交，每个 commit 都 push。绝不直接写 main，绝不覆盖另一个会话，绝不修改另一个仓库。
+3. PR0–PR4 是最终可合并、可部署的五个 landing increments。每个 landing increment 创建自己的隔离 worktree/branch，并在分支创建时开 draft PR。同一 increment 内的卡默认在 owning PR worktree 串行做 TDD、小提交、逐 commit push。只有计划明确允许并行的 lane，且文件 ownership 不重叠时，才用独立临时 worktree/branch；完成后由一支笔串行收口到 owning PR，临时并行不构成额外 landing increment。绝不直接写 main，绝不覆盖另一个会话，绝不修改另一个仓库；同一文件或同一分支遵守一支笔原则。
 4. 同一文件或同一分支遵守一支笔原则。小选择按第一性原理自动拍板，后来在晨报说明；只有不可逆动作、改变目标，或真正不确定且 blast radius 很大的 UI 选择才问用户。提问前用大白话解释背景、风险和选项差异。
 
 设计与 T0 并行：对 picker/switch states 运行 `$plan-design-review`，同时运行 T0 真实探针和只读代码审计。设计评审要覆盖 loading、empty、error、success、partial、失败恢复、47 字符名称、键盘/触控/返回键和 screen reader。高 blast 的 UI 选择若确实需要用户输入，记录选择和依赖后继续做不依赖它的 server/core 工作，不让整夜停摆。
