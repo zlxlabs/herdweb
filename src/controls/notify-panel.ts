@@ -169,7 +169,17 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	const historyList = el('div', { class: 'wt-notify-history-list' })
 	const historySection = el('section', { class: 'wt-notify-history' })
 	historySection.append(historyHeader, historyList)
-	overlay.append(closeBtn, title, status, iosHint, permStatus, toggleRow, permCheckBtn, testBtn, historySection)
+	overlay.append(
+		closeBtn,
+		title,
+		status,
+		iosHint,
+		permStatus,
+		toggleRow,
+		permCheckBtn,
+		testBtn,
+		historySection,
+	)
 
 	function setStatus(message: string): void {
 		status.textContent = message
@@ -364,7 +374,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			refreshPermStatus()
 			await refreshToggle()
 			if (permission === 'denied') {
-				setStatus('浏览器已拒绝通知：地址栏锁图标 → 网站设置 → 通知 → 允许，改完回来再点本按钮')
+				setStatus('浏览器已拒绝通知：地址栏锁图标 → 站点设置 → 通知 → 允许，改完回来再点本按钮')
 			} else if (permission === 'granted') {
 				setStatus('权限已允许，可打开推送开关')
 			} else {

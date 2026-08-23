@@ -315,3 +315,124 @@ test('refreshToggle degrades when service worker ready never resolves', async ()
 	expect(status.textContent).toContain('timed out')
 	vi.useRealTimers()
 })
+
+function stubNotification(
+	value: { permission: string; requestPermission: ReturnType<typeof vi.fn> } | undefined,
+): void {
+	Object.defineProperty(globalThis, 'Notification', { value, configurable: true })
+}
+
+function stubServiceWorker(): void {
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve({
+				pushManager: {
+					getSubscription: vi.fn(() => Promise.resolve(null)),
+					subscribe: vi.fn(),
+				},
+			}),
+		},
+		configurable: true,
+	})
+}
+
+const PERMISSION_CASES: ReadonlyArray<{ permission: string | undefined; expected: string }> = [
+	{ permission: 'granted', expected: '通知权限：已允许' },
+	{ permission: 'default', expected: '通知权限：未决定' },
+	{ permission: 'denied', expected: '通知权限：已拒绝（需在浏览器站点设置中允许）' },
+	{ permission: undefined, expected: '此浏览器不支持通知' },
+]
+
+for (const { permission, expected } of PERMISSION_CASES) {
+	test(`permission line renders "${expected}"`, () => {
+		stubNotification(
+			permission === undefined
+				? undefined
+				: { permission, requestPermission: vi.fn().mockResolvedValue(permission) },
+		)
+		const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+		document.body.appendChild(panel.element)
+		panel.open()
+
+		const permStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-perm-status')
+		if (!permStatus) throw new Error('missing permission status line')
+		expect(permStatus.textContent).toBe(expected)
+	})
+}
+
+test('permission line has text after open()', () => {
+	stubNotification({ permission: 'default', requestPermission: vi.fn() })
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const permStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-perm-status')
+	if (!permStatus) throw new Error('missing permission status line')
+	expect(permStatus.textContent?.length).toBeGreaterThan(0)
+})
+
+test('perm check button requests permission and updates the permission line', async () => {
+	const notificationMock = {
+		permission: 'default',
+		requestPermission: vi.fn(async () => {
+			notificationMock.permission = 'granted'
+			return 'granted'
+		}),
+	}
+	stubNotification(notificationMock)
+	stubServiceWorker()
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const permStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-perm-status')
+	const permCheckBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-perm-check')
+	if (!permStatus || !permCheckBtn) throw new Error('missing permission elements')
+	expect(permStatus.textContent).toBe('通知权限：未决定')
+
+	permCheckBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(notificationMock.requestPermission).toHaveBeenCalled()
+	expect(permStatus.textContent).toBe('通知权限：已允许')
+})
+
+test('denied permission shows site-settings guidance', async () => {
+	stubNotification({
+		permission: 'denied',
+		requestPermission: vi.fn().mockResolvedValue('denied'),
+	})
+	stubServiceWorker()
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const status = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-status')
+	const permCheckBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-perm-check')
+	if (!status || !permCheckBtn) throw new Error('missing panel elements')
+
+	permCheckBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(status.textContent).toContain('站点设置')
+})
+
+test('perm check button is a no-op when Notification is unsupported', async () => {
+	stubNotification(undefined)
+	stubServiceWorker()
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: vi.fn() as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+
+	const permStatus = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-perm-status')
+	const permCheckBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-perm-check')
+	if (!permStatus || !permCheckBtn) throw new Error('missing permission elements')
+
+	permCheckBtn.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(permStatus.textContent).toBe('此浏览器不支持通知')
+})
