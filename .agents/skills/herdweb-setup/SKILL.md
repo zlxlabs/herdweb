@@ -121,7 +121,7 @@ Default herdr drawer uses these button IDs (shipped defaults):
 | `herdr-sidebar` | Sidebar | `send` `\x02b` |
 | `herdr-scrollback` | Scroll | `send` `\x02e` |
 | `herdr-kill-pane` | Kill | `send` `\x02x` |
-| `herdr-help` | Help | `send` `\x02?` |
+| `herdr-help` | Keys | `send` `\x02?` |
 | `herdr-prefix` | Prefix | `send` `\x02` |
 
 ### Phase 5: Deploy and wrap up
@@ -183,6 +183,8 @@ name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollBut
 | `dpad-toggle`    | (none)              | Toggles floating d-pad |
 | `voice-input`    | (none)              | Toolbar-only voice composer entry |
 | `image-upload`   | (none)              | Upload image to server tmp dir |
+
+Drawer buttons also accept an optional `section?: string` — the drawer renders a heading row whenever adjacent buttons' section changes; toolbar/floating renderers ignore it.
 
 ### Gestures
 

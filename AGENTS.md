@@ -89,7 +89,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/config.ts` — defaults, defineConfig, deepMerge
 - `src/types.ts` — all shared types
 - `src/toolbar/` — toolbar DOM + button definitions
-- `src/drawer/drawer.ts` — command drawer with flat grid
+- `src/drawer/drawer.ts` — command drawer with sectioned grid (optional `section` headings)
 - `src/drawer/commands.ts` — re-exports defaultDrawerButtons from config
 - `src/gestures/` — swipe, pinch, scroll detection + gesture lock
 - `src/controls/` — help overlay, combo picker, floating buttons, scroll buttons, keyboard controller, d-pad
@@ -150,11 +150,11 @@ CLI + build:
 ## Conventions
 
 - Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix'`)
-- Unified control schema: use `ControlButton` for both toolbar and drawer items
+- Unified control schema: use `ControlButton` for both toolbar and drawer items (optional `section` field is drawer-only — toolbar/floating renderers ignore it)
 - Config shape: `drawer.buttons` (not `drawer.commands`)
 - Config via `defineConfig()` — typed, with sensible defaults
 - Config resolution: `--config` flag → cwd → `~/.config/herdweb/` (XDG fallback; legacy upstream config paths auto-fallback)
-- Drawer takes a flat `readonly ControlButton[]` — rendered as a single grid
+- Drawer takes a flat `readonly ControlButton[]` — rendered as a single grid, with a heading row inserted whenever adjacent buttons' `section` changes
 - Help overlay is config-driven and must be fail-safe (never break core controls if help fails)
 - Mobile viewport handling: lock document scroll and compute height from visual viewport (keyboard-aware); viewport meta uses `interactive-widget=resizes-content`, bottom chrome lifts above the soft keyboard via `--kb-inset`, and viewport-driven terminal resizes are debounced in `src/viewport/height.ts`
 - Changelog and versioning are fully automated by semantic-release — do not manually edit `CHANGELOG.md`. Use conventional commit types to control releases: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major. Non-release types: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`

@@ -51,8 +51,16 @@ export function createDrawer(
 	drawer.appendChild(grid)
 
 	let drawerOpen = false
+	let lastSection: string | undefined
 
 	for (const buttonDef of buttons) {
+		// Section heading row when the section changes between adjacent buttons
+		if (buttonDef.section && buttonDef.section !== lastSection) {
+			const heading = el('div', { class: 'wt-drawer-section' })
+			heading.textContent = buttonDef.section
+			grid.appendChild(heading)
+		}
+		lastSection = buttonDef.section
 		const button = el('button')
 		button.textContent = buttonDef.label
 		if (buttonDef.action.type === 'keyboard-toggle') {

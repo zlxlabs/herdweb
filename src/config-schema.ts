@@ -60,6 +60,7 @@ const controlButtonSchema = v.strictObject({
 	label: v.string(),
 	description: v.string(),
 	action: buttonActionSchema,
+	section: v.optional(v.string()),
 })
 
 // --- Button array input (array | function) ---

@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import { defineConfig } from '../src/config'
 import { createDrawer } from '../src/drawer/drawer'
 import { createHookRegistry } from '../src/hooks/registry'
+import type { ControlButton } from '../src/types'
 import { _resetTouchGuard } from '../src/util/tap'
 import { mockTerminal } from './fixtures'
 
@@ -78,5 +79,42 @@ describe('drawer close paths', () => {
 		const { drawer } = makeDrawer()
 		const labels = [...drawer.querySelectorAll('#wt-drawer-grid button')].map((b) => b.textContent)
 		expect(labels).toContain('Tab')
+	})
+})
+
+describe('drawer section headings', () => {
+	test('renders one heading row per section, in order', () => {
+		const { drawer } = makeDrawer()
+		const headings = [...drawer.querySelectorAll('#wt-drawer-grid .wt-drawer-section')].map(
+			(h) => h.textContent,
+		)
+		expect(headings).toEqual(['herdr', 'Terminal', 'App'])
+	})
+
+	test('each heading precedes the first button of its section', () => {
+		const { drawer } = makeDrawer()
+		const grid = drawer.querySelector('#wt-drawer-grid')
+		const children = [...(grid?.children ?? [])]
+
+		const herdrHeading = children.findIndex((c) => c.textContent === 'herdr')
+		expect(children[herdrHeading + 1]?.textContent).toBe('+ Win')
+		const terminalHeading = children.findIndex((c) => c.textContent === 'Terminal')
+		expect(children[terminalHeading + 1]?.textContent).toBe('PgUp')
+		const appHeading = children.findIndex((c) => c.textContent === 'App')
+		expect(children[appHeading + 1]?.textContent).toBe('Font −')
+	})
+
+	test('buttons without a section render no heading', () => {
+		const config = defineConfig()
+		const plain: readonly ControlButton[] = [
+			{ id: 'a', label: 'A', description: 'a', action: { type: 'send', data: 'a' } },
+			{ id: 'b', label: 'B', description: 'b', action: { type: 'send', data: 'b' } },
+		]
+		const { drawer } = createDrawer(mockTerminal(), plain, {
+			hooks: createHookRegistry(),
+			appConfig: config,
+		})
+		expect(drawer.querySelectorAll('#wt-drawer-grid .wt-drawer-section').length).toBe(0)
+		expect(drawer.querySelectorAll('#wt-drawer-grid button').length).toBe(2)
 	})
 })
