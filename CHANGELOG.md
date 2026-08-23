@@ -1,3 +1,10 @@
+## [1.6.1](https://github.com/zlxlabs/herdweb/compare/v1.6.0...v1.6.1) (2026-08-23)
+
+
+### Bug Fixes
+
+* **pwa:** fetch manifest with credentials so install check works behind auth proxies ([0143950](https://github.com/zlxlabs/herdweb/commit/014395029dee083ddb8eefdf73264d20424ec665))
+
 # [1.6.0](https://github.com/zlxlabs/herdweb/compare/v1.5.0...v1.6.0) (2026-08-23)
 
 
