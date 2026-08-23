@@ -16,18 +16,38 @@ Cloudflare Access、Cloudflare Tunnel、Tailscale 配置负责。
 
 ## 生产
 
-生产 unit 的持久路径固定为 `/home/zlx/projects/oss/herdweb`，并由
+生产 unit 的持久路径固定为 `~/.local/share/herdweb`（XDG data 目录下的独立 clone，
+与 `~/.config/herdweb`、`~/.local/state/herdweb` 对齐），并由
 `scripts/serve-prod.sh` 启动。启动脚本用 `git symbolic-ref` 检查当前分支必须是
 `main`；detached HEAD 或其他分支会直接失败。unit 使用 fnm 的
 `aliases/default/bin` 和 `~/.local/bin`，不绑定 `node-versions/`。
 
-安装并启用生产 unit：
+首次部署（克隆独立的生产副本并安装 unit）：
 
 ```bash
-cd /home/zlx/projects/oss/herdweb
+git clone <repo> ~/.local/share/herdweb
+cd ~/.local/share/herdweb
+pnpm install --frozen-lockfile
 scripts/install-prod.sh --enable
 systemctl --user status herdweb.service
 ```
+
+生产配置走 XDG 路径 `~/.config/herdweb/herdweb.config.ts`。配置解析顺序是
+`cwd/herdweb.config.{ts,js}` → `$XDG_CONFIG_HOME/herdweb/herdweb.config.{ts,js}`
+（见 `cli.ts` 的 `discoverConfigPath`）；生产 clone 的 cwd 里没有 git 跟踪的
+`herdweb.config.ts`（该文件名在 `.gitignore` 中），因此会落到 XDG 位置。密钥放在
+XDG 配置或其 `.local` 兄弟文件中，不写入 git。
+
+### 更新生产
+
+日常更新只有一个人口，可从任意位置运行（脚本自己定位 `PROD_DIR`）：
+
+```bash
+scripts/update-prod.sh
+```
+
+脚本执行 `git pull --ff-only`、`pnpm install --frozen-lockfile`，然后
+`systemctl --user restart herdweb.service`。
 
 只安装而不启用：
 
