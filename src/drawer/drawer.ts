@@ -64,7 +64,9 @@ export function createDrawer(
 			// Adjust/lookup actions stay open so they can be tapped repeatedly
 			// (font sizing, consulting the guide); everything else closes.
 			const keepsDrawerOpen =
-				buttonDef.action.type === 'font-size' || buttonDef.action.type === 'help'
+				buttonDef.action.type === 'font-size' ||
+				buttonDef.action.type === 'help' ||
+				buttonDef.action.type === 'notify-panel'
 			if (!keepsDrawerOpen) close()
 
 			async function sendWithHooks(data: string): Promise<void> {

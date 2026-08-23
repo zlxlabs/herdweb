@@ -236,6 +236,12 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		action: { type: 'font-size', delta: 2 },
 	},
 	{
+		id: 'notify-panel',
+		label: '\uD83D\uDD14',
+		description: 'Notification settings',
+		action: { type: 'notify-panel' },
+	},
+	{
 		id: 'guide',
 		label: 'Guide',
 		description: 'Open the herdweb help guide',
@@ -356,6 +362,17 @@ const defaultAsr: HerdwebConfig['asr'] = {
 	autoEnter: false,
 }
 
+const defaultNotify: HerdwebConfig['notify'] = {
+	vapid: {},
+	history: { limit: 200 },
+	silence: {
+		enabled: true,
+		busyMs: 30_000,
+		quietMs: 180_000,
+		cooldownMs: 600_000,
+	},
+}
+
 /** Complete default configuration */
 export const defaultConfig: HerdwebConfig = {
 	name: 'herdweb',
@@ -370,6 +387,7 @@ export const defaultConfig: HerdwebConfig = {
 	pwa: defaultPwa,
 	reconnect: { enabled: true },
 	asr: defaultAsr,
+	notify: defaultNotify,
 }
 
 /** Deep merge two objects, with `override` taking precedence */

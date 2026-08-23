@@ -582,6 +582,190 @@ body.wt-composer-open #wt-toolbar {
 	z-index: 10003;
 }
 
+/* Notify settings panel */
+#wt-notify {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 10002;
+	overflow-y: auto;
+	background: rgba(30, 30, 46, 0.96);
+	color: #cdd6f4;
+	padding: 48px 16px 24px;
+	font-family: sans-serif;
+}
+
+#wt-notify h2 {
+	margin: 0 0 12px;
+	font-size: 1.25rem;
+}
+
+#wt-notify .wt-notify-status {
+	margin: 0 0 12px;
+	color: #a6adc8;
+}
+
+#wt-notify .wt-notify-ios-hint {
+	margin: 0 0 16px;
+	padding: 12px;
+	border-radius: 8px;
+	background: #313244;
+	color: #bac2de;
+	font-size: 0.9rem;
+	line-height: 1.4;
+}
+
+#wt-notify .wt-notify-row {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 16px;
+}
+
+#wt-notify .wt-notify-test {
+	padding: 10px 16px;
+	border: none;
+	border-radius: 8px;
+	background: #cba6f7;
+	color: #1e1e2e;
+	font-weight: 600;
+	cursor: pointer;
+}
+
+#wt-notify .wt-notify-close {
+	position: fixed;
+	top: 12px;
+	right: 12px;
+	background: #45475a;
+	color: #cdd6f4;
+	border: none;
+	border-radius: 50%;
+	width: 36px;
+	height: 36px;
+	font-size: 20px;
+	cursor: pointer;
+	z-index: 10003;
+}
+
+#wt-notify .wt-notify-history {
+	margin-top: 24px;
+	padding-top: 16px;
+	border-top: 1px solid #45475a;
+}
+
+#wt-notify .wt-notify-history-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin-bottom: 12px;
+}
+
+#wt-notify .wt-notify-history-heading {
+	margin: 0;
+	font-size: 1rem;
+}
+
+#wt-notify .wt-notify-history-refresh {
+	padding: 6px 12px;
+	border: none;
+	border-radius: 6px;
+	background: #45475a;
+	color: #cdd6f4;
+	font-size: 0.85rem;
+	cursor: pointer;
+}
+
+#wt-notify .wt-notify-history-list {
+	display: flex;
+	flex-direction: column;
+	gap: 10px;
+}
+
+#wt-notify .wt-notify-history-item {
+	display: flex;
+	gap: 10px;
+	padding: 10px;
+	border-radius: 8px;
+	background: #313244;
+}
+
+#wt-notify .wt-notify-kind-badge {
+	flex-shrink: 0;
+	align-self: flex-start;
+	padding: 2px 8px;
+	border-radius: 999px;
+	font-size: 0.75rem;
+	font-weight: 600;
+	line-height: 1.4;
+}
+
+#wt-notify .wt-notify-kind-asking {
+	background: #f9e2af;
+	color: #1e1e2e;
+}
+
+#wt-notify .wt-notify-kind-done {
+	background: #a6e3a1;
+	color: #1e1e2e;
+}
+
+#wt-notify .wt-notify-kind-ci-red {
+	background: #f38ba8;
+	color: #1e1e2e;
+}
+
+#wt-notify .wt-notify-kind-silence {
+	background: #89b4fa;
+	color: #1e1e2e;
+}
+
+#wt-notify .wt-notify-kind-health {
+	background: #cba6f7;
+	color: #1e1e2e;
+}
+
+#wt-notify .wt-notify-history-content {
+	flex: 1;
+	min-width: 0;
+}
+
+#wt-notify .wt-notify-history-title-row {
+	display: flex;
+	align-items: baseline;
+	justify-content: space-between;
+	gap: 8px;
+}
+
+#wt-notify .wt-notify-history-title {
+	font-weight: 600;
+	font-size: 0.95rem;
+}
+
+#wt-notify .wt-notify-history-time {
+	flex-shrink: 0;
+	font-size: 0.75rem;
+	color: #a6adc8;
+}
+
+#wt-notify .wt-notify-history-body {
+	margin: 6px 0 0;
+	font-size: 0.85rem;
+	color: #bac2de;
+	line-height: 1.4;
+}
+
+#wt-notify .wt-notify-history-empty,
+#wt-notify .wt-notify-history-error {
+	margin: 0;
+	padding: 10px;
+	font-size: 0.9rem;
+	color: #a6adc8;
+}
+
+#wt-notify .wt-notify-history-error {
+	color: #f38ba8;
+}
+
 /* Combo picker */
 #wt-combo-backdrop {
 	display: none;

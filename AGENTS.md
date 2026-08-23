@@ -96,6 +96,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/controls/keyboard-controller.ts` — keyboard sovereignty: three-signal state controller (`inputPermission`/`textareaFocus`/`keyboardVisible`), escape hatch, fail-loud overlay; also exports the shared touchend focus-steal guard
 - `src/controls/dpad.ts` — moshi-style floating arrow-key pad (← ↑ ↓ → ⌫ ⏎), toggled by the ✥ `dpad-toggle` action; keys are focus-safe (touchend guard) and send via `sendData`
 - `src/controls/image-drop-controller.ts` — `createImageDropController`: POSTs the picked image to `{basePath}/api/image-drop`, then inserts ` ${path} ` into the agent input (never Enter) once the session is unchanged and synced; success is a transient toast (auto-hides after ~2.5s), only failure states show the retry/copy/close panel
+- `src/controls/notify-panel.ts` — push notification settings panel (subscribe toggle, test button, iOS standalone hint, event history list); opened via drawer `notify-panel` action (☰ → 🔔)
 - `src/theme/` — catppuccin-mocha + apply
 - `src/viewport/` — height management, landscape detection
 - `src/startup-resize.ts` — schedules the initial terminal resize on load (rAF + fonts-ready)
@@ -112,6 +113,8 @@ Browser overlay (bundled to the client via esbuild):
 - `src/config-validate.ts` — config assertions
 - `src/asr/` — provider-independent ASR contract, PCM pipeline, AudioWorklet, and Doubao SAUC engine
 - `src/pwa/` — PWA manifest, meta-tags, icons
+- `src/notify/` — Web Push pipeline: event schema, `/api/events` + push subscribe routes, silence/health lanes, per-port state files
+- `src/sw-entry.ts` — service worker source (push display, notificationclick focus/openWindow, pushsubscriptionchange); served as `{basePath}/sw.js`, no fetch handler
 
 Server runtime (`herdweb serve`, Node):
 
@@ -149,7 +152,7 @@ CLI + build:
 
 ## Conventions
 
-- Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix'`)
+- Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix' | 'notify-panel'`)
 - Unified control schema: use `ControlButton` for both toolbar and drawer items
 - Config shape: `drawer.buttons` (not `drawer.commands`)
 - Config via `defineConfig()` — typed, with sensible defaults
