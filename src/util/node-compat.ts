@@ -58,7 +58,6 @@ export function spawnProcess(
 		detached,
 		stdio,
 	})
-	if (detached) proc.unref()
 
 	const exited = new Promise<number>((resolve, reject) => {
 		proc.on('close', (code) => resolve(code ?? 1))
@@ -82,7 +81,8 @@ export function spawnProcess(
 			if (detached && process.platform !== 'win32') {
 				const pid = proc.pid
 				if (pid === undefined) return false
-				process.kill(-pid, signal)
+				const groupSignal = signal === 'SIGINT' ? 'SIGTERM' : signal
+				process.kill(-pid, groupSignal)
 				return true
 			}
 			return proc.kill(signal)
