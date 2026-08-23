@@ -172,7 +172,19 @@ test('offline event invalidates an OPEN socket before keyboard input is sent', a
 	await page.goto('/')
 	await page.waitForSelector('#terminal .xterm')
 	await waitForSynced(page)
-	const sentBefore = await getNonPingFrames(page)
+	let sentBefore: string[] | undefined
+	let previousFrames: string[] | undefined
+	await expect
+		.poll(async () => {
+			const currentFrames = await getNonPingFrames(page)
+			const stable =
+				previousFrames !== undefined &&
+				JSON.stringify(currentFrames) === JSON.stringify(previousFrames)
+			previousFrames = currentFrames
+			if (stable) sentBefore = currentFrames
+			return stable
+		})
+		.toBe(true)
 
 	await context.setOffline(true)
 	await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false)
@@ -184,6 +196,7 @@ test('offline event invalidates an OPEN socket before keyboard input is sent', a
 	await page.keyboard.type(marker)
 	await page.keyboard.press('Enter')
 	const sentAfter = await getNonPingFrames(page)
+	expect(sentBefore).toBeDefined()
 	expect(sentAfter).toEqual(sentBefore)
 
 	await context.setOffline(false)
