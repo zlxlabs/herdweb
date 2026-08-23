@@ -7,7 +7,7 @@ import { expect, test } from 'vitest'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
-const tsxBin = join(repoRoot, 'node_modules/.bin/tsx')
+const tsxLoader = join(repoRoot, 'node_modules/tsx/dist/loader.mjs')
 
 function isPortListening(port: number): Promise<boolean> {
 	return new Promise((resolve) => {
@@ -69,7 +69,9 @@ async function readPort(proc: ReturnType<typeof spawnProcess>): Promise<number> 
 test('isolated serve dies with the caller process', async () => {
 	const caller = spawnProcess(
 		[
-			tsxBin,
+			process.execPath,
+			'--import',
+			tsxLoader,
 			'--eval',
 			[
 				"void (async () => { const { startIsolatedServe } = await import('./tests/playwright/isolated-serve.ts'); const server = await startIsolatedServe(); console.log(server.port); setInterval(() => {}, 1000) })()",

@@ -21,18 +21,44 @@ export function spawnProcess(
 		stdout?: 'ignore' | 'pipe'
 		stderr?: 'ignore' | 'pipe'
 		detached?: boolean
+		killWithParent?: boolean
 	},
 ): SpawnedProcess {
 	const [command, ...args] = cmd
 	if (!command) throw new Error('spawnProcess requires at least one argument')
 	const detached = opts?.detached ?? false
+	const killWithParent = opts?.killWithParent ?? false
+	if (killWithParent && !detached) {
+		throw new Error('spawnProcess killWithParent requires detached')
+	}
+	if (killWithParent && process.platform === 'win32') {
+		throw new Error('spawnProcess killWithParent requires a POSIX shell')
+	}
 
-	const proc = nodeSpawn(command, args, {
+	const spawnCommand = killWithParent ? 'sh' : command
+	const spawnArgs = killWithParent
+		? [
+				'-c',
+				'watchdog_pgid=$$; (cat <&3 >/dev/null; kill -TERM -"$watchdog_pgid") & exec "$@"',
+				'herdweb-parent-watchdog',
+				command,
+				...args,
+			]
+		: args
+	const stdio: Array<'ignore' | 'pipe'> = [
+		opts?.stdin ?? 'ignore',
+		opts?.stdout ?? 'ignore',
+		opts?.stderr ?? 'ignore',
+	]
+	if (killWithParent) stdio.push('pipe')
+
+	const proc = nodeSpawn(spawnCommand, spawnArgs, {
 		cwd: opts?.cwd,
 		env: opts?.env,
 		detached,
-		stdio: [opts?.stdin ?? 'ignore', opts?.stdout ?? 'ignore', opts?.stderr ?? 'ignore'],
+		stdio,
 	})
+	if (detached) proc.unref()
 
 	const exited = new Promise<number>((resolve, reject) => {
 		proc.on('close', (code) => resolve(code ?? 1))
