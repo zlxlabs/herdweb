@@ -2,6 +2,7 @@ import { defineConfig, devices } from '@playwright/test'
 
 export default defineConfig({
 	testDir: './tests/playwright',
+	// Local request timing does not justify changing the shared suite timeout.
 	timeout: 30_000,
 	retries: process.env.CI ? 2 : 0,
 	use: {
