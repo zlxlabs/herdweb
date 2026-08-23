@@ -1,3 +1,10 @@
+## [1.3.2](https://github.com/zlxlabs/herdweb/compare/v1.3.1...v1.3.2) (2026-08-23)
+
+
+### Bug Fixes
+
+* **notify:** deduplicate session in channel content ([c76f2e4](https://github.com/zlxlabs/herdweb/commit/c76f2e4a6a62f4c49931b93b000194df9e881075))
+
 ## [1.3.1](https://github.com/zlxlabs/herdweb/compare/v1.3.0...v1.3.1) (2026-08-23)
 
 
