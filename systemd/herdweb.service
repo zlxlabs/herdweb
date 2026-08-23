@@ -1,6 +1,6 @@
 [Unit]
 Description=herdweb production bridge for the default herdr session
-Documentation=file:///home/zlx/projects/oss/herdweb/docs/deploy-herdr.md
+Documentation=file:///home/zlx/.local/share/herdweb/docs/deploy-herdr.md
 
 [Service]
 Type=simple
@@ -8,8 +8,8 @@ Restart=on-failure
 RestartSec=3
 Environment=HOME=%h
 Environment=PATH=/home/zlx/.local/share/fnm/aliases/default/bin:/home/zlx/.local/bin:/usr/local/bin:/usr/bin:/bin
-WorkingDirectory=/home/zlx/projects/oss/herdweb
-ExecStart=/home/zlx/projects/oss/herdweb/scripts/serve-prod.sh serve --host 127.0.0.1 --port 7681 -- herdr --session default
+WorkingDirectory=/home/zlx/.local/share/herdweb
+ExecStart=/home/zlx/.local/share/herdweb/scripts/serve-prod.sh serve --host 127.0.0.1 --port 7681 -- herdr --session default
 
 [Install]
 WantedBy=default.target
