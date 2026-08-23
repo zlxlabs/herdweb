@@ -64,6 +64,18 @@ function isStandaloneDisplay(): boolean {
 	return window.matchMedia('(display-mode: standalone)').matches
 }
 
+function describePermission(): string {
+	if (typeof Notification === 'undefined') return '此浏览器不支持通知'
+	switch (Notification.permission) {
+		case 'granted':
+			return '通知权限：已允许'
+		case 'denied':
+			return '通知权限：已拒绝（需在浏览器站点设置中允许）'
+		default:
+			return '通知权限：未决定'
+	}
+}
+
 function vapidApplicationServerKey(base64: string): ArrayBuffer {
 	const bytes = urlBase64ToUint8Array(base64)
 	const buffer = new ArrayBuffer(bytes.length)
@@ -139,6 +151,12 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	const toggleLabel = el('label', { class: 'wt-notify-toggle-label' }, 'Push notifications')
 	const toggle = el('input', { type: 'checkbox', class: 'wt-notify-toggle' })
 	toggleRow.append(toggleLabel, toggle)
+	const permStatus = el('p', { class: 'wt-notify-perm-status' })
+	const permCheckBtn = el(
+		'button',
+		{ type: 'button', class: 'wt-notify-perm-check' },
+		'检测并重新授权',
+	)
 	const testBtn = el(
 		'button',
 		{ type: 'button', class: 'wt-notify-test' },
@@ -151,10 +169,24 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	const historyList = el('div', { class: 'wt-notify-history-list' })
 	const historySection = el('section', { class: 'wt-notify-history' })
 	historySection.append(historyHeader, historyList)
-	overlay.append(closeBtn, title, status, iosHint, toggleRow, testBtn, historySection)
+	overlay.append(
+		closeBtn,
+		title,
+		status,
+		iosHint,
+		permStatus,
+		toggleRow,
+		permCheckBtn,
+		testBtn,
+		historySection,
+	)
 
 	function setStatus(message: string): void {
 		status.textContent = message
+	}
+
+	function refreshPermStatus(): void {
+		permStatus.textContent = describePermission()
 	}
 
 	function updateIosHint(): void {
@@ -229,6 +261,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			return
 		}
 		const permission = await Notification.requestPermission()
+		refreshPermStatus()
 		if (permission !== 'granted') {
 			setStatus('Notification permission denied')
 			toggle.checked = false
@@ -293,11 +326,13 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			body: JSON.stringify({ endpoint: sub.endpoint }),
 		}).catch(() => {})
 		await sub.unsubscribe().catch(() => {})
+		refreshPermStatus()
 		setStatus('Not subscribed')
 	}
 
 	function open(): void {
 		updateIosHint()
+		refreshPermStatus()
 		overlay.style.display = 'block'
 		void refreshToggle()
 		void fetchHistory()
@@ -325,6 +360,25 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 				await subscribe()
 			} else {
 				await unsubscribe()
+			}
+		})()
+	})
+
+	onTap(permCheckBtn, () => {
+		void (async () => {
+			if (typeof Notification === 'undefined') {
+				refreshPermStatus()
+				return
+			}
+			const permission = await Notification.requestPermission()
+			refreshPermStatus()
+			await refreshToggle()
+			if (permission === 'denied') {
+				setStatus('浏览器已拒绝通知：地址栏锁图标 → 站点设置 → 通知 → 允许，改完回来再点本按钮')
+			} else if (permission === 'granted') {
+				setStatus('权限已允许，可打开推送开关')
+			} else {
+				setStatus('未决定——再次点击可重新弹出授权')
 			}
 		})()
 	})
