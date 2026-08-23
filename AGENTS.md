@@ -33,6 +33,7 @@ pnpm run test:pw       # Playwright e2e tests (chromium + webkit)
 pnpm run check         # Biome lint + format check
 pnpm run check:fix     # Auto-fix lint + format
 pnpm run lint:knip     # Unused exports/files (CI gate — run locally before marking PR ready)
+pnpm run lint:ox       # oxlint (CI gate — run locally before marking PR ready; `check` does NOT cover it)
 pnpm run build         # Deprecated legacy command
 pnpm run build:dist    # Transpile for publishing (tsdown)
 ```

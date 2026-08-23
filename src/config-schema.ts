@@ -489,6 +489,26 @@ const notifyVapidOverridesSchema = v.strictObject({
 	privateKey: v.optional(v.string()),
 })
 
+const notifyChannelSchemas = [
+	v.strictObject({
+		type: v.literal('message-pusher'),
+		url: v.string(),
+		user: v.string(),
+		token: v.string(),
+	}),
+	v.strictObject({
+		type: v.literal('wecom'),
+		url: v.string(),
+	}),
+	v.strictObject({
+		type: v.literal('webhook'),
+		url: v.string(),
+		headers: v.optional(v.record(v.string(), v.string())),
+	}),
+] as const
+
+const notifyChannelSchema = v.variant('type', notifyChannelSchemas)
+
 const notifySilenceOverridesSchema = v.strictObject({
 	enabled: v.optional(v.boolean()),
 	busyMs: v.optional(finiteNumber),
@@ -498,6 +518,7 @@ const notifySilenceOverridesSchema = v.strictObject({
 
 const notifyOverridesSchema = v.strictObject({
 	token: v.optional(v.string()),
+	channels: v.optional(v.array(notifyChannelSchema)),
 	vapid: v.optional(notifyVapidOverridesSchema),
 	history: v.optional(v.strictObject({ limit: v.optional(finiteNumber) })),
 	silence: v.optional(notifySilenceOverridesSchema),
@@ -518,6 +539,7 @@ const notifySilenceResolvedSchema = v.strictObject({
 
 const notifyResolvedSchema = v.strictObject({
 	token: v.optional(v.string()),
+	channels: v.array(notifyChannelSchema),
 	vapid: notifyVapidResolvedSchema,
 	history: v.strictObject({ limit: finiteNumber }),
 	silence: notifySilenceResolvedSchema,

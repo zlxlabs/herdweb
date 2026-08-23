@@ -427,6 +427,7 @@ function mountNotifyStack(
 		stateDir,
 		historyLimit: config.notify.history.limit,
 		vapidOverride: config.notify.vapid,
+		channels: config.notify.channels,
 	})
 	registerNotifyRoutes(app, {
 		basePath,

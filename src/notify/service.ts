@@ -1,4 +1,6 @@
 import webpush from 'web-push'
+import type { NotifyChannel } from '../types'
+import { sendNotifyChannels } from './channels'
 import { type NotifyEvent, isRecord } from './events'
 import {
 	type PushSubscriptionRecord,
@@ -36,6 +38,7 @@ interface NotifyServiceDeps {
 	readonly historyLimit: number
 	readonly vapidOverride?: VapidConfig
 	readonly sendPush?: typeof webpush.sendNotification
+	readonly channels?: readonly NotifyChannel[]
 	readonly now?: () => number
 }
 
@@ -235,6 +238,12 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 					inFlight.delete(pushPromise)
 				})
 			inFlight.add(pushPromise)
+			if (deps.channels !== undefined && deps.channels.length > 0) {
+				const channelPromise = sendNotifyChannels(deps.channels, normalized).finally(() => {
+					inFlight.delete(channelPromise)
+				})
+				inFlight.add(channelPromise)
+			}
 			return 'accepted'
 		},
 

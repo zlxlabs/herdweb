@@ -15,6 +15,7 @@ describe('notify service awaitInFlight drain', () => {
 
 	afterEach(() => {
 		rmSync(stateDir, { recursive: true, force: true })
+		vi.unstubAllGlobals()
 	})
 
 	test('clears race loser timer when in-flight promises settle early', async () => {
@@ -82,6 +83,41 @@ describe('notify service awaitInFlight drain', () => {
 
 		expect(elapsed).toBeGreaterThanOrEqual(40)
 		expect(elapsed).toBeLessThan(500)
+		notifyService.dispose()
+	})
+
+	test('waits for in-flight channel delivery before returning', async () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
+		let resolveFetch!: (response: Response) => void
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				() =>
+					new Promise<Response>((resolve) => {
+						resolveFetch = resolve
+					}),
+			),
+		)
+		const notifyService = createNotifyService({
+			stateDir,
+			historyLimit: 200,
+			channels: [{ type: 'webhook', url: 'https://hook.example.com/events' }],
+		})
+
+		const event = parseNotifyEvent(
+			JSON.stringify({ v: 1, id: 'drain-channel', kind: 'done', title: 'T', ts: 1 }),
+		)
+		notifyService.dispatchEvent(event)
+
+		let drained = false
+		const drainPromise = notifyService.awaitInFlight(1000).then(() => {
+			drained = true
+		})
+		await Promise.resolve()
+		expect(drained).toBe(false)
+		resolveFetch(new Response(null, { status: 204 }))
+		await drainPromise
+		expect(drained).toBe(true)
 		notifyService.dispose()
 	})
 })
