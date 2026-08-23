@@ -62,6 +62,7 @@ export async function waitForHttp(url: string, timeoutMs = 10_000): Promise<void
 interface IsolatedServe {
 	port: number
 	url: string
+	exited: Promise<number | null>
 	/**
 	 * Isolated TMPDIR of the serve process when `isolateTmpDir` was requested —
 	 * image drops land here instead of the real /tmp; removed by close().
@@ -135,6 +136,7 @@ export async function startIsolatedServe(
 	return {
 		port,
 		url,
+		exited: proc.exited,
 		tmpDir: serveTmp,
 		async close(): Promise<void> {
 			if (!exited) {
