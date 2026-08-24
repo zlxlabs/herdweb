@@ -76,7 +76,27 @@ function trimEventsFile(stateDir: string, limit: number): void {
 			.split('\n')
 			.filter((line) => line.length > 0)
 		if (lines.length <= limit * 2) return
-		const kept = lines.slice(-limit)
+		const lanes = lines.map((line) => {
+			const parsed: unknown = JSON.parse(line)
+			if (isRecord(parsed) && parsed.v === 2 && typeof parsed.targetId === 'string') {
+				return parsed.targetId
+			}
+			return 'default'
+		})
+		const counts: Record<string, number> = {}
+		for (const lane of lanes) counts[lane] = (counts[lane] ?? 0) + 1
+		const skip: Record<string, number> = {}
+		for (const lane of Object.keys(counts)) skip[lane] = Math.max(0, (counts[lane] ?? 0) - limit)
+		const seen: Record<string, number> = {}
+		const kept = lines.filter((_, i) => {
+			const lane = lanes[i] ?? 'default'
+			const n = seen[lane] ?? 0
+			if (n < (skip[lane] ?? 0)) {
+				seen[lane] = n + 1
+				return false
+			}
+			return true
+		})
 		writeFileSync(path, `${kept.join('\n')}\n`, { encoding: 'utf-8', mode: 0o644 })
 	} catch {
 		// File may have been removed between append and deferred trim.

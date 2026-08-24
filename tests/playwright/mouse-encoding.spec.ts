@@ -27,6 +27,9 @@ test('late client taps produce SGR mouse reports', async ({ browser, serve }) =>
 		const firstPage = await firstContext.newPage()
 		await firstPage.goto(serve.url)
 		await firstPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		await expect
+			.poll(() => firstPage.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+			.toBe(true)
 
 		// Enable mouse tracking + SGR encoding on the PTY, then run cat so
 		// the shell doesn't interpret the incoming mouse reports — the tty
@@ -40,6 +43,9 @@ test('late client taps produce SGR mouse reports', async ({ browser, serve }) =>
 		const secondPage = await secondContext.newPage()
 		await secondPage.goto(serve.url)
 		await secondPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		await expect
+			.poll(() => secondPage.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+			.toBe(true)
 		await expect(secondPage.locator('body')).toContainText('mouse-ready')
 
 		await secondPage.locator('#terminal .xterm-screen').click({ position: { x: 100, y: 100 } })

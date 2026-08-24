@@ -1,4 +1,5 @@
 import { basename } from 'node:path'
+import type { TargetMode } from '../types'
 import type { NotifyEvent } from './events'
 import type { LastSessionEntry } from './state'
 
@@ -57,15 +58,25 @@ export function formatExitReason(exitCode: number, signal: number | null): strin
 	return `exit ${exitCode}`
 }
 
+function eventIdentity(targetMode: TargetMode | undefined, targetId: string | undefined) {
+	if (targetMode === 'explicit') {
+		if (targetId === undefined) throw new Error('explicit notify event requires targetId')
+		return { v: 2 as const, targetId }
+	}
+	return { v: 1 as const }
+}
+
 export function buildSessionEndEvent(deps: {
 	readonly sessionKey: string
 	readonly startTime: number
 	readonly exitCode: number
 	readonly signal: number | null
 	readonly ts: number
+	readonly targetMode?: TargetMode
+	readonly targetId?: string
 }): NotifyEvent {
 	return {
-		v: 1,
+		...eventIdentity(deps.targetMode, deps.targetId),
 		id: `health:${deps.sessionKey}:${deps.startTime}`,
 		kind: 'health',
 		session: deps.sessionKey,
@@ -79,9 +90,11 @@ export function buildRestartEvent(deps: {
 	readonly sessionKey: string
 	readonly startTime: number
 	readonly ts: number
+	readonly targetMode?: TargetMode
+	readonly targetId?: string
 }): NotifyEvent {
 	return {
-		v: 1,
+		...eventIdentity(deps.targetMode, deps.targetId),
 		id: `health:${deps.sessionKey}:${deps.startTime}`,
 		kind: 'health',
 		session: deps.sessionKey,

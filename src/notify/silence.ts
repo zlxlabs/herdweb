@@ -1,3 +1,4 @@
+import type { TargetMode } from '../types'
 import type { NotifyEvent } from './events'
 
 const DEFAULT_BUSY_BYTES = 1024
@@ -8,6 +9,8 @@ export interface SilenceDetector {
 
 interface SilenceDetectorDeps {
 	readonly sessionKey: string
+	readonly targetMode?: TargetMode
+	readonly targetId?: string
 	readonly busyBytes?: number
 	readonly config: {
 		readonly enabled: boolean
@@ -18,7 +21,7 @@ interface SilenceDetectorDeps {
 	readonly bytesInWindow: (windowMs: number) => number
 	readonly lastOutputAt?: () => number | undefined
 	readonly dispatch: (event: NotifyEvent) => void
-	readonly lastEventAt: (sessionKey: string) => number | undefined
+	readonly lastEventAt: (targetId: string, sessionKey?: string) => number | undefined
 	readonly now?: () => number
 	readonly setIntervalMs?: number
 }
@@ -29,6 +32,9 @@ export function createSilenceDetector(deps: SilenceDetectorDeps): SilenceDetecto
 	}
 
 	const now = deps.now ?? Date.now
+	const targetMode = deps.targetMode ?? 'single'
+	const targetId = deps.targetId ?? (targetMode === 'single' ? 'default' : undefined)
+	if (targetId === undefined) throw new Error('explicit silence detector requires targetId')
 	const busyBytes = deps.busyBytes ?? DEFAULT_BUSY_BYTES
 	const tickMs = deps.setIntervalMs ?? deps.config.busyMs
 	const { sessionKey, config } = deps
@@ -63,7 +69,7 @@ export function createSilenceDetector(deps: SilenceDetectorDeps): SilenceDetecto
 
 		if (cooldownUntil !== undefined && ts < cooldownUntil) return
 
-		const lastLaneEvent = deps.lastEventAt(sessionKey)
+		const lastLaneEvent = deps.lastEventAt(targetId, sessionKey)
 		if (lastLaneEvent !== undefined && ts - lastLaneEvent < config.cooldownMs) {
 			armed = false
 			quietSince = undefined
@@ -73,7 +79,7 @@ export function createSilenceDetector(deps: SilenceDetectorDeps): SilenceDetecto
 
 		const minuteBucket = Math.floor(ts / 60_000)
 		const event: NotifyEvent = {
-			v: 1,
+			...(targetMode === 'explicit' ? { v: 2 as const, targetId } : { v: 1 as const }),
 			id: `silence:${sessionKey}:${minuteBucket}`,
 			kind: 'silence',
 			session: sessionKey,

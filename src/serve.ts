@@ -28,11 +28,12 @@ import {
 	type AttachError,
 	MAX_CLIENT_MESSAGE_BYTES,
 	type ServerMessage,
+	X_HERDWEB_ATTACHMENT_ID_HEADER,
 	parseClientMessage,
 	serialiseServerMessage,
 } from './session-protocol'
 import { TargetRegistry } from './target-registry'
-import type { HerdwebConfig } from './types'
+import type { HerdwebConfig, TargetImageDrop } from './types'
 import { type SpawnedProcess, spawnProcess } from './util/node-compat'
 import { WsAttachmentBinding } from './ws-attachment-binding'
 
@@ -369,9 +370,12 @@ export async function writeImageDrop(bytes: Uint8Array, format: ImageDropFormat)
 }
 
 /** Handle a raw image drop POST: origin check, exact 10 MiB limit, magic-byte sniff, 0600 temp file. */
-async function handleImageDropRequest(
+export async function handleImageDropRequest(
 	c: Context,
 	securityHeadersForRequest: (hostHeader: string | undefined) => Record<string, string>,
+	binding: WsAttachmentBinding,
+	targetImageDrop: (targetId: string) => TargetImageDrop | undefined,
+	write: typeof writeImageDrop = writeImageDrop,
 ): Promise<Response> {
 	const securityHeaders = securityHeadersForRequest(c.req.header('host'))
 	const deny = (message: string, status: 400 | 403 | 413 | 415): Response =>
@@ -379,11 +383,23 @@ async function handleImageDropRequest(
 	if (!isAllowedOrigin(c.req.header('origin'), c.req.header('host'))) {
 		return deny('Forbidden', 403)
 	}
+	const guard = (): Response | undefined => {
+		const header = c.req.header(X_HERDWEB_ATTACHMENT_ID_HEADER)
+		if (!header) return deny('image drop requires x-herdweb-attachment-id header', 400)
+		const capability = binding.getImageDropBinding(header)
+		if (!capability) return deny('image drop attachment invalid or stale', 403)
+		if (targetImageDrop(capability.targetId) !== 'local-path')
+			return deny('image drop disabled for this target', 403)
+	}
+	let rejection = guard()
+	if (rejection) return rejection
 	const declaredLength = Number(c.req.header('content-length') ?? 0)
 	const body =
 		declaredLength > IMAGE_DROP_MAX_BYTES ? null : await readImageDropBody(c.req.raw.body)
 	if (body === null) return deny('image drop too large: 10 MiB maximum', 413)
 	if (body.byteLength === 0) return deny('image drop is empty: POST the raw image file bytes', 400)
+	rejection = guard()
+	if (rejection) return rejection
 	const format = detectImageDropFormat(body)
 	if (format === 'heic') {
 		return deny(
@@ -395,7 +411,12 @@ async function handleImageDropRequest(
 		return deny('unrecognized image drop format: send PNG, JPEG, WebP, or GIF', 415)
 	}
 
-	const path = await writeImageDrop(body, format)
+	const path = await write(body, format)
+	rejection = guard()
+	if (rejection) {
+		await rm(path, { force: true })
+		return rejection
+	}
 	const response = c.json({ path, format, size: body.byteLength })
 	response.headers.set('cache-control', 'no-store')
 	return withSecurityHeaders(response, securityHeaders)
@@ -406,9 +427,13 @@ function registerImageDropRoutes(
 	app: Hono,
 	basePath: string,
 	securityHeadersForRequest: (hostHeader: string | undefined) => Record<string, string>,
+	binding: WsAttachmentBinding,
+	targetImageDrop: (targetId: string) => TargetImageDrop | undefined,
 ): void {
 	for (const route of routeVariants(basePath, '/api/image-drop')) {
-		app.post(route, (c) => handleImageDropRequest(c, securityHeadersForRequest))
+		app.post(route, (c) =>
+			handleImageDropRequest(c, securityHeadersForRequest, binding, targetImageDrop),
+		)
 	}
 }
 
@@ -438,6 +463,8 @@ function mountNotifyStack(
 	const notifyService = createNotifyService({
 		stateDir,
 		historyLimit: config.notify.history.limit,
+		targetMode: config.targetMode,
+		targetIds: config.targets.map((target) => target.id),
 		vapidOverride: config.notify.vapid,
 		channels: config.notify.channels,
 	})
@@ -445,6 +472,8 @@ function mountNotifyStack(
 		basePath,
 		notifyService,
 		stateDir,
+		targetMode: config.targetMode,
+		targetIds: config.targets.map((target) => target.id),
 		token: config.notify.token,
 		vapidOverride: config.notify.vapid,
 		securityHeadersForRequest,
@@ -563,6 +592,8 @@ export async function serve(
 				notifyService.dispatchEvent(
 					buildRestartEvent({
 						sessionKey: target.id,
+						targetMode: config.targetMode,
+						targetId: target.id,
 						startTime: session.startTime,
 						ts: Date.now(),
 					}),
@@ -570,11 +601,13 @@ export async function serve(
 			}
 			const detector = createSilenceDetector({
 				sessionKey: target.id,
+				targetMode: config.targetMode,
+				targetId: target.id,
 				config: config.notify.silence,
 				bytesInWindow: (windowMs) => session.bytesInWindow(windowMs),
 				lastOutputAt: () => session.lastOutputAt(),
 				dispatch: (event) => notifyService.dispatchEvent(event),
-				lastEventAt: (key) => notifyService.lastEventAt(key),
+				lastEventAt: (targetId, sessionKey) => notifyService.lastEventAt(targetId, sessionKey),
 			})
 			silenceDetectors.set(session.id, detector)
 			sessionLifecycles.set(
@@ -587,6 +620,8 @@ export async function serve(
 						notifyService.dispatchEvent(
 							buildSessionEndEvent({
 								sessionKey: target.id,
+								targetMode: config.targetMode,
+								targetId: target.id,
 								startTime: session.startTime,
 								exitCode: exit.exitCode,
 								signal: exit.signal,
@@ -953,7 +988,13 @@ export async function serve(
 		}
 	}
 
-	registerImageDropRoutes(app, basePath, securityHeadersForRequest)
+	registerImageDropRoutes(
+		app,
+		basePath,
+		securityHeadersForRequest,
+		binding,
+		(targetId) => targetConfigs.find((target) => target.id === targetId)?.imageDrop,
+	)
 
 	notifyService = mountNotifyStack(app, config, port, basePath, swJs, securityHeadersForRequest)
 	const server = honoServe({ fetch: app.fetch, port, hostname: host })

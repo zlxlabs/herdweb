@@ -76,6 +76,12 @@ vi.mock('@xterm/addon-unicode11', () => ({ Unicode11Addon: class {} }))
 vi.mock('@xterm/addon-web-links', () => ({ WebLinksAddon: class {} }))
 vi.mock('../src/index', () => ({ createHookRegistry: () => ({}), init: vi.fn() }))
 
+const swListeners = new Set<(event: MessageEvent) => void>()
+const postNotifyTargetIntent = (targetId: string) => {
+	for (const listener of swListeners)
+		listener(new MessageEvent('message', { data: { type: 'herdweb-notify-target', targetId } }))
+}
+
 interface BootOptions {
 	readonly mode?: 'single' | 'explicit'
 	readonly url?: string
@@ -176,6 +182,16 @@ describe('client target selection and restore', () => {
 		localStorage.clear()
 		harness.sockets.length = 0
 		harness.terminals.length = 0
+		swListeners.clear()
+		Object.defineProperty(navigator, 'serviceWorker', {
+			configurable: true,
+			value: {
+				addEventListener: (_: string, listener: EventListener) => {
+					swListeners.add(listener as (event: MessageEvent) => void)
+				},
+				register: vi.fn().mockResolvedValue(undefined),
+			},
+		})
 		let uuid = 0
 		vi.stubGlobal('crypto', { randomUUID: () => `uuid-${uuid++}` })
 		vi.stubGlobal('WebSocket', FakeSocket)
@@ -433,6 +449,25 @@ describe('client target selection and restore', () => {
 		})
 		expect(localStorage.getItem('herdweb:lastTargetId:/')).toBe('workbox')
 		expect(window.location.search).toBe('?target=workbox')
+	})
+
+	test('notify target intent waits, attaches, or blocks', async () => {
+		const early = await boot({ mode: 'explicit' })
+		early.open()
+		send(early, { type: 'server-ready', protocol: 2 })
+		postNotifyTargetIntent('b')
+		expect(sentFrames(early).some((frame) => frame.type === 'attach-target')).toBe(false)
+		send(early, { type: 'targets', targets: [target('default'), target('b')] })
+		expect(lastAttach(early)).toMatchObject({ targetId: 'b' })
+		const socket = await boot({ mode: 'explicit' })
+		openWithTargets(socket, [target('default'), target('b')])
+		commitAttach(socket, 'default')
+		postNotifyTargetIntent('b')
+		expect(lastAttach(socket)).toMatchObject({ targetId: 'b' })
+		const n = sentFrames(socket).filter((frame) => frame.type === 'attach-target').length
+		postNotifyTargetIntent('missing')
+		expect(sentFrames(socket).filter((frame) => frame.type === 'attach-target')).toHaveLength(n)
+		expect(restoreOverlay()?.textContent).toContain('"missing"')
 	})
 })
 

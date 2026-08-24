@@ -35,6 +35,7 @@ function formatChannelError(error: unknown): string {
 
 export function buildNotifyContent(event: NotifyEvent): string {
 	const lines = [`【${KIND_LABELS[event.kind]}】${event.title}`]
+	if (event.v === 2) lines.push(`目标：${event.targetId}`)
 	if (event.body !== undefined) lines.push(event.body)
 	if (event.session !== undefined && !event.body?.includes(event.session)) {
 		lines.push(`会话：${event.session}`)

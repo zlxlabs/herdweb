@@ -13,6 +13,7 @@ import {
 import * as pushModule from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
 import {
+	NOTIFY_TARGET_MESSAGE_TYPE,
 	handleNotificationClick,
 	handlePushSubscriptionChange,
 	resolveScopeUrl,
@@ -291,44 +292,58 @@ describe('service worker helpers', () => {
 		)
 	})
 
-	test('handleNotificationClick focuses existing client', async () => {
+	test('handleNotificationClick and showPushNotification honor v1/v2 contracts', async () => {
+		const v1 = { v: 1 as const, id: '1', kind: 'done' as const, title: 'T', ts: 1 }
+		const v2 = { ...v1, v: 2 as const, targetId: 'workbox' }
 		const focus = vi.fn()
-		const clients = {
-			matchAll: vi.fn().mockResolvedValue([{ focus }]),
-			openWindow: vi.fn(),
-		}
+		const postMessage = vi.fn()
+		const clients = (matched: unknown[], openWindow = vi.fn()) =>
+			({ matchAll: vi.fn().mockResolvedValue(matched), openWindow }) as Parameters<
+				typeof handleNotificationClick
+			>[0]
 		await handleNotificationClick(
-			clients as Parameters<typeof handleNotificationClick>[0],
-			'http://localhost/',
+			clients([{ focus, postMessage }]),
+			'http://localhost/herdweb/',
+			v1,
 		)
-		expect(focus).toHaveBeenCalled()
-		expect(clients.openWindow).not.toHaveBeenCalled()
-	})
-
-	test('handleNotificationClick opens scope when no window', async () => {
+		expect(postMessage).not.toHaveBeenCalled()
+		focus.mockClear()
+		await handleNotificationClick(
+			clients([{ focus, postMessage }]),
+			'http://localhost/herdweb/',
+			v2,
+		)
+		expect(postMessage.mock.invocationCallOrder[0]).toBeLessThan(
+			focus.mock.invocationCallOrder[0] ?? 0,
+		)
+		expect(postMessage).toHaveBeenCalledWith({
+			type: NOTIFY_TARGET_MESSAGE_TYPE,
+			targetId: 'workbox',
+		})
 		const openWindow = vi.fn()
-		const clients = {
-			matchAll: vi.fn().mockResolvedValue([]),
-			openWindow,
-		}
-		await handleNotificationClick(
-			clients as Parameters<typeof handleNotificationClick>[0],
-			'http://localhost/app/',
-		)
+		await handleNotificationClick(clients([], openWindow), 'http://localhost/app/', v1)
 		expect(openWindow).toHaveBeenCalledWith('http://localhost/app/')
-	})
-
-	test('showPushNotification uses kind:session tag', async () => {
+		openWindow.mockClear()
+		await handleNotificationClick(clients([], openWindow), 'http://localhost/herdweb/', {
+			...v2,
+			targetId: 'a/b',
+		})
+		expect(openWindow).toHaveBeenCalledWith('http://localhost/herdweb/?target=a%2Fb')
 		const showNotification = vi.fn().mockResolvedValue(undefined)
 		const registration = { showNotification } as unknown as ServiceWorkerRegistration
-		await showPushNotification(registration, {
-			v: 1,
+		const base = {
+			v: 2 as const,
 			id: '1',
-			kind: 'asking',
+			kind: 'asking' as const,
 			session: 'dev',
 			title: 'Hi',
 			ts: 1,
-		})
+		}
+		await showPushNotification(registration, { ...base, targetId: 'a' })
+		await showPushNotification(registration, { ...base, targetId: 'b' })
+		expect(showNotification.mock.calls[0]?.[1]).toMatchObject({ tag: 'asking:a:dev' })
+		expect(showNotification.mock.calls[1]?.[1]).toMatchObject({ tag: 'asking:b:dev' })
+		await showPushNotification(registration, { ...base, v: 1, kind: 'asking', title: 'Hi' })
 		expect(showNotification).toHaveBeenCalledWith(
 			'Hi',
 			expect.objectContaining({ tag: 'asking:dev' }),

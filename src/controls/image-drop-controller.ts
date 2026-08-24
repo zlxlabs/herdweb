@@ -1,25 +1,22 @@
 import { joinBasePath } from '../base-path'
+import { X_HERDWEB_ATTACHMENT_ID_HEADER } from '../session-protocol'
 import type { InputActionResult, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
 
-/** Single-file accept list — UX only; the server re-verifies via magic bytes. */
 const IMAGE_DROP_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
-/** How long to wait for input-accepted before falling back to file-ready. */
 const IMAGE_DROP_ACK_TIMEOUT_MS = 15_000
-/** How long the success toast stays visible before the panel auto-hides. */
 const IMAGE_DROP_DONE_TOAST_MS = 2_500
 
 type ImageDropState = 'idle' | 'uploading' | 'file-ready' | 'inserting' | 'done' | 'error'
 
 interface ImageDropControllerDeps {
-	/** Synced/fresh signals — only these four term bridge methods are used. */
 	readonly term: Pick<
 		XTerminal,
-		'getSessionId' | 'isConnected' | 'sendInputAction' | 'onInputActionResult'
-	>
+		'isConnected' | 'onConnectionChange' | 'sendInputAction' | 'onInputActionResult'
+	> &
+		Pick<XTerminal, 'getAttachmentId' | 'getTargets' | 'getCurrentTargetId'>
 	readonly basePath: string
-	/** Test seams — production defaults: fetch / navigator.clipboard / crypto.randomUUID. */
 	readonly fetchFn?: typeof fetch
 	readonly clipboard?: { writeText(text: string): Promise<void> }
 	readonly createActionId?: () => string
@@ -28,19 +25,10 @@ interface ImageDropControllerDeps {
 
 export interface ImageDropController {
 	readonly element: HTMLElement
-	/** Open the file picker — single-flight: ignored while uploading or inserting. */
 	readonly open: () => void
 	readonly dispose: () => void
 }
 
-/**
- * Image drop flow: POST the picked raw File to {basePath}/api/image-drop, then auto-insert
- * ` ${path} ` (never Enter) only when the start session is non-empty, unchanged and synced.
- * Success is a transient toast — status text only, auto-hiding after ~2.5s (the inserted
- * path in the agent input is the success evidence; nothing to close). Only failure states
- * show the path text and the retry/copy/close actions.
- * Async callbacks re-check generation + actionId so stale ACKs can't clear newer picks.
- */
 export function createImageDropController(deps: ImageDropControllerDeps): ImageDropController {
 	const fetchFn = deps.fetchFn ?? fetch
 	const clipboard = deps.clipboard ?? navigator.clipboard
@@ -61,7 +49,8 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	let generation = 0
 	let path: string | null = null
 	let actionId: string | null = null
-	let startSessionId: string | null = null
+	let startAttachmentId: string | null = null
+	let imageDropEnabled = false
 	let ackTimer: ReturnType<typeof setTimeout> | undefined
 	let disposed = false
 
@@ -69,7 +58,6 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		state = next
 		panel.style.display = next === 'idle' ? 'none' : 'flex'
 		status.textContent = message
-		// done is a bare toast: the path text and action buttons belong to failure states.
 		const showDetails = path !== null && next !== 'done'
 		pathText.style.display = showDetails ? '' : 'none'
 		actions.style.display = showDetails ? '' : 'none'
@@ -82,29 +70,55 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		ackTimer = undefined
 	}
 
+	function pickAttachment(): string | null {
+		const targetId = term.getCurrentTargetId?.()
+		const id = term.getAttachmentId?.() ?? null
+		const target = term.getTargets?.().find((item) => item.id === targetId)
+		imageDropEnabled = target?.capabilities.imageDrop === 'local-path'
+		return id !== null && term.isConnected() && imageDropEnabled ? id : null
+	}
+
+	const invalidateStale = () => {
+		if (state === 'done' || (path === null && state !== 'uploading' && state !== 'inserting'))
+			return
+		generation += 1
+		clearAckTimer()
+		actionId = path = null
+		setState('error', 'Upload became stale — choose the image again.')
+	}
+	const attachmentMatches = () =>
+		startAttachmentId !== null && term.getAttachmentId?.() === startAttachmentId
+	const ensureLive = () => {
+		if (attachmentMatches() && term.isConnected()) return true
+		invalidateStale()
+		return false
+	}
+	const showNotReady = () =>
+		setState(
+			'error',
+			imageDropEnabled ? 'Not ready — still syncing.' : 'Image upload disabled for this target.',
+		)
+
 	function attemptInsert(gen: number): void {
 		if (path === null || actionId === null) return
 		setState('inserting', 'Inserting path…')
 		if (!term.sendInputAction(actionId, ` ${path} `)) {
+			if (!ensureLive()) return
 			setState('file-ready', 'Not sent — still syncing. Tap Retry insert.')
 			return
 		}
+		if (!ensureLive()) return
 		clearAckTimer()
 		ackTimer = setTimeout(() => {
 			ackTimer = undefined
 			if (disposed || gen !== generation || state !== 'inserting') return
+			if (!ensureLive()) return
 			setState('file-ready', 'No confirmation from terminal — tap Retry insert.')
 		}, ackTimeoutMs)
 	}
 
 	function maybeAutoInsert(gen: number): void {
-		if (startSessionId === null || term.getSessionId() !== startSessionId) {
-			setState('file-ready', 'Ready — session changed, retry or copy the path.')
-		} else if (!term.isConnected()) {
-			setState('file-ready', 'Ready — not synced yet, tap Retry insert.')
-		} else {
-			attemptInsert(gen)
-		}
+		if (ensureLive()) attemptInsert(gen)
 	}
 
 	function failUpload(gen: number, message: string): void {
@@ -113,7 +127,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 
 	input.addEventListener('change', () => {
 		const file = input.files?.[0]
-		input.value = '' // reset so the same file can be re-selected
+		input.value = ''
 		generation += 1
 		clearAckTimer()
 		if (!file) {
@@ -123,10 +137,20 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		}
 		const gen = generation
 		actionId = `image-drop-${newActionId()}`
-		startSessionId = term.getSessionId()
+		const attachment = pickAttachment()
+		if (attachment === null) {
+			path = startAttachmentId = null
+			showNotReady()
+			return
+		}
+		startAttachmentId = attachment
 		path = null
 		setState('uploading', `Uploading ${file.name || 'image'}…`)
-		fetchFn(joinBasePath(deps.basePath, '/api/image-drop'), { method: 'POST', body: file }).then(
+		fetchFn(joinBasePath(deps.basePath, '/api/image-drop'), {
+			method: 'POST',
+			body: file,
+			headers: { [X_HERDWEB_ATTACHMENT_ID_HEADER]: attachment },
+		}).then(
 			(res) => {
 				if (!res.ok) return failUpload(gen, `Upload failed (HTTP ${res.status}).`)
 				res.json().then(
@@ -150,9 +174,9 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		if (disposed || result.id !== actionId || state !== 'inserting') return
 		clearAckTimer()
 		if (result.accepted) {
+			if (!ensureLive()) return
+			path = null
 			setState('done', 'Inserted into agent input.')
-			// Transient toast: auto-hide after ~2.5s, reusing the ACK timer slot. The
-			// generation guard keeps a stale timer from hiding a newer pick or close.
 			const gen = generation
 			ackTimer = setTimeout(() => {
 				ackTimer = undefined
@@ -160,34 +184,38 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 				setState('idle', '')
 			}, IMAGE_DROP_DONE_TOAST_MS)
 		} else {
+			if (!ensureLive()) return
 			const reason = result.reason ? ` (${result.reason})` : ''
 			setState('file-ready', `Insert rejected${reason} — tap Retry insert.`)
 		}
 	})
 
+	const connection = term.onConnectionChange((connected) => {
+		if (!disposed && (!connected || !attachmentMatches())) invalidateStale()
+	})
+
 	onTap(retryBtn, () => {
 		if (state !== 'file-ready') return
-		if (startSessionId === null || term.getSessionId() !== startSessionId) {
-			setState('file-ready', 'Session changed — copy the path instead.')
-			return
-		}
-		if (!term.isConnected()) {
-			setState('file-ready', 'Not sent — still syncing.')
-			return
-		}
+		if (!ensureLive()) return
 		attemptInsert(generation)
 	})
 
 	onTap(copyBtn, () => {
-		if (path === null) return
+		if (path === null || !ensureLive()) return
+		const gen = generation
 		clipboard.writeText(path).then(
-			() => setState(state, 'Copied to clipboard.'),
-			() => setState(state, 'Copy failed — select the path and copy it manually.'),
+			() =>
+				gen === generation && !disposed && ensureLive() && setState(state, 'Copied to clipboard.'),
+			() =>
+				gen === generation &&
+				!disposed &&
+				ensureLive() &&
+				setState(state, 'Copy failed — select the path and copy it manually.'),
 		)
 	})
 
 	onTap(closeBtn, () => {
-		generation += 1 // invalidate any in-flight upload or pending ACK
+		generation += 1
 		clearAckTimer()
 		path = null
 		actionId = null
@@ -197,13 +225,15 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	return {
 		element: panel,
 		open() {
-			if (state === 'uploading' || state === 'inserting') return // single-flight
+			if (state === 'uploading' || state === 'inserting') return
+			if (pickAttachment() === null) return showNotReady()
 			input.click()
 		},
 		dispose() {
 			disposed = true
 			clearAckTimer()
 			subscription.dispose()
+			connection.dispose()
 		},
 	}
 }

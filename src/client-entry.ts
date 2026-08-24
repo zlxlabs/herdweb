@@ -7,6 +7,7 @@ import '../styles/base.css'
 import { joinBasePath } from './base-path'
 import { createImageDropController } from './controls/image-drop-controller'
 import { createHookRegistry, init } from './index'
+import { isRecord } from './notify/events'
 import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
 import type { TargetSummary } from './session-protocol'
 import {
@@ -27,6 +28,8 @@ import type {
 } from './types'
 import { el } from './util/dom'
 import { onTap } from './util/tap'
+
+const NOTIFY_TARGET_MESSAGE_TYPE = 'herdweb-notify-target'
 
 declare const __herdwebConfig: ClientConfigProjection
 declare const __herdwebVersion: string | undefined
@@ -284,6 +287,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let restoreBlockedReason: string | null = null
 	let restoreOverlay: ReturnType<typeof createTargetRestoreOverlay> | null = null
 	const targetListeners = new Set<() => void>()
+	let pendingNotifyTargetId: string | null = null
 
 	function send(message: TerminalMessage): void {
 		if (
@@ -421,6 +425,17 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		beginAttach(currentEpoch, nextTargetId, term.cols, term.rows)
 	}
 
+	function handleNotifyTargetIntent(id: string): void {
+		if (!targets.length) {
+			pendingNotifyTargetId = id
+			return
+		}
+		if (!targets.some((target) => target.id === id)) {
+			showRestoreBlocked(`Target "${id}" no longer exists.`)
+			return
+		}
+		selectTarget(id)
+	}
 	function syncSize(): void {
 		fitAddon.fit()
 		send({ type: 'resize', cols: term.cols, rows: term.rows })
@@ -805,6 +820,12 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			case 'targets': {
 				targets = message.targets
 				notifyTargetsChange()
+				if (pendingNotifyTargetId !== null) {
+					const intentTargetId = pendingNotifyTargetId
+					pendingNotifyTargetId = null
+					handleNotifyTargetIntent(intentTargetId)
+					return
+				}
 				if (restoreBlockedReason !== null) {
 					restoreOverlay?.show(restoreBlockedReason, targets)
 					return
@@ -1103,6 +1124,18 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	connect()
 
+	if ('serviceWorker' in navigator) {
+		navigator.serviceWorker.addEventListener('message', ({ data }: MessageEvent) => {
+			if (
+				!isRecord(data) ||
+				data.type !== NOTIFY_TARGET_MESSAGE_TYPE ||
+				typeof data.targetId !== 'string' ||
+				!data.targetId
+			)
+				return
+			handleNotifyTargetIntent(data.targetId)
+		})
+	}
 	// Viewport-driven resizes flow through the height manager (src/viewport/height.ts),
 	// which debounces them into a single resizeTerm → __herdwebResize → syncSize call.
 

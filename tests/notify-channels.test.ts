@@ -101,6 +101,7 @@ describe('notify channel content', () => {
 describe('notify channel request bytes', () => {
 	test('message-pusher uses JSON desp and the fixed endpoint', async () => {
 		const requests = captureFetch()
+		const targetEvent: NotifyEvent = { ...event, v: 2, targetId: 'workbox' }
 
 		await sendNotifyChannels(
 			[
@@ -111,7 +112,7 @@ describe('notify channel request bytes', () => {
 					token: 'token-placeholder',
 				},
 			],
-			event,
+			targetEvent,
 		)
 
 		expect(requests).toHaveLength(1)
@@ -121,7 +122,7 @@ describe('notify channel request bytes', () => {
 		expect(JSON.parse(requests[0]?.body ?? '')).toEqual({
 			title: 'Build finished',
 			desp: 'All checks passed',
-			content: '【完成】Build finished\nAll checks passed\n会话：dev\n原因：exit 0',
+			content: '【完成】Build finished\n目标：workbox\nAll checks passed\n会话：dev\n原因：exit 0',
 			token: 'token-placeholder',
 		})
 		expect(requests[0]?.body).not.toContain('description')

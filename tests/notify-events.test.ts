@@ -24,15 +24,21 @@ interface TestHarness {
 	close(): void
 }
 
-async function createHarness(token?: string): Promise<TestHarness> {
+async function createHarness(
+	token?: string,
+	targetMode: 'single' | 'explicit' = 'single',
+	targetIds: readonly string[] = ['default'],
+): Promise<TestHarness> {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-events-'))
-	const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
+	const notifyService = createNotifyService({ stateDir, historyLimit: 200, targetMode, targetIds })
 	const app = new Hono()
 	const securityHeaders = buildSecurityHeaders('127.0.0.1:0', '127.0.0.1', 0, 'nonce')
 	registerNotifyRoutes(app, {
 		basePath: '/',
 		notifyService,
 		stateDir,
+		targetMode,
+		targetIds,
 		token,
 		securityHeadersForRequest: () => securityHeaders,
 		routeVariants,
@@ -198,6 +204,23 @@ describe('POST /api/events', () => {
 		expect(lines).toHaveLength(1)
 	})
 
+	test('explicit producer requires v2 and a known target', async () => {
+		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
+		const post = (body: object) =>
+			fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(body),
+			})
+		expect((await post({ ...validBase, id: 'v1-explicit' })).status).toBe(400)
+		const v2 = { v: 2, targetId: 'workbox', id: 'v2-explicit', kind: 'done', title: 'Done', ts: 1 }
+		await post(v2)
+		expect(readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8')).toContain(
+			'"targetId":"workbox"',
+		)
+		expect((await post({ ...v2, targetId: 'missing' })).status).toBe(400)
+	})
+
 	test('kind=test bypasses dedup and disk', async () => {
 		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-test-kind-'))
 		const sendPush = vi.fn().mockResolvedValue(undefined)
@@ -316,5 +339,24 @@ describe('POST /api/push/test', () => {
 			lastStatus = response.status
 		}
 		expect(lastStatus).toBe(429)
+	})
+
+	test('explicit mode uses validated targetId query for v2 test events', async () => {
+		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
+		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
+		const post = (query = '') =>
+			fetch(`http://127.0.0.1:${harness.port}/api/push/test${query}`, {
+				method: 'POST',
+				headers: {
+					Origin: `http://127.0.0.1:${harness.port}`,
+					Host: `127.0.0.1:${harness.port}`,
+				},
+			})
+		expect((await post('?targetId=workbox')).status).toBe(202)
+		expect(dispatchSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ v: 2, targetId: 'workbox', kind: 'test' }),
+		)
+		expect((await post()).status).toBe(400)
+		expect((await post('?targetId=nope')).status).toBe(400)
 	})
 })

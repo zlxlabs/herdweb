@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { type NotifyEvent, isNotifyKind, isRecord } from './events'
+import { type NotifyEvent, isNotifyKind, isRecord, targetIdForNotifyEvent } from './events'
 
 const EVENTS_FILE = 'events.jsonl'
 export const HISTORY_DEFAULT_LIMIT = 50
@@ -23,7 +23,7 @@ function isStoredEvent(value: unknown): value is NotifyEvent {
 	if (!isRecord(value)) return false
 	const obj = value
 	return (
-		obj.v === 1 &&
+		(obj.v === 1 || (obj.v === 2 && typeof obj.targetId === 'string')) &&
 		isNotifyKind(obj.kind) &&
 		obj.kind !== 'test' &&
 		typeof obj.id === 'string' &&
@@ -34,7 +34,11 @@ function isStoredEvent(value: unknown): value is NotifyEvent {
 }
 
 /** Read tail events from events.jsonl, newest first. Limit is clamped to 1..500. */
-export function readEventHistory(stateDir: string, limit: number): NotifyEvent[] {
+export function readEventHistory(
+	stateDir: string,
+	limit: number,
+	targetId?: string,
+): NotifyEvent[] {
 	const clamped = clampHistoryLimit(limit)
 	const path = join(stateDir, EVENTS_FILE)
 	if (!existsSync(path)) return []
@@ -45,17 +49,20 @@ export function readEventHistory(stateDir: string, limit: number): NotifyEvent[]
 	const lines = content.split('\n').filter((line) => line.length > 0)
 	if (lines.length === 0) return []
 
-	const tail = lines.slice(-clamped)
+	const tail = targetId === undefined ? lines.slice(-clamped) : lines
 	const events: NotifyEvent[] = []
 	for (const line of tail) {
 		try {
 			const parsed: unknown = JSON.parse(line)
-			if (isStoredEvent(parsed)) {
+			if (
+				isStoredEvent(parsed) &&
+				(targetId === undefined || targetIdForNotifyEvent(parsed) === targetId)
+			) {
 				events.push(parsed)
 			}
 		} catch {
 			// skip corrupt lines
 		}
 	}
-	return events.reverse()
+	return (targetId === undefined ? events : events.slice(-clamped)).reverse()
 }

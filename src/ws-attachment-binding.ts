@@ -99,6 +99,12 @@ export class WsAttachmentBinding {
 		const capability = this.capabilities.get(attachmentId)
 		return capability?.clientId === clientId ? capability : null
 	}
+	getImageDropBinding(attachmentId: string): AttachmentCapability | null {
+		const capability = this.capabilities.get(attachmentId)
+		if (capability?.committed && this.clients.get(capability.clientId)?.acceptsInput)
+			return capability
+		return null
+	}
 	invalidateAttachment(clientId: string, attachmentId: string): void {
 		const state = this.clients.get(clientId)
 		if (!state) return
