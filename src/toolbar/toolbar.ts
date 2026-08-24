@@ -7,19 +7,20 @@ import type { ControlButton, HerdwebConfig, XTerminal } from '../types'
 import { el, svg } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
-import { onTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { onAttachmentTap, onTap } from '../util/tap'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 /** Ctrl sticky modifier state */
 interface CtrlState {
 	active: boolean
 	disposer: { dispose(): void } | null
 	buttonEl: HTMLButtonElement | null
+	generation: string | null | undefined
 }
 
 /** Create the ctrl modifier state manager */
 function createCtrlState(): CtrlState {
-	return { active: false, disposer: null, buttonEl: null }
+	return { active: false, disposer: null, buttonEl: null, generation: undefined }
 }
 
 /** Create the inline composer icon used by the circular voice-input entry. */
@@ -48,12 +49,13 @@ function createComposerIcon(): SVGSVGElement {
 function activateCtrl(state: CtrlState, term: XTerminal, theme: HerdwebConfig['theme']): void {
 	if (!state.buttonEl) return
 	state.active = true
+	state.generation = term.getAttachmentId?.()
 	state.buttonEl.style.background = theme.blue
 	state.buttonEl.style.color = theme.background
 
 	if (!state.disposer) {
 		state.disposer = term.onData((data: string) => {
-			if (state.active && data.length === 1) {
+			if (state.active && term.getAttachmentId?.() === state.generation && data.length === 1) {
 				const code = data.charCodeAt(0)
 				deactivateCtrl(state, theme)
 				if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
@@ -99,9 +101,10 @@ function wireButton(
 		return
 	}
 
-	onTap(button, () => {
+	const handleTap = () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
+		const isGenerationCurrent = createAttachmentGuard(term)
 
 		async function sendWithCtrlAware(data: string): Promise<void> {
 			const before = await hooks.runBeforeSendData({
@@ -113,6 +116,7 @@ function wireButton(
 				data,
 			})
 			if (before.blocked) return
+			if (!isGenerationCurrent()) return
 
 			let nextData = before.data
 			if (ctrlState.active && ctrlState.buttonEl) {
@@ -146,6 +150,7 @@ function wireButton(
 				data,
 			})
 			if (before.blocked) return
+			if (!isGenerationCurrent()) return
 
 			sendData(term, before.data)
 			await hooks.runAfterSendData({
@@ -181,7 +186,12 @@ function wireButton(
 				button.classList.add('wt-action-error')
 				conditionalFocus(term, kbWasOpen)
 			})
-	})
+	}
+	if (def.action.type === 'send' || def.action.type === 'prefix' || def.action.type === 'paste') {
+		onAttachmentTap(term, button, handleTap)
+	} else {
+		onTap(button, handleTap)
+	}
 }
 
 /** Build a row of buttons */
@@ -273,6 +283,10 @@ export function createToolbar(
 			),
 		)
 	}
+
+	term.onConnectionStatusChange((status) => {
+		if (status.state !== 'synced' && ctrlState.active) deactivateCtrl(ctrlState, config.theme)
+	})
 
 	return { element: toolbar, ctrlState }
 }

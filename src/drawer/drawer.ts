@@ -9,8 +9,8 @@ import type { ControlButton, HerdwebConfig, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
-import { onTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { onAttachmentTap, onTap } from '../util/tap'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 interface DrawerResult {
 	readonly backdrop: HTMLDivElement
@@ -66,9 +66,10 @@ export function createDrawer(
 		if (buttonDef.action.type === 'keyboard-toggle') {
 			decorateKeyboardToggleButton(button)
 		}
-		onTap(button, () => {
+		const handleTap = () => {
 			const kbWasOpen = isKeyboardOpen()
 			haptic()
+			const isGenerationCurrent = createAttachmentGuard(term)
 			// Adjust/lookup actions stay open so they can be tapped repeatedly
 			// (font sizing, consulting the guide); everything else closes.
 			const keepsDrawerOpen =
@@ -87,6 +88,7 @@ export function createDrawer(
 					data,
 				})
 				if (before.blocked) return
+				if (!isGenerationCurrent()) return
 
 				sendData(term, before.data)
 				await hooks.runAfterSendData({
@@ -113,7 +115,16 @@ export function createDrawer(
 					button.classList.add('wt-action-error')
 					conditionalFocus(term, kbWasOpen)
 				})
-		})
+		}
+		if (
+			buttonDef.action.type === 'send' ||
+			buttonDef.action.type === 'prefix' ||
+			buttonDef.action.type === 'paste'
+		) {
+			onAttachmentTap(term, button, handleTap)
+		} else {
+			onTap(button, handleTap)
+		}
 		grid.appendChild(button)
 	}
 

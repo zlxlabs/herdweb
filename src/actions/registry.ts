@@ -1,5 +1,5 @@
 import type { ButtonAction, FontConfig, XTerminal } from '../types'
-import { resizeTerm } from '../util/terminal'
+import { createAttachmentGuard, resizeTerm } from '../util/terminal'
 
 export interface ActionExecutionContext {
 	readonly term: XTerminal
@@ -146,10 +146,13 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 			return
 		}
 
+		const isGenerationCurrent = createAttachmentGuard(context.term)
+
 		const runPaste = async (): Promise<void> => {
 			try {
 				const text = await navigator.clipboard.readText()
 				if (!text) return
+				if (!isGenerationCurrent()) return
 				if (context.sendRawText) {
 					await context.sendRawText(text)
 					return

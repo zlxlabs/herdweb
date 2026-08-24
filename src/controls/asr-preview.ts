@@ -1,6 +1,6 @@
-import type { InputRejectedReason } from '../types'
+import type { InputRejectedReason, XTerminal } from '../types'
 import { el, svg } from '../util/dom'
-import { onTap } from '../util/tap'
+import { onAttachmentTap, onTap } from '../util/tap'
 
 declare const __herdwebBasePath: string | undefined
 
@@ -38,23 +38,34 @@ const DRAFT_RESTORE_FAILURE = 'Draft could not be restored; stored copy left unt
 const DRAFT_CORRUPT_RESET = 'Draft storage was corrupt and has been reset; your text is saved.'
 const DRAFT_STORAGE_FAILURE = 'Draft is not protected on this device.'
 
-function composerStorageKey(): string {
-	const basePath = typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
-	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath}`
+function basePath(): string {
+	return typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
+}
+
+function composerStorageKey(targetId: string): string {
+	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}:${targetId}`
+}
+
+function singleTargetStorageKey(): string {
+	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
 
 function legacyComposerStorageKey(): string {
-	const basePath = typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
-	return `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}${basePath}`
+	return `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
 
-/** Migrate composer draft from pre-rename localStorage key when the new key is absent. */
-function migrateComposerStorageIfNeeded(storage: Storage): void {
-	const key = composerStorageKey()
-	if (storage.getItem(key) !== null) return
+function migrateComposerStorageIfNeeded(storage: Storage, defaultTargetId: string): void {
+	const targetKey = composerStorageKey(defaultTargetId)
+	if (storage.getItem(targetKey) !== null) return
+	const single = storage.getItem(singleTargetStorageKey())
+	if (single !== null) {
+		storage.setItem(targetKey, single)
+		storage.removeItem(singleTargetStorageKey())
+		return
+	}
 	const legacy = storage.getItem(legacyComposerStorageKey())
 	if (legacy === null) return
-	storage.setItem(key, legacy)
+	storage.setItem(targetKey, legacy)
 	storage.removeItem(legacyComposerStorageKey())
 }
 
@@ -78,7 +89,7 @@ function isComposerPending(value: unknown): value is ComposerPending {
 	)
 }
 
-function readComposerStore(): StorageReadResult {
+function readComposerStore(targetId: string): StorageReadResult {
 	let storage: Storage
 	try {
 		storage = window.localStorage
@@ -86,15 +97,9 @@ function readComposerStore(): StorageReadResult {
 		return { kind: 'unavailable', error }
 	}
 
-	try {
-		migrateComposerStorageIfNeeded(storage)
-	} catch {
-		// Migration failure must not block reading the new key
-	}
-
 	let raw: string | null
 	try {
-		raw = storage.getItem(composerStorageKey())
+		raw = storage.getItem(composerStorageKey(targetId))
 	} catch (error: unknown) {
 		return { kind: 'unavailable', error }
 	}
@@ -147,12 +152,13 @@ export interface AsrPreview {
 	readonly getPending: () => ComposerPending | null
 	readonly setPending: (pending: ComposerPending | null) => boolean
 	readonly restoreDraft: () => void
+	readonly setTarget: (targetId: string) => void
 	readonly resetDraft: () => void
 	readonly clear: () => void
 	readonly onOpenChange: (handler: (open: boolean) => void) => { dispose(): void }
 	readonly onHeightChange: (handler: () => void) => { dispose(): void }
-	readonly onConfirm: (handler: () => void) => { dispose(): void }
-	readonly onRetry: (handler: () => void) => { dispose(): void }
+	readonly onConfirm: (term: XTerminal, handler: () => void) => { dispose(): void }
+	readonly onRetry: (term: XTerminal, handler: () => void) => { dispose(): void }
 	readonly onAbandon: (handler: () => void) => { dispose(): void }
 	readonly onCancel: (handler: () => void) => { dispose(): void }
 }
@@ -176,7 +182,7 @@ function createMicIcon(): SVGSVGElement {
 }
 
 /** Create the two-layer voice composer; opening it never focuses or starts ASR. */
-export function createAsrPreview(): AsrPreview {
+export function createAsrPreview(options: { readonly defaultTargetId: string }): AsrPreview {
 	const element = el('div', {
 		id: 'wt-asr-composer',
 		role: 'dialog',
@@ -236,6 +242,7 @@ export function createAsrPreview(): AsrPreview {
 	let pendingPartial: string | undefined
 	let partialFrame: number | undefined
 	let storageFailureShown = false
+	let currentTargetId = options.defaultTargetId
 	const openChangeHandlers = new Set<(open: boolean) => void>()
 	const heightChangeHandlers = new Set<() => void>()
 	let inputHeight = ''
@@ -256,6 +263,12 @@ export function createAsrPreview(): AsrPreview {
 		storageFailureShown = true
 		console.error('herdweb: composer draft storage unavailable', error)
 		message.textContent = DRAFT_STORAGE_FAILURE
+	}
+
+	try {
+		migrateComposerStorageIfNeeded(window.localStorage, options.defaultTargetId)
+	} catch (error) {
+		showStorageFailure(error)
 	}
 
 	function setSubmissionStatus(
@@ -282,8 +295,12 @@ export function createAsrPreview(): AsrPreview {
 		message.textContent = DRAFT_RESTORE_FAILURE
 	}
 
-	function persistComposer(draft: string, pending: ComposerPending | null): boolean {
-		const stored = readComposerStore()
+	function persistComposer(
+		targetId: string,
+		draft: string,
+		pending: ComposerPending | null,
+	): boolean {
+		const stored = readComposerStore(targetId)
 		if (stored.kind === 'unavailable') {
 			showStorageFailure(stored.error)
 			return false
@@ -291,7 +308,7 @@ export function createAsrPreview(): AsrPreview {
 		const corrupt = stored.kind === 'invalid'
 		try {
 			stored.storage.setItem(
-				composerStorageKey(),
+				composerStorageKey(targetId),
 				JSON.stringify({ version: 1 satisfies ComposerStore['version'], draft, pending }),
 			)
 			if (corrupt) showMessage(DRAFT_CORRUPT_RESET)
@@ -302,10 +319,14 @@ export function createAsrPreview(): AsrPreview {
 		}
 	}
 
-	function persistDraft(draft: string): void {
-		const stored = readComposerStore()
+	function persistDraftFor(targetId: string, draft: string): void {
+		const stored = readComposerStore(targetId)
 		const pending = stored.kind === 'valid' ? stored.value.pending : null
-		persistComposer(draft, pending)
+		persistComposer(targetId, draft, pending)
+	}
+
+	function persistDraft(draft: string): void {
+		persistDraftFor(currentTargetId, draft)
 	}
 
 	input.addEventListener('input', () => {
@@ -360,12 +381,12 @@ export function createAsrPreview(): AsrPreview {
 	}
 
 	function getPending(): ComposerPending | null {
-		const stored = readComposerStore()
+		const stored = readComposerStore(currentTargetId)
 		return stored.kind === 'valid' ? stored.value.pending : null
 	}
 
 	function setPending(pending: ComposerPending | null): boolean {
-		return persistComposer(input.value, pending)
+		return persistComposer(currentTargetId, input.value, pending)
 	}
 
 	function resetDraft(): void {
@@ -385,7 +406,7 @@ export function createAsrPreview(): AsrPreview {
 
 	function restoreDraft(): void {
 		if (input.value) return
-		const stored = readComposerStore()
+		const stored = readComposerStore(currentTargetId)
 		if (stored.kind === 'invalid') {
 			showRestoreFailure()
 			return
@@ -399,12 +420,63 @@ export function createAsrPreview(): AsrPreview {
 		resizeInput()
 	}
 
+	function setTarget(nextTargetId: string): void {
+		if (nextTargetId === currentTargetId) return
+		storageFailureShown = false
+		persistDraftFor(currentTargetId, input.value)
+		const outgoingFailed = storageFailureShown
+		currentTargetId = nextTargetId
+		storageFailureShown = false
+		if (partialFrame !== undefined) cancelAnimationFrame(partialFrame)
+		partialFrame = undefined
+		pendingPartial = undefined
+		const stored = readComposerStore(nextTargetId)
+		if (stored.kind === 'unavailable') {
+			input.value = ''
+			resizeInput()
+			showStorageFailure(stored.error)
+			return
+		}
+		if (stored.kind === 'invalid') {
+			input.value = ''
+			setSubmissionStatus(null, '')
+			resizeInput()
+			showRestoreFailure()
+			return
+		}
+		input.value = stored.kind === 'valid' ? stored.value.draft : ''
+		if (outgoingFailed) {
+			showStorageFailure(new Error('outgoing draft could not be persisted'))
+		} else {
+			setSubmissionStatus(null, '')
+		}
+		resizeInput()
+	}
+
 	function register(target: HTMLButtonElement, handler: () => void): { dispose(): void } {
 		const callback = (event: Event): void => {
 			event.stopPropagation()
 			handler()
 		}
 		onTap(target, callback)
+		return {
+			dispose() {
+				target.removeEventListener('click', callback)
+				target.removeEventListener('touchend', callback)
+			},
+		}
+	}
+
+	function registerAttachment(
+		term: XTerminal,
+		target: HTMLButtonElement,
+		handler: () => void,
+	): { dispose(): void } {
+		const callback = (event: Event): void => {
+			event.stopPropagation()
+			handler()
+		}
+		onAttachmentTap(term, target, callback)
 		return {
 			dispose() {
 				target.removeEventListener('click', callback)
@@ -450,6 +522,7 @@ export function createAsrPreview(): AsrPreview {
 		getPending,
 		setPending,
 		restoreDraft,
+		setTarget,
 		resetDraft,
 		clear,
 		onOpenChange(handler) {
@@ -460,8 +533,8 @@ export function createAsrPreview(): AsrPreview {
 			heightChangeHandlers.add(handler)
 			return { dispose: () => heightChangeHandlers.delete(handler) }
 		},
-		onConfirm: (handler) => register(sendButton, handler),
-		onRetry: (handler) => registerAction(retryButton, handler),
+		onConfirm: (term, handler) => registerAttachment(term, sendButton, handler),
+		onRetry: (term, handler) => registerAttachment(term, retryButton, handler),
 		onAbandon: (handler) => registerAction(abandonButton, handler),
 		onCancel: registerCancel,
 	}

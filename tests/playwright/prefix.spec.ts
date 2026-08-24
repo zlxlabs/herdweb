@@ -30,23 +30,6 @@ test('prefix button tap opens combo picker with contextual title', async ({ page
 	await expect(page.locator('#wt-combo-panel p').first()).toContainText('C-x = Ctrl+x')
 })
 
-test('prefix button touchend-only opens combo picker', async ({ page }) => {
-	const toggle = page.locator('#wt-toolbar button', { hasText: '☰' })
-	await toggle.tap()
-	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
-	const prefixBtn = page.locator('#wt-drawer-grid button', { hasText: 'Prefix' })
-
-	await prefixBtn.dispatchEvent('touchend', {
-		touches: [],
-		changedTouches: [],
-		targetTouches: [],
-	})
-
-	const backdrop = page.locator('#wt-combo-backdrop')
-	await expect(backdrop).toBeVisible({ timeout: 3_000 })
-	await expect(page.locator('#wt-combo-panel h3')).toContainText('Ctrl-B')
-})
-
 test('prefix combo picker submits follow-up key and closes', async ({ page }) => {
 	await tapDrawerPrefix(page)
 

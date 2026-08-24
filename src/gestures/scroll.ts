@@ -1,5 +1,5 @@
 import type { ScrollConfig, XTerminal } from '../types'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 import type { GestureLock } from './lock'
 import { resetLock, tryLock } from './lock'
 
@@ -75,6 +75,7 @@ interface ScrollEngine {
 	onTouchMove(nowMs: number, dy: number): void
 	onTouchEnd(nowMs: number): void
 	stopFling(): void
+	reset(): void
 	tick(nowMs: number, cellHeight: number, cell: ScrollCell): ScrollTickResult | null
 	readonly pendingPx: number
 	readonly isFlinging: boolean
@@ -149,6 +150,14 @@ export function createScrollEngine(config: ScrollConfig): ScrollEngine {
 		velocity = 0
 	}
 
+	function reset(): void {
+		pendingPx = 0
+		stopFling()
+		lastMoveAt = 0
+		lastTickAt = 0
+		lastSendAt = Number.NEGATIVE_INFINITY
+	}
+
 	return {
 		get pendingPx() {
 			return pendingPx
@@ -186,6 +195,7 @@ export function createScrollEngine(config: ScrollConfig): ScrollEngine {
 		},
 
 		stopFling,
+		reset,
 
 		tick(nowMs: number, cellHeight: number, cell: ScrollCell): ScrollTickResult | null {
 			if (isFlinging) {
@@ -249,6 +259,7 @@ export function attachScrollGesture(
 	let rafId: number | null = null
 	let startY = 0
 	let lastY = 0
+	let gestureGuard: (() => boolean) | null = null
 
 	function refreshLayout(touch: Touch): ScrollLayoutCache | null {
 		const screen = screenEl
@@ -271,6 +282,12 @@ export function attachScrollGesture(
 
 	function onFrame(now: number): void {
 		rafId = null
+		if (gestureGuard && !gestureGuard()) {
+			engine.reset()
+			gestureGuard = null
+			stopRaf()
+			return
+		}
 		const cached = layout
 		if (!cached) {
 			if (engine.isAnimationActive(0)) scheduleRaf()
@@ -294,6 +311,7 @@ export function attachScrollGesture(
 		if (!t) return
 
 		engine.onTouchStart(e.timeStamp)
+		gestureGuard = createAttachmentGuard(term)
 		startY = t.clientY
 		lastY = t.clientY
 		const cached = refreshLayout(t)
@@ -357,4 +375,14 @@ export function attachScrollGesture(
 	}
 
 	attach()
+
+	term.onConnectionStatusChange((status) => {
+		if (status.state !== 'synced') {
+			engine.reset()
+			stopRaf()
+			gestureGuard = null
+			layout = null
+			resetLock(lock)
+		}
+	})
 }

@@ -333,7 +333,8 @@ body.wt-composer-open #wt-toolbar {
 }
 
 /* Tmux drawer */
-#wt-backdrop {
+#wt-backdrop,
+.wt-target-picker-backdrop {
 	display: none;
 	position: fixed;
 	top: 0;
@@ -344,7 +345,8 @@ body.wt-composer-open #wt-toolbar {
 	z-index: 10000;
 }
 
-#wt-drawer {
+#wt-drawer,
+.wt-target-picker-panel {
 	position: fixed;
 	bottom: var(--kb-inset, 0px);
 	left: 0;
@@ -361,7 +363,8 @@ body.wt-composer-open #wt-toolbar {
 	user-select: none;
 }
 
-#wt-drawer.open {
+#wt-drawer.open,
+.wt-target-picker.open .wt-target-picker-panel {
 	transform: translateY(0);
 }
 
@@ -449,7 +452,8 @@ body.wt-composer-open #wt-toolbar {
 	gap: 8px;
 }
 
-#wt-drawer-grid button {
+#wt-drawer-grid button,
+.wt-target-row {
 	background: #45475a;
 	color: #cdd6f4;
 	border: none;
@@ -485,6 +489,102 @@ body.wt-composer-open #wt-toolbar {
 .wt-floating-group button.wt-action-error {
 	outline: 2px solid #f38ba8;
 	outline-offset: -2px;
+}
+
+.wt-target-badge {
+	position: fixed;
+	top: calc(4px + env(safe-area-inset-top, 0px));
+	right: calc(8px + env(safe-area-inset-right, 0px));
+	max-width: 40vw;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	background: rgba(49, 50, 68, 0.85);
+	color: #a6adc8;
+	border: 1px solid #45475a;
+	border-radius: 12px;
+	padding: 2px 10px;
+	font-size: 12px;
+	line-height: 20px;
+	min-height: 26px;
+	cursor: pointer;
+	touch-action: manipulation;
+	z-index: 9998;
+	-webkit-user-select: none;
+	user-select: none;
+}
+
+.wt-target-picker {
+	display: none;
+	position: fixed;
+	inset: 0;
+	z-index: 10002;
+}
+
+.wt-target-picker.open {
+	display: block;
+}
+
+.wt-target-picker.open .wt-target-picker-backdrop {
+	display: block;
+}
+
+.wt-target-picker-list {
+	display: grid;
+	grid-template-columns: 1fr;
+	gap: 6px;
+}
+
+.wt-target-empty {
+	color: #a6adc8;
+	padding: 12px 4px;
+}
+
+.wt-target-row {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	min-height: 44px;
+	padding: 4px 12px;
+	border-radius: 10px;
+	font-size: 15px;
+	text-align: left;
+}
+
+.wt-target-row[aria-current="true"] {
+	outline: 2px solid #89b4fa;
+	outline-offset: -2px;
+}
+
+.wt-target-name {
+	flex: 1;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+}
+
+.wt-target-status {
+	flex-shrink: 0;
+	font-size: 12px;
+	color: #a6adc8;
+}
+
+.wt-target-browser-state {
+	color: #89b4fa;
+}
+
+.wt-target-restart {
+	flex-shrink: 0;
+	min-height: 32px;
+	padding: 2px 10px;
+	background: #313244;
+	color: #fab387;
+	border: 1px solid #fab387;
+	border-radius: 8px;
+	font-size: 13px;
+	cursor: pointer;
+	touch-action: manipulation;
 }
 
 /* Floating d-pad (moshi-style arrow cluster, toggled by the ✥ toolbar button) */

@@ -1,7 +1,7 @@
 import type { ControlButton, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
-import { onTap } from '../util/tap'
+import { onAttachmentTap } from '../util/tap'
 import { sendData } from '../util/terminal'
 import { suppressSynthesisedMouse } from './keyboard-controller'
 
@@ -56,7 +56,7 @@ export function createDpad(term: XTerminal): {
 		button.setAttribute('aria-label', key.description)
 		suppressSynthesisedMouse(button)
 		const data = key.data
-		onTap(button, () => {
+		onAttachmentTap(term, button, () => {
 			haptic()
 			sendData(term, data)
 		})

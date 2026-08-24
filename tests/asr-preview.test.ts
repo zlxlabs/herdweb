@@ -14,7 +14,7 @@ afterEach(() => {
 
 describe('voice composer shell', () => {
 	test('has a multiline textarea and opens without focusing it', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		document.body.appendChild(composer.element)
 
 		expect(composer.element.id).toBe('wt-asr-composer')
@@ -42,7 +42,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('clear discards text and hides the composer', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 		composer.input.value = 'discarded'
 		composer.showMessage('status')
@@ -54,7 +54,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('resetDraft clears text and status without hiding the composer', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 		composer.input.value = 'draft'
 		composer.showMessage('status')
@@ -67,7 +67,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('notifies height consumers when textarea height changes', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		const heights: number[] = []
 		Object.defineProperty(composer.input, 'scrollHeight', {
 			configurable: true,
@@ -83,7 +83,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('notifies height consumers only when open state changes', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		const states: boolean[] = []
 		composer.onOpenChange((open) => states.push(open))
 
@@ -95,7 +95,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('persists pending and exposes live status controls', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		const message = composer.message
 		const retry = composer.element.querySelector<HTMLButtonElement>('.wt-composer-retry')
 		const abandon = composer.element.querySelector<HTMLButtonElement>('.wt-composer-abandon')
@@ -122,7 +122,7 @@ describe('voice composer shell', () => {
 	})
 
 	test('actions row keeps mic ahead of send with failure controls trailing', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		const actions = composer.element.querySelector('.wt-asr-composer-actions')
 		const classes = Array.from(actions?.children ?? []).map((child) => child.className)
 		expect(classes).toEqual([

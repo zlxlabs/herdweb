@@ -8,6 +8,15 @@ import { joinBasePath } from './base-path'
 import { createImageDropController } from './controls/image-drop-controller'
 import { createHookRegistry, init } from './index'
 import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
+import type { TargetSummary } from './session-protocol'
+import {
+	createTargetRestoreOverlay,
+	persistLastTargetId,
+	persistUrlTargetId,
+	readLastTargetId,
+	readUrlTargetId,
+	resolveInitialTarget,
+} from './target-restore'
 import type {
 	ClientConfigProjection,
 	ConnectionFailureReason,
@@ -47,6 +56,7 @@ const HEARTBEAT_DEADLINE_MS = 15_000
 const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
 const PRE_SYNC_FAILURES_BEFORE_AUTH_HINT = 3
 const MAX_PRE_SNAPSHOT_OUTPUT_BYTES = 1024 * 1024
+const MAX_RENDER_BACKLOG_BYTES = 1024 * 1024
 const BUFFERED_AMOUNT_SETTLE_MS = 100
 // Heartbeats refresh this proof every 10s; 25s leaves margin while remaining ahead of the 15s deadline.
 const FRESHNESS_WINDOW_MS = 25_000
@@ -261,10 +271,19 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let lastProvenFreshAt = 0
 	const pendingOutput = new Map<number, string>()
 	let pendingOutputBytes = 0
+	let renderBacklogBytes = 0
+	let renderLedgerId = 0
 	let pendingResize: { cols: number; rows: number } | null = null
 	let notSentNoticeShown = false
 	let exitReceived = false
 	let statusOverlay: SessionStatusOverlay | null = null
+	const basePath = __herdwebBasePath ?? '/'
+	let targets: readonly TargetSummary[] = []
+	let selectedTargetId: string | null = null
+	let restoreResolved = false
+	let restoreBlockedReason: string | null = null
+	let restoreOverlay: ReturnType<typeof createTargetRestoreOverlay> | null = null
+	const targetListeners = new Set<() => void>()
 
 	function send(message: TerminalMessage): void {
 		if (
@@ -343,6 +362,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		sessionId = null
 		clearPendingOutput()
 		pendingResize = null
+		resetRenderLedger()
 		setConnectionStatus('syncing')
 		socket.send(
 			serialiseClientMessage({
@@ -353,6 +373,52 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				rows,
 			}),
 		)
+	}
+
+	function notifyTargetsChange(): void {
+		for (const listener of targetListeners) listener()
+	}
+
+	function showRestoreBlocked(reason: string): void {
+		restoreBlockedReason = reason
+		restoreOverlay ??= createTargetRestoreOverlay((chosenId) => {
+			restoreBlockedReason = null
+			selectTarget(chosenId)
+		})
+		if (!restoreOverlay.element.isConnected) document.body.appendChild(restoreOverlay.element)
+		restoreOverlay.show(reason, targets)
+	}
+
+	function resolveAttachTarget(): string | null {
+		if (selectedTargetId !== null) {
+			if (targets.some((target) => target.id === selectedTargetId)) return selectedTargetId
+			if (restoreResolved) {
+				showRestoreBlocked(`Target "${selectedTargetId}" no longer exists.`)
+				return null
+			}
+		}
+		restoreResolved = true
+		const resolution = resolveInitialTarget({
+			mode: config.targetMode,
+			urlTargetId: readUrlTargetId(window.location.search),
+			lastTarget:
+				config.targetMode === 'explicit' ? readLastTargetId(basePath) : { kind: 'ok', value: null },
+			targetIds: targets.map((target) => target.id),
+		})
+		if (resolution.kind === 'blocked') {
+			showRestoreBlocked(resolution.reason)
+			return null
+		}
+		selectedTargetId = resolution.targetId
+		return resolution.targetId
+	}
+
+	function selectTarget(nextTargetId: string): void {
+		if (!targets.some((target) => target.id === nextTargetId)) return
+		if (nextTargetId === selectedTargetId && connectionStatus.state === 'synced') return
+		selectedTargetId = nextTargetId
+		notifyTargetsChange()
+		beginAttach(currentEpoch, nextTargetId, term.cols, term.rows)
 	}
 
 	function syncSize(): void {
@@ -493,6 +559,34 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pendingOutputBytes = 0
 	}
 
+	function resetRenderLedger(): void {
+		renderLedgerId += 1
+		renderBacklogBytes = 0
+	}
+
+	function writeTerm(data: string, onDrained?: () => void): boolean {
+		const bytes = utf8Encoder.encode(data).byteLength
+		if (renderBacklogBytes + bytes > MAX_RENDER_BACKLOG_BYTES) {
+			failConnection(
+				currentEpoch,
+				'client-render-backlog',
+				'Client render backlog overflow — resyncing.',
+			)
+			return false
+		}
+		const ledgerId = renderLedgerId
+		renderBacklogBytes += bytes
+		let released = false
+		term.write(data, () => {
+			if (!released) {
+				released = true
+				if (ledgerId === renderLedgerId) renderBacklogBytes -= bytes
+			}
+			onDrained?.()
+		})
+		return true
+	}
+
 	function enterTargetEnded(): void {
 		const newlyEnded = !exitReceived
 		exitReceived = true
@@ -559,6 +653,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		attachRequestId = null
 		attachmentId = null
 		clearPendingOutput()
+		resetRenderLedger()
 	}
 
 	function failConnection(myEpoch: number, reason: ConnectionFailureReason, notice?: string): void {
@@ -621,17 +716,19 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			return
 		snapshotApplying = true
 		term.reset()
-		term.write(data, () => {
+		const buffered = [...pendingOutput.entries()]
+			.filter(([seq]) => seq > outputWatermark)
+			// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
+			.sort(([left], [right]) => left - right)
+		clearPendingOutput()
+		snapshotLoaded = true
+		sessionId = snapshotSessionId
+		let remainingWrites = buffered.length + 1
+		const onSyncWriteDrained = (): void => {
 			if (myEpoch !== currentEpoch || attachmentId !== myAttachmentId || !snapshotApplying) return
+			remainingWrites -= 1
+			if (remainingWrites > 0) return
 			snapshotApplying = false
-			snapshotLoaded = true
-			sessionId = snapshotSessionId
-			const buffered = [...pendingOutput.entries()]
-				.filter(([seq]) => seq > outputWatermark)
-				// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
-				.sort(([left], [right]) => left - right)
-			clearPendingOutput()
-			for (const [, output] of buffered) term.write(output)
 			if (socket?.readyState === WebSocket.OPEN) {
 				socket.send(
 					serialiseClientMessage({
@@ -641,13 +738,17 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					}),
 				)
 			}
-		})
+		}
+		if (!writeTerm(data, onSyncWriteDrained)) return
+		for (const [, output] of buffered) {
+			if (!writeTerm(output, onSyncWriteDrained)) return
+		}
 	}
 
 	function handleOutput(myEpoch: number, myAttachmentId: string, seq: number, data: string): void {
 		if (attachmentId !== myAttachmentId) return
 		if (snapshotLoaded) {
-			term.write(data)
+			writeTerm(data)
 			return
 		}
 		const previous = pendingOutput.get(seq)
@@ -687,7 +788,11 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 
 		switch (message.type) {
-			case 'target-status':
+			case 'target-status': {
+				const statusIndex = targets.findIndex((target) => target.id === message.target.id)
+				if (statusIndex === -1) return
+				targets = targets.map((target, index) => (index === statusIndex ? message.target : target))
+				notifyTargetsChange()
 				if (
 					message.target.processState !== 'process-exited' ||
 					(targetId !== null && targetId !== message.target.id)
@@ -696,15 +801,24 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				targetId = message.target.id
 				enterTargetEnded()
 				return
+			}
 			case 'targets': {
-				const target = message.targets[0]
-				if (!target) return
-				targetId = target.id
-				if (exitReceived || target.processState === 'process-exited') {
+				targets = message.targets
+				notifyTargetsChange()
+				if (restoreBlockedReason !== null) {
+					restoreOverlay?.show(restoreBlockedReason, targets)
+					return
+				}
+				const chosenId = resolveAttachTarget()
+				if (chosenId === null) return
+				const chosen = targets.find((target) => target.id === chosenId)
+				if (!chosen) return
+				if (exitReceived || chosen.processState === 'process-exited') {
+					targetId = chosen.id
 					enterTargetEnded()
 					return
 				}
-				beginAttach(myEpoch, target.id, term.cols, term.rows)
+				beginAttach(myEpoch, chosen.id, term.cols, term.rows)
 				return
 			}
 			case 'attach-started':
@@ -735,6 +849,21 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					exitReceived = false
 					if (statusOverlay) statusOverlay.element.style.display = 'none'
 				}
+				// The commit is the only point where a choice becomes durable:
+				// snapshot-applied alone never persists lastTargetId or the URL.
+				// Single mode persists nothing — there is no choice to restore.
+				selectedTargetId = message.targetId
+				if (config.targetMode === 'explicit') {
+					if (!persistLastTargetId(basePath, message.targetId)) {
+						window.dispatchEvent(
+							new CustomEvent('herdweb-connection-notice', {
+								detail: 'Could not save the selected target on this device.',
+							}),
+						)
+					}
+					persistUrlTargetId(message.targetId)
+				}
+				notifyTargetsChange()
 				for (const handler of connectionStatusListeners) handler(connectionStatus)
 				notifyConnectionChange()
 				startHeartbeat(myEpoch)
@@ -878,6 +1007,28 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		sendInputAction,
 		onInputActionResult,
 	)
+	termBridge.getTargets = () => targets
+	termBridge.getCurrentTargetId = () => selectedTargetId
+	termBridge.selectTarget = selectTarget
+	termBridge.onTargetsChange = (handler) => {
+		targetListeners.add(handler)
+		return {
+			dispose() {
+				targetListeners.delete(handler)
+			},
+		}
+	}
+	termBridge.getAttachmentId = () => attachmentId
+	termBridge.restartTarget = (restartTargetId) => {
+		if (socket?.readyState !== WebSocket.OPEN) return
+		socket.send(
+			serialiseClientMessage({
+				type: 'restart-target',
+				requestId: crypto.randomUUID(),
+				targetId: restartTargetId,
+			}),
+		)
+	}
 	// xterm handles real keyboard/touch input locally; forward it to the shared PTY.
 	term.onData((data) => {
 		send({ type: 'input', data })
@@ -960,11 +1111,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	// synced state and sendInputAction() enforces heartbeat freshness internally.
 	const imageDrop = createImageDropController({
 		term: termBridge,
-		basePath: __herdwebBasePath ?? '/',
+		basePath,
 	})
 	document.body.appendChild(imageDrop.element)
 
-	const basePath = __herdwebBasePath ?? '/'
 	void registerServiceWorker(basePath)
 
 	init(config, hooks, version, { openImageDrop: imageDrop.open, basePath })

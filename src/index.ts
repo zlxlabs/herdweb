@@ -15,6 +15,7 @@ import { createMicController } from './controls/mic-controller'
 import type { MicController } from './controls/mic-controller'
 import { createNotifyPanel } from './controls/notify-panel'
 import { createScrollButtons } from './controls/scroll-buttons'
+import { createTargetPicker } from './controls/target-picker'
 import { createDrawer } from './drawer/drawer'
 import { attachDoubleTapGesture } from './gestures/double-tap'
 import { createGestureLock } from './gestures/lock'
@@ -28,7 +29,7 @@ import { createStartupResizeScheduler } from './startup-resize'
 import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
 import type { ClientConfigProjection, HerdwebConfig, XTerminal } from './types'
-import { resizeTerm, sendData, waitForTerm } from './util/terminal'
+import { createAttachmentGuard, resizeTerm, sendData, waitForTerm } from './util/terminal'
 import { initHeightManager } from './viewport/height'
 
 // Re-export for package consumers
@@ -218,7 +219,18 @@ export function init(
 				keyboard = setup.keyboard
 				const effectiveConfig = withVoiceComposerEntry(setup.effectiveConfig)
 				const keyboardController = setup.keyboard
-				let closeComposerOverlays = (): void => comboPicker.close()
+
+				const targetPicker =
+					effectiveConfig.targetMode === 'explicit' ? createTargetPicker(term) : null
+				if (targetPicker) {
+					document.body.appendChild(targetPicker.badge)
+					document.body.appendChild(targetPicker.element)
+				}
+
+				let closeComposerOverlays = (): void => {
+					comboPicker.close()
+					targetPicker?.close()
+				}
 				micController = createMicController({
 					term,
 					config: effectiveConfig,
@@ -226,6 +238,10 @@ export function init(
 					closeComposerOverlays: () => closeComposerOverlays(),
 				})
 				attachVoiceComposerMic(micController)
+				term.onTargetsChange?.(() => {
+					const resolvedId = term.getCurrentTargetId?.()
+					if (resolvedId) micController?.setTarget(resolvedId)
+				})
 
 				// Floating d-pad — created before the action registry so
 				// dpad-toggle buttons wire up via DI (same pattern as ⌨).
@@ -261,6 +277,9 @@ export function init(
 					comboPicker.close()
 					if (dpad.element.classList.contains('open')) dpad.toggle()
 				}
+				term.onConnectionStatusChange((status) => {
+					if (status.state !== 'synced') closeComposerOverlays()
+				})
 
 				// Create toolbar
 				const { element: toolbar } = createToolbar(
@@ -339,6 +358,7 @@ export function init(
 				// not want mobile init behaviour.
 				if (config.mobile.initData !== null && window.innerWidth < config.mobile.widthThreshold) {
 					const data = config.mobile.initData
+					const isGenerationCurrent = createAttachmentGuard(term)
 					const before = await hooks.runBeforeSendData({
 						term,
 						config,
@@ -347,7 +367,7 @@ export function init(
 						kbWasOpen: false,
 						data,
 					})
-					if (!before.blocked) {
+					if (!before.blocked && isGenerationCurrent()) {
 						sendData(term, before.data)
 						await hooks.runAfterSendData({
 							term,

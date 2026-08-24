@@ -413,6 +413,23 @@ describe('createScrollEngine', () => {
 		expect(engine.pendingPx).toBe(15)
 	})
 
+	test('reset clears a sub-cell remainder before the next attachment', () => {
+		const engine = createScrollEngine(defaultScrollConfig)
+		const cellHeight = 20
+
+		engine.onTouchStart(0)
+		engine.onTouchMove(16, 39)
+		engine.tick(16, cellHeight, cell)
+		expect(engine.pendingPx).toBe(19)
+
+		engine.reset()
+		engine.onTouchStart(100)
+		engine.onTouchMove(116, 21)
+		const result = engine.tick(116, cellHeight, cell)
+
+		expect(result?.data).toBe(scrollSeq('up', cell.x, cell.y))
+	})
+
 	test('emits one batched sendData payload per send interval', () => {
 		const engine = createScrollEngine({
 			...defaultScrollConfig,

@@ -5,6 +5,11 @@ export function sendData(term: XTerminal, data: string): void {
 	term.input(data, true)
 }
 
+export function createAttachmentGuard(term: XTerminal): () => boolean {
+	const captured = term.getAttachmentId?.()
+	return () => term.getAttachmentId?.() === captured
+}
+
 /** Trigger xterm resize via window resize event */
 export function resizeTerm(): void {
 	if (typeof window.__herdwebResize === 'function') {

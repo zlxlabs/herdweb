@@ -23,7 +23,7 @@ async function installSocketProbe(page: import('@playwright/test').Page): Promis
 				browserWindow.__herdwebSentFrames?.push(data)
 				if (JSON.parse(data).type === 'input-action') {
 					browserWindow.__herdwebPendingAtActionSend?.push(
-						localStorage.getItem('herdweb:composer:v1:/'),
+						localStorage.getItem('herdweb:composer:v1:/:default'),
 					)
 				}
 			}

@@ -8,7 +8,7 @@ afterEach(() => {
 	GlobalRegistrator.unregister()
 })
 test('composer action persists the locked pending fields', () => {
-	const composer = createAsrPreview()
+	const composer = createAsrPreview({ defaultTargetId: 'default' })
 	composer.input.value = 'hello'
 	const pending = {
 		id: 'action-1',
@@ -18,5 +18,7 @@ test('composer action persists the locked pending fields', () => {
 		status: 'pending' as const,
 	}
 	expect(composer.setPending(pending)).toBe(true)
-	expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/') ?? '{}').pending).toEqual(pending)
+	expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/:default') ?? '{}').pending).toEqual(
+		pending,
+	)
 })
