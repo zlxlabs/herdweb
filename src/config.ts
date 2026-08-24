@@ -460,12 +460,8 @@ export function mergeConfig(base: HerdwebConfig, overrides: HerdwebConfigOverrid
 	const row2 = resolveButtonArray(base.toolbar.row2, row2Input)
 	const drawerButtons = resolveButtonArray(base.drawer.buttons, drawerInput)
 	const targets =
-		targetInput === undefined
-			? base.targets
-			: targetInput.map((target) => ({
-					...target,
-					imageDrop: target.imageDrop ?? 'disabled',
-				}))
+		targetInput?.map((target) => ({ ...target, imageDrop: target.imageDrop ?? 'disabled' })) ??
+		base.targets
 
 	return {
 		...merged,
