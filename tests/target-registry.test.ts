@@ -89,6 +89,35 @@ describe('TargetRegistry', () => {
 			},
 		])
 	})
+	test('publishes complete status summaries when a target starts and exits', async () => {
+		const statuses: unknown[] = []
+		const session = new FakeSession('session-a')
+		const registry = new TargetRegistry(
+			[{ ...target('a'), name: 'Alpha', imageDrop: 'local-path' }],
+			() => session,
+			(summary) => statuses.push(summary),
+		)
+		await registry.getOrStart('a')
+		session.exit(7, 15)
+		await session.onExit
+		expect(statuses).toEqual([
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'process-running',
+				capabilities: { imageDrop: 'local-path' },
+			},
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'process-exited',
+				exit: { code: 7, signal: 15 },
+				failure: 'target-process-exited',
+				capabilities: { imageDrop: 'local-path' },
+			},
+		])
+		await registry.dispose()
+	})
 	test('single-flights concurrent starts and isolates an exited target', async () => {
 		const sessions: FakeSession[] = []
 		const factory = vi.fn<TargetSessionFactory>((command) => {
