@@ -340,4 +340,23 @@ describe('POST /api/push/test', () => {
 		}
 		expect(lastStatus).toBe(429)
 	})
+
+	test('explicit mode uses validated targetId query for v2 test events', async () => {
+		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
+		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
+		const post = (query = '') =>
+			fetch(`http://127.0.0.1:${harness.port}/api/push/test${query}`, {
+				method: 'POST',
+				headers: {
+					Origin: `http://127.0.0.1:${harness.port}`,
+					Host: `127.0.0.1:${harness.port}`,
+				},
+			})
+		expect((await post('?targetId=workbox')).status).toBe(202)
+		expect(dispatchSpy).toHaveBeenCalledWith(
+			expect.objectContaining({ v: 2, targetId: 'workbox', kind: 'test' }),
+		)
+		expect((await post()).status).toBe(400)
+		expect((await post('?targetId=nope')).status).toBe(400)
+	})
 })

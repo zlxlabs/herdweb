@@ -7,6 +7,8 @@ interface NotifyPanelDeps {
 	readonly basePath: string
 	readonly fetchFn?: typeof fetch
 	readonly now?: () => number
+	readonly getCurrentTargetId?: () => string | null
+	readonly targetMode?: 'single' | 'explicit'
 }
 
 interface NotifyPanelResult {
@@ -208,11 +210,19 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		}
 	}
 
+	function notifyTargetQuery(): string {
+		if (deps.targetMode !== 'explicit') return ''
+		const targetId = deps.getCurrentTargetId?.() ?? null
+		return targetId === null ? '' : `?targetId=${encodeURIComponent(targetId)}`
+	}
+
 	async function fetchHistory(): Promise<void> {
 		clearHistoryList()
 		historyList.append(el('p', { class: 'wt-notify-history-empty' }, '加载中…'))
 		try {
-			const response = await fetchFn(joinBasePath(deps.basePath, '/api/events/history'))
+			const response = await fetchFn(
+				joinBasePath(deps.basePath, `/api/events/history${notifyTargetQuery()}`),
+			)
 			clearHistoryList()
 			if (!response.ok) {
 				historyList.append(
@@ -452,9 +462,12 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 
 	onTap(testBtn, () => {
 		void (async () => {
-			const response = await fetchFn(joinBasePath(deps.basePath, '/api/push/test'), {
-				method: 'POST',
-			})
+			const response = await fetchFn(
+				joinBasePath(deps.basePath, `/api/push/test${notifyTargetQuery()}`),
+				{
+					method: 'POST',
+				},
+			)
 			if (response.status === 202) {
 				setStatus('Test event sent')
 			} else {

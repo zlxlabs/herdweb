@@ -95,9 +95,17 @@ function setupHelpOverlay(
 	}
 }
 
-function setupNotifyPanel(basePath: string): (() => void) | undefined {
+function setupNotifyPanel(
+	basePath: string,
+	term: XTerminal,
+	targetMode: HerdwebConfig['targetMode'],
+): (() => void) | undefined {
 	try {
-		const panel = createNotifyPanel({ basePath })
+		const panel = createNotifyPanel({
+			basePath,
+			targetMode,
+			getCurrentTargetId: () => term.getCurrentTargetId?.() ?? null,
+		})
 		document.body.appendChild(panel.element)
 		return panel.open
 	} catch (error) {
@@ -210,7 +218,7 @@ export function init(
 				// Help overlay first — the drawer's Guide button opens it via the
 				// action registry.
 				const openHelp = setupHelpOverlay(term, config, version)
-				const openNotifyPanel = setupNotifyPanel(deps?.basePath ?? '/')
+				const openNotifyPanel = setupNotifyPanel(deps?.basePath ?? '/', term, config.targetMode)
 
 				// Keyboard sovereignty: escape hatch (V2) injects a ⌨ button into
 				// row1 when manual mode lacks one; the controller must exist before

@@ -1,6 +1,8 @@
 /// <reference lib="webworker" />
 import { type NotifyEvent, isRecord } from './notify/events'
 
+export const NOTIFY_TARGET_MESSAGE_TYPE = 'herdweb-notify-target' as const
+
 /** Build an absolute URL from the service worker scope. */
 export function resolveScopeUrl(scope: string, path: string): string {
 	const base = scope.endsWith('/') ? scope : `${scope}/`
@@ -13,28 +15,41 @@ export function showPushNotification(
 	registration: ServiceWorkerRegistration,
 	event: NotifyEvent,
 ): Promise<void> {
-	const tag = event.session ? `${event.kind}:${event.session}` : event.kind
-	return registration.showNotification(event.title, {
-		body: event.body,
-		tag,
-		data: event,
-	})
+	const { kind, session } = event
+	const tag =
+		event.v === 2
+			? session
+				? `${kind}:${event.targetId}:${session}`
+				: `${kind}:${event.targetId}`
+			: session
+				? `${kind}:${session}`
+				: kind
+	return registration.showNotification(event.title, { body: event.body, tag, data: event })
+}
+
+export function buildNotifyTargetUrl(scope: string, targetId: string): string {
+	const url = new URL(scope.endsWith('/') ? scope : `${scope}/`)
+	url.searchParams.set('target', targetId)
+	return url.toString()
 }
 
 /** Focus an existing window or open the app scope. */
 export async function handleNotificationClick(
 	clients: Pick<Clients, 'matchAll' | 'openWindow'>,
 	scope: string,
+	event?: NotifyEvent | null,
 ): Promise<void> {
 	const matched = await clients.matchAll({ type: 'window', includeUncontrolled: true })
 	if (matched.length > 0) {
 		const first = matched[0]
 		if (first) {
+			if (event?.v === 2)
+				first.postMessage({ type: NOTIFY_TARGET_MESSAGE_TYPE, targetId: event.targetId })
 			await first.focus()
 		}
 		return
 	}
-	await clients.openWindow(scope)
+	await clients.openWindow(event?.v === 2 ? buildNotifyTargetUrl(scope, event.targetId) : scope)
 }
 
 /** Re-subscribe after pushsubscriptionchange: fetch VAPID key, replace server record. */
@@ -89,9 +104,10 @@ function readPublicKey(value: unknown): string | undefined {
 }
 
 function isNotifyEventPayload(value: unknown): value is NotifyEvent {
-	if (!isRecord(value)) return false
+	if (!isRecord(value) || (value.v !== 1 && value.v !== 2)) return false
+	if (value.v === 2 && (typeof value.targetId !== 'string' || value.targetId.length === 0))
+		return false
 	return (
-		value.v === 1 &&
 		typeof value.id === 'string' &&
 		typeof value.kind === 'string' &&
 		typeof value.title === 'string' &&
@@ -153,7 +169,9 @@ function installHandlers(self: ServiceWorkerGlobalScope): void {
 	self.addEventListener('notificationclick', (event: NotificationEvent) => {
 		event.notification.close()
 		const scope = self.registration.scope
-		event.waitUntil(handleNotificationClick(self.clients, scope))
+		const data = event.notification.data
+		const notifyEvent = isNotifyEventPayload(data) ? data : null
+		event.waitUntil(handleNotificationClick(self.clients, scope, notifyEvent))
 	})
 
 	self.addEventListener('pushsubscriptionchange', (event: ExtendableEvent) => {

@@ -184,10 +184,16 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
 			}
 
+			const requestedTargetId = c.req.query('targetId')
+			const targetId =
+				targetMode === 'single' ? (requestedTargetId ?? 'default') : requestedTargetId
+			if (!targetId || !targetIds.includes(targetId)) {
+				return deny(c, deps, securityHeaders, 'unknown targetId', 400)
+			}
 			const event = parseNotifyEvent(
 				JSON.stringify({
 					v: targetMode === 'explicit' ? 2 : 1,
-					...(targetMode === 'explicit' ? { targetId: targetIds[0] } : {}),
+					...(targetMode === 'explicit' ? { targetId } : {}),
 					kind: 'test',
 					title: 'herdweb test',
 					body: 'Test notification from panel',

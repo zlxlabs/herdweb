@@ -35,7 +35,7 @@ function stubServiceWorker(): void {
 test('open fetches history and renders empty state', async () => {
 	stubServiceWorker()
 	const fetchMock = vi.fn(async (url: string) => {
-		if (url.endsWith('/api/events/history')) {
+		if (url.includes('/api/events/history')) {
 			return { ok: true, json: async () => ({ events: [] }) }
 		}
 		return { ok: false, status: 500 }
@@ -55,7 +55,7 @@ test('open renders history items with kind badge and body', async () => {
 	stubServiceWorker()
 	const now = 1_700_000_000_000
 	const fetchMock = vi.fn(async (url: string) => {
-		if (url.endsWith('/api/events/history')) {
+		if (url.includes('/api/events/history')) {
 			return {
 				ok: true,
 				json: async () => ({
@@ -95,7 +95,7 @@ test('open renders history items with kind badge and body', async () => {
 test('fetch failure shows error row without breaking panel controls', async () => {
 	stubServiceWorker()
 	const fetchMock = vi.fn(async (url: string) => {
-		if (url.endsWith('/api/events/history')) {
+		if (url.includes('/api/events/history')) {
 			return { ok: false, status: 503 }
 		}
 		return { ok: true, json: async () => ({ events: [] }) }
@@ -113,11 +113,11 @@ test('fetch failure shows error row without breaking panel controls', async () =
 	expect(panel.element.querySelector('.wt-notify-test')).not.toBeNull()
 })
 
-test('refresh button re-fetches history', async () => {
+test('refresh button re-fetches history and explicit URLs carry targetId', async () => {
 	stubServiceWorker()
 	let callCount = 0
-	const fetchMock = vi.fn(async (url: string) => {
-		if (url.endsWith('/api/events/history')) {
+	const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+		if (url.includes('/api/events/history')) {
 			callCount += 1
 			return {
 				ok: true,
@@ -127,14 +127,20 @@ test('refresh button re-fetches history', async () => {
 				}),
 			}
 		}
+		if (url.includes('/api/push/test') && init?.method === 'POST') return { ok: true, status: 202 }
 		return { ok: false, status: 500 }
 	})
 
-	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	const panel = createNotifyPanel({
+		basePath: '/agent',
+		targetMode: 'explicit',
+		getCurrentTargetId: () => 'workbox',
+		fetchFn: fetchMock as unknown as typeof fetch,
+	})
 	document.body.appendChild(panel.element)
 	panel.open()
 	await new Promise((resolve) => setTimeout(resolve, 20))
-	expect(panel.element.querySelector('.wt-notify-history-empty')?.textContent).toBe('暂无事件')
+	expect(fetchMock).toHaveBeenCalledWith('/agent/api/events/history?targetId=workbox')
 
 	const refreshBtn = panel.element.querySelector<HTMLButtonElement>('.wt-notify-history-refresh')
 	if (!refreshBtn) throw new Error('missing refresh button')
@@ -143,4 +149,11 @@ test('refresh button re-fetches history', async () => {
 
 	expect(fetchMock).toHaveBeenCalledTimes(2)
 	expect(panel.element.querySelector('.wt-notify-history-title')?.textContent).toBe('Finished')
+	panel.element
+		.querySelector<HTMLButtonElement>('.wt-notify-test')
+		?.dispatchEvent(new Event('touchend', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(fetchMock).toHaveBeenCalledWith('/agent/api/push/test?targetId=workbox', {
+		method: 'POST',
+	})
 })
