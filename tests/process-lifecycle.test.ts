@@ -1,7 +1,7 @@
 // @vitest-environment node
 
 import { execFileSync } from 'node:child_process'
-import { chmodSync, mkdtempSync, rmSync } from 'node:fs'
+import { chmodSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -11,6 +11,7 @@ import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const tsxLoader = join(repoRoot, 'node_modules/tsx/dist/loader.mjs')
+const tsx = join(repoRoot, 'node_modules/.bin/tsx')
 
 function isPortListening(port: number): Promise<boolean> {
 	return new Promise((resolve) => {
@@ -221,12 +222,12 @@ test('target exit retains the server when exit fact writing fails', async () => 
 	}
 })
 
-test('healthy serve shutdown exits cleanly', async () => {
+test('healthy target exit fact persists before clean shutdown', async () => {
 	const port = await reservePort()
 	const stateRoot = mkdtempSync(join(tmpdir(), 'herdweb-process-lifecycle-'))
 	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))
 	const proc = spawnProcess(
-		[join(repoRoot, 'node_modules/.bin/tsx'), 'cli.ts', 'serve', '--port', String(port)],
+		[tsx, 'cli.ts', 'serve', '--port', String(port), '--', 'bash', '-c', 'read -r; exit 0'],
 		{
 			cwd: repoRoot,
 			env: { ...process.env, XDG_CONFIG_HOME: configHome, XDG_STATE_HOME: stateRoot },
@@ -236,6 +237,30 @@ test('healthy serve shutdown exits cleanly', async () => {
 	)
 	try {
 		await waitForPort(port, true, 10_000)
+		await new Promise<void>((resolve, reject) => {
+			const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
+			ws.once('error', reject).on('message', (data) => {
+				const type = JSON.parse(data.toString()).type
+				if (type === 'snapshot') ws.send(JSON.stringify({ type: 'input', data: '\r' }))
+				if (type === 'exit') {
+					ws.close()
+					resolve()
+				}
+			})
+		})
+		const stateFile = join(stateRoot, 'herdweb', String(port), 'last-session.json')
+		let raw: string | undefined
+		const deadline = Date.now() + 10_000
+		while (raw === undefined && Date.now() < deadline) {
+			try {
+				raw = readFileSync(stateFile, 'utf8')
+			} catch {
+				await sleep(100)
+			}
+		}
+		if (raw === undefined) throw new Error(`timed out waiting for ${stateFile}`)
+		expect(raw.endsWith('\n')).toBe(true)
+		expect(JSON.parse(raw).default).toMatchObject({ exitCode: 0, signal: 0 })
 		proc.kill('SIGTERM')
 		expect(await proc.exited).toBe(0)
 		await waitForPort(port, false, 10_000)
