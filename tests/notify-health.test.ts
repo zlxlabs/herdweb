@@ -1,7 +1,7 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
 	buildRestartEvent,
 	buildSessionEndEvent,
@@ -9,6 +9,9 @@ import {
 	formatExitReason,
 	shouldAnnounceRestart,
 } from '../src/notify/health'
+import { writeSubscriptions } from '../src/notify/push'
+import { createNotifyService } from '../src/notify/service'
+import { createSilenceDetector } from '../src/notify/silence'
 import {
 	readLastSessionStore,
 	updateLastSessionEntry,
@@ -86,6 +89,76 @@ describe('health event builders', () => {
 		const event = buildRestartEvent({ sessionKey: 'dev', startTime: 500, ts: 600 })
 		expect(event.title).toBe('herdweb · dev 服务已重启')
 		expect(event.id).toBe('health:dev:500')
+	})
+
+	test('explicit restart and exit producers preserve targetId in push bytes', async () => {
+		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-push-'))
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/device',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: 1,
+			},
+		])
+		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const service = createNotifyService({
+			stateDir,
+			historyLimit: 200,
+			targetMode: 'explicit',
+			targetIds: ['a', 'b'],
+			sendPush,
+		})
+		for (const event of [
+			buildRestartEvent({
+				sessionKey: 'dev',
+				startTime: 1,
+				ts: 2,
+				targetMode: 'explicit',
+				targetId: 'a',
+			}),
+			buildSessionEndEvent({
+				sessionKey: 'dev',
+				startTime: 2,
+				exitCode: 0,
+				signal: null,
+				ts: 3,
+				targetMode: 'explicit',
+				targetId: 'b',
+			}),
+		])
+			service.dispatchEvent(event)
+		expect(
+			sendPush.mock.calls.map(([, payload]) => JSON.parse(payload as string).targetId),
+		).toEqual(['a', 'b'])
+		expect([service.lastEventAt('a', 'dev'), service.lastEventAt('b', 'dev')]).toEqual([2, 3])
+		vi.useFakeTimers()
+		let nowMs = 0
+		let busy = true
+		const detector = createSilenceDetector({
+			sessionKey: 'silence-dev',
+			targetMode: 'explicit',
+			targetId: 'b',
+			config: { enabled: true, busyMs: 30_000, quietMs: 180_000, cooldownMs: 600_000 },
+			bytesInWindow: () => (busy ? 1500 : 0),
+			lastOutputAt: () => 0,
+			dispatch: (event) => service.dispatchEvent(event),
+			lastEventAt: (targetId, sessionKey) => service.lastEventAt(targetId, sessionKey),
+			now: () => nowMs,
+			setIntervalMs: 30_000,
+		})
+		nowMs = 30_000
+		vi.advanceTimersByTime(30_000)
+		busy = false
+		nowMs = 210_000
+		vi.advanceTimersByTime(180_000)
+		await service.awaitInFlight(1000)
+		expect(
+			sendPush.mock.calls.map(([, payload]) => JSON.parse(payload as string).targetId),
+		).toEqual(['a', 'b', 'b'])
+		detector.dispose()
+		service.dispose()
+		rmSync(stateDir, { recursive: true, force: true })
+		vi.useRealTimers()
 	})
 })
 

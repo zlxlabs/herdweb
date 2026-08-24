@@ -106,6 +106,15 @@ describe('readEventHistory', () => {
 		expect(events).toHaveLength(1)
 		expect(events[0]?.id).toBe('real')
 	})
+
+	test('filters by target before applying the limit', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-history-'))
+		writeFileSync(
+			join(stateDir, 'events.jsonl'),
+			`${JSON.stringify({ ...validBase, v: 2, targetId: 'a', id: 'a-old', kind: 'done', ts: 1 })}\n${JSON.stringify({ ...validBase, v: 2, targetId: 'b', id: 'b-new', kind: 'done', ts: 2 })}\n`,
+		)
+		expect(readEventHistory(stateDir, 1, 'a').map((event) => event.id)).toEqual(['a-old'])
+	})
 })
 
 function routeVariants(basePath: string, path: string): readonly string[] {

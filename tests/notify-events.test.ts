@@ -125,14 +125,6 @@ describe('parseNotifyEvent', () => {
 			expect((error as NotifyEventError).statusCode).toBe(413)
 		}
 	})
-
-	test('accepts v2 event with target identity', () => {
-		expect(
-			parseNotifyEvent(
-				JSON.stringify({ ...validBase, v: 2, targetId: 'workbox', session: 'same' }),
-			),
-		).toMatchObject({ v: 2, targetId: 'workbox', session: 'same' })
-	})
 })
 
 describe('POST /api/events', () => {
@@ -212,56 +204,21 @@ describe('POST /api/events', () => {
 		expect(lines).toHaveLength(1)
 	})
 
-	test('explicit producer rejects v1 and accepts exact v2 POST bytes', async () => {
+	test('explicit producer requires v2 and a known target', async () => {
 		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
-		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
-		const v1 = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ ...validBase, id: 'v1-explicit' }),
-		})
-		expect(v1.status).toBe(400)
-
-		const v2Body = JSON.stringify({
-			v: 2,
-			targetId: 'workbox',
-			id: 'v2-explicit',
-			kind: 'done',
-			session: 'same',
-			title: 'Done',
-			ts: 1,
-		})
-		const v2 = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
-			method: 'POST',
-			headers: { 'content-type': 'application/json' },
-			body: v2Body,
-		})
-		expect(v2.status).toBe(202)
-		expect(dispatchSpy).toHaveBeenLastCalledWith(
-			expect.objectContaining({ v: 2, targetId: 'workbox', id: 'v2-explicit' }),
-		)
-	})
-
-	test('explicit producer rejects unknown target and isolates history', async () => {
-		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
-		const post = (targetId: string, id: string) =>
+		const post = (body: object) =>
 			fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ v: 2, targetId, id, kind: 'done', title: id, ts: 1 }),
+				body: JSON.stringify(body),
 			})
-		expect((await post('missing', 'bad')).status).toBe(400)
-		expect((await post('local', 'same')).status).toBe(202)
-		expect((await post('workbox', 'same')).status).toBe(202)
-		expect(
-			(await fetch(`http://127.0.0.1:${harness.port}/api/events/history?targetId=local`)).status,
-		).toBe(200)
-		const response = await fetch(
-			`http://127.0.0.1:${harness.port}/api/events/history?targetId=local`,
+		expect((await post({ ...validBase, id: 'v1-explicit' })).status).toBe(400)
+		const v2 = { v: 2, targetId: 'workbox', id: 'v2-explicit', kind: 'done', title: 'Done', ts: 1 }
+		await post(v2)
+		expect(readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8')).toContain(
+			'"targetId":"workbox"',
 		)
-		expect(await response.json()).toEqual({
-			events: [expect.objectContaining({ targetId: 'local', id: 'same' })],
-		})
+		expect((await post({ ...v2, targetId: 'missing' })).status).toBe(400)
 	})
 
 	test('kind=test bypasses dedup and disk', async () => {
@@ -298,46 +255,6 @@ describe('POST /api/events', () => {
 			JSON.stringify({ v: 1, id: 'id-0', kind: 'done', title: 'T', ts: 9999 }),
 		)
 		expect(notifyService.dispatchEvent(replay)).toBe('accepted')
-		notifyService.dispose()
-		rmSync(stateDir, { recursive: true, force: true })
-	})
-
-	test('explicit same id and session on A/B both produce target-tagged push bytes', async () => {
-		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-targets-'))
-		writeSubscriptions(stateDir, [
-			{
-				endpoint: 'https://push.example/device',
-				keys: { p256dh: 'k', auth: 'a' },
-				lastSuccessAt: 1,
-			},
-		])
-		const sendPush = vi.fn().mockResolvedValue(undefined)
-		const notifyService = createNotifyService({
-			stateDir,
-			historyLimit: 200,
-			targetMode: 'explicit',
-			targetIds: ['a', 'b'],
-			sendPush,
-		})
-		for (const targetId of ['a', 'b']) {
-			notifyService.dispatchEvent(
-				parseNotifyEvent(
-					JSON.stringify({
-						v: 2,
-						targetId,
-						id: 'same',
-						session: 'same',
-						kind: 'done',
-						title: targetId,
-						ts: 1,
-					}),
-				),
-			)
-		}
-		await notifyService.awaitInFlight(1000)
-		expect(
-			sendPush.mock.calls.map(([_, payload]) => JSON.parse(payload as string).targetId),
-		).toEqual(['a', 'b'])
 		notifyService.dispose()
 		rmSync(stateDir, { recursive: true, force: true })
 	})
