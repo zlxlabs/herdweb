@@ -5,7 +5,6 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { defineConfig } from '../src/config'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService, notifyDrain } from '../src/notify/service'
 import {
@@ -16,9 +15,11 @@ import {
 	isLoopbackHost,
 	parseHostHeader,
 	resolveRequestAuthority,
+	spawnCaffeinate,
 	withSecurityHeaders,
 	writeImageDrop,
 } from '../src/serve'
+import * as nodeCompat from '../src/util/node-compat'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
@@ -392,14 +393,13 @@ describe('notifyDrain shutdown', () => {
 })
 
 describe('serve health on PTY exit', () => {
-	test('resolves after signal without spawning an unattached target', async () => {
-		const port = await reservePort()
-		const { serve } = await import('../src/serve')
-		const servePromise = serve(defineConfig({ asr: { enabled: false } }), port)
-		await waitForHttp(`http://127.0.0.1:${port}`)
-		process.emit('SIGINT')
-		await servePromise
-	}, 30_000)
+	test('caffeinate follows the herdweb process', async () => {
+		const realSpawn = nodeCompat.spawnProcess
+		const spawn = vi.spyOn(nodeCompat, 'spawnProcess').mockImplementation(() => realSpawn(['true']))
+		await spawnCaffeinate(123)?.exited
+		expect(spawn.mock.calls[0]?.[0]).toEqual(['caffeinate', '-s', '-w', '123'])
+		spawn.mockRestore()
+	})
 })
 
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02])

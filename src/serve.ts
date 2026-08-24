@@ -259,7 +259,7 @@ function readIcon(filename: string): Uint8Array | undefined {
 
 /** Spawn caffeinate to prevent system sleep while herdweb is running (macOS only).
  * Uses -s (system sleep on AC) and -w <pid> so the assertion drops when the PTY exits. */
-function spawnCaffeinate(pid: number): SpawnedProcess | null {
+export function spawnCaffeinate(pid: number): SpawnedProcess | null {
 	try {
 		const proc = spawnProcess(['caffeinate', '-s', '-w', String(pid)], {
 			stdout: 'ignore',
