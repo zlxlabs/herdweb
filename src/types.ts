@@ -266,10 +266,7 @@ export interface TargetConfig {
 	readonly imageDrop: TargetImageDrop
 }
 
-export interface TargetConfigInput {
-	readonly id: string
-	readonly name: string
-	readonly command: readonly string[]
+export type TargetConfigInput = Omit<TargetConfig, 'imageDrop'> & {
 	readonly imageDrop?: TargetImageDrop
 }
 

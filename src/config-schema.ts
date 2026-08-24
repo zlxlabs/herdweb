@@ -8,10 +8,6 @@ import * as v from 'valibot'
 
 const finiteNumber = v.pipe(v.number(), v.finite())
 
-function utf8Bytes(value: string): number {
-	return new TextEncoder().encode(value).byteLength
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -563,7 +559,7 @@ const targetInputSchema = v.strictObject({
 				v.string(),
 				v.minLength(1, 'target command arguments must not be empty'),
 				v.check(
-					(value) => utf8Bytes(value) <= 4096,
+					(value) => new TextEncoder().encode(value).byteLength <= 4096,
 					'target command arguments must be at most 4096 UTF-8 bytes',
 				),
 			),
@@ -577,29 +573,22 @@ const targetInputSchema = v.strictObject({
 function targetConfigCheck<T extends Record<string, unknown>>(resolved: boolean) {
 	return v.rawCheck<T>(({ dataset, addIssue }) => {
 		if (!dataset.typed || !isRecord(dataset.value) || !Array.isArray(dataset.value.targets)) return
-		const targets = dataset.value.targets
-		const issue = (message: string, input: unknown = targets) => addIssue({ message, input })
-		const ids = targets.map((value) => (isRecord(value) ? value.id : undefined))
-		if (targets.length < 1 || targets.length > 8) issue('target config must contain 1 to 8 targets')
-		if (new Set(ids).size !== ids.length) issue('target config contains duplicate target ids')
-		if (
-			typeof dataset.value.defaultTargetId !== 'string' ||
-			!ids.includes(dataset.value.defaultTargetId)
-		)
-			issue(
-				'target config defaultTargetId must reference a configured target',
-				dataset.value.defaultTargetId,
-			)
-		if (resolved && dataset.value.targetMode === 'single' && targets.length !== 1)
-			issue('single target config must contain exactly one target')
-		if (
-			resolved &&
-			targets.some(
-				(value) =>
-					!isRecord(value) || !['disabled', 'local-path'].includes(String(value.imageDrop)),
-			)
-		)
-			issue('resolved target config requires imageDrop')
+		const { targets, defaultTargetId, targetMode } = dataset.value
+		const ids = targets.map((targetValue) => (isRecord(targetValue) ? targetValue.id : undefined))
+		const valid =
+			targets.length >= 1 &&
+			targets.length <= 8 &&
+			new Set(ids).size === ids.length &&
+			typeof defaultTargetId === 'string' &&
+			ids.includes(defaultTargetId) &&
+			(!resolved || targetMode !== 'single' || targets.length === 1) &&
+			(!resolved ||
+				targets.every(
+					(targetValue) =>
+						isRecord(targetValue) &&
+						['disabled', 'local-path'].includes(String(targetValue.imageDrop)),
+				))
+		if (!valid) addIssue({ message: 'invalid target configuration' })
 	})
 }
 
