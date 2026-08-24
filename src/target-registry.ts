@@ -3,6 +3,7 @@ import type { TargetSummary } from './session-protocol'
 import type { TargetConfig } from './types'
 export type TargetSession = Pick<SharedTerminalSession, 'id' | 'onExit' | 'dispose'>
 export type TargetSessionFactory = (command: readonly string[]) => TargetSession
+type StatusChange = (summary: TargetSummary, session?: TargetSession) => void
 type TargetStatus =
 	| { readonly state: 'not-started' }
 	| { readonly state: 'starting' }
@@ -27,13 +28,13 @@ function required<T>(value: T | undefined): T {
 export class TargetRegistry {
 	private readonly entries = new Map<string, Entry>()
 	private readonly createSession: TargetSessionFactory
-	private readonly onStatusChange?: (summary: TargetSummary) => void
+	private readonly onStatusChange?: StatusChange
 	private closing = false
 	private disposePromise: Promise<void> | undefined
 	constructor(
 		targets: readonly TargetConfig[],
 		createSession: TargetSessionFactory = (command) => new SharedTerminalSession(command),
-		onStatusChange?: (summary: TargetSummary) => void,
+		onStatusChange?: StatusChange,
 	) {
 		this.createSession = createSession
 		this.onStatusChange = onStatusChange
@@ -121,25 +122,28 @@ export class TargetRegistry {
 		if (entry === undefined) throw new Error(`Unknown target "${id}"`)
 		return entry
 	}
+	private publish(entry: Entry, session?: TargetSession): void {
+		this.onStatusChange?.(
+			required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
+			session,
+		)
+	}
 	private start(entry: Entry, restarting = false): Promise<TargetSession> {
 		entry.restartInFlight = restarting
 		entry.status = { state: 'starting' }
+		this.publish(entry)
 		let session: TargetSession
 		try {
 			session = this.createSession(entry.target.command)
 		} catch (error) {
 			entry.status = { state: 'process-exited', exitCode: null, signal: null, error }
 			entry.restartInFlight = false
-			this.onStatusChange?.(
-				required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
-			)
+			this.publish(entry)
 			throw error
 		}
 		entry.session = session
 		entry.status = { state: 'process-running', sessionId: session.id }
-		this.onStatusChange?.(
-			required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
-		)
+		this.publish(entry, session)
 		const promise = Promise.resolve(session)
 		entry.startPromise = promise
 		promise.then(() => {
@@ -148,9 +152,7 @@ export class TargetRegistry {
 		})
 		session.onExit.then((exit) => {
 			entry.status = { state: 'process-exited', ...exit }
-			this.onStatusChange?.(
-				required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
-			)
+			this.publish(entry)
 		})
 		return promise
 	}

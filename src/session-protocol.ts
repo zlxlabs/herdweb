@@ -1,21 +1,24 @@
 export interface InputMessage {
 	readonly type: 'input'
+	readonly attachmentId: string
 	readonly data: string
 }
 
 export interface ResizeMessage {
 	readonly type: 'resize'
+	readonly attachmentId: string
 	readonly cols: number
 	readonly rows: number
 }
 
 export interface PingMessage {
 	readonly type: 'ping'
-	readonly id: string
+	readonly nonce: string
 }
 
 export interface InputActionMessage {
 	readonly type: 'input-action'
+	readonly attachmentId: string
 	readonly id: string
 	readonly data: string
 }
@@ -53,6 +56,7 @@ export const MAX_RESIZE_ROWS = 200
 
 export interface SnapshotMessage {
 	readonly type: 'snapshot'
+	readonly attachmentId: string
 	readonly data: string
 	readonly sessionId: string
 	readonly outputWatermark: number
@@ -60,24 +64,27 @@ export interface SnapshotMessage {
 
 export interface OutputMessage {
 	readonly type: 'output'
+	readonly attachmentId: string
 	readonly data: string
 	readonly seq: number
 }
 
 export interface ExitMessage {
 	readonly type: 'exit'
+	readonly attachmentId: string
 	readonly exitCode: number
 	readonly signal: number | null
 }
 
 export interface ErrorMessage {
 	readonly type: 'error'
+	readonly attachmentId: string
 	readonly message: string
 }
 
 export interface PongMessage {
 	readonly type: 'pong'
-	readonly id: string
+	readonly nonce: string
 }
 
 /** @public */
@@ -139,6 +146,7 @@ export type TargetRestartedMessage = ProtocolMessage<
  */
 export interface InputAcceptedMessage {
 	readonly type: 'input-accepted'
+	readonly attachmentId: string
 	readonly id: string
 }
 
@@ -146,6 +154,7 @@ export type InputRejectedReason = 'id-conflict' | 'session-unavailable'
 
 export interface InputRejectedMessage {
 	readonly type: 'input-rejected'
+	readonly attachmentId: string
 	readonly id: string
 	readonly reason: InputRejectedReason
 }
@@ -346,26 +355,40 @@ export function parseClientMessage(payload: string): ClientMessage | null {
 		}
 		switch (parsed.type) {
 			case 'input':
-				return typeof parsed.data === 'string' && isInputWithinLimit(parsed.data)
-					? { type: 'input', data: parsed.data }
+				return isProtocolId(parsed.attachmentId) &&
+					typeof parsed.data === 'string' &&
+					isInputWithinLimit(parsed.data)
+					? { type: 'input', attachmentId: parsed.attachmentId, data: parsed.data }
 					: null
 
 			case 'resize':
-				return isFinitePositiveInteger(parsed.cols) &&
+				return isProtocolId(parsed.attachmentId) &&
+					isFinitePositiveInteger(parsed.cols) &&
 					isFinitePositiveInteger(parsed.rows) &&
 					parsed.cols <= MAX_RESIZE_COLS &&
 					parsed.rows <= MAX_RESIZE_ROWS
-					? { type: 'resize', cols: parsed.cols, rows: parsed.rows }
+					? {
+							type: 'resize',
+							attachmentId: parsed.attachmentId,
+							cols: parsed.cols,
+							rows: parsed.rows,
+						}
 					: null
 
 			case 'ping':
-				return isProtocolId(parsed.id) ? { type: 'ping', id: parsed.id } : null
+				return isProtocolId(parsed.nonce) ? { type: 'ping', nonce: parsed.nonce } : null
 
 			case 'input-action':
-				return isProtocolId(parsed.id) &&
+				return isProtocolId(parsed.attachmentId) &&
+					isProtocolId(parsed.id) &&
 					typeof parsed.data === 'string' &&
 					isInputWithinLimit(parsed.data)
-					? { type: 'input-action', id: parsed.id, data: parsed.data }
+					? {
+							type: 'input-action',
+							attachmentId: parsed.attachmentId,
+							id: parsed.id,
+							data: parsed.data,
+						}
 					: null
 
 			case 'attach-target':
@@ -406,6 +429,7 @@ export function parseClientMessage(payload: string): ClientMessage | null {
 	}
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: attachment-scoped session frames
 export function parseServerMessage(payload: string): ServerMessage | null {
 	try {
 		const parsed: unknown = JSON.parse(payload)
@@ -417,13 +441,15 @@ export function parseServerMessage(payload: string): ServerMessage | null {
 
 		switch (parsed.type) {
 			case 'snapshot':
-				return typeof parsed.data === 'string' &&
+				return isProtocolId(parsed.attachmentId) &&
+					typeof parsed.data === 'string' &&
 					isProtocolId(parsed.sessionId) &&
 					Number.isInteger(parsed.outputWatermark) &&
 					typeof parsed.outputWatermark === 'number' &&
 					parsed.outputWatermark >= 0
 					? {
 							type: 'snapshot',
+							attachmentId: parsed.attachmentId,
 							data: parsed.data,
 							sessionId: parsed.sessionId,
 							outputWatermark: parsed.outputWatermark,
@@ -431,38 +457,54 @@ export function parseServerMessage(payload: string): ServerMessage | null {
 					: null
 
 			case 'output':
-				return typeof parsed.data === 'string' &&
+				return isProtocolId(parsed.attachmentId) &&
+					typeof parsed.data === 'string' &&
 					Number.isInteger(parsed.seq) &&
 					typeof parsed.seq === 'number' &&
 					parsed.seq > 0
-					? { type: 'output', data: parsed.data, seq: parsed.seq }
+					? {
+							type: 'output',
+							attachmentId: parsed.attachmentId,
+							data: parsed.data,
+							seq: parsed.seq,
+						}
 					: null
 
 			case 'exit':
-				return typeof parsed.exitCode === 'number' &&
+				return isProtocolId(parsed.attachmentId) &&
+					typeof parsed.exitCode === 'number' &&
 					(parsed.signal === null || typeof parsed.signal === 'number')
 					? {
 							type: 'exit',
+							attachmentId: parsed.attachmentId,
 							exitCode: parsed.exitCode,
 							signal: parsed.signal,
 						}
 					: null
 
 			case 'error':
-				return typeof parsed.message === 'string'
-					? { type: 'error', message: parsed.message }
+				return isProtocolId(parsed.attachmentId) && typeof parsed.message === 'string'
+					? { type: 'error', attachmentId: parsed.attachmentId, message: parsed.message }
 					: null
 
 			case 'pong':
-				return isProtocolId(parsed.id) ? { type: 'pong', id: parsed.id } : null
+				return isProtocolId(parsed.nonce) ? { type: 'pong', nonce: parsed.nonce } : null
 
 			case 'input-accepted':
-				return isProtocolId(parsed.id) ? { type: 'input-accepted', id: parsed.id } : null
+				return isProtocolId(parsed.attachmentId) && isProtocolId(parsed.id)
+					? { type: 'input-accepted', attachmentId: parsed.attachmentId, id: parsed.id }
+					: null
 
 			case 'input-rejected':
-				return isProtocolId(parsed.id) &&
+				return isProtocolId(parsed.attachmentId) &&
+					isProtocolId(parsed.id) &&
 					(parsed.reason === 'id-conflict' || parsed.reason === 'session-unavailable')
-					? { type: 'input-rejected', id: parsed.id, reason: parsed.reason }
+					? {
+							type: 'input-rejected',
+							attachmentId: parsed.attachmentId,
+							id: parsed.id,
+							reason: parsed.reason,
+						}
 					: null
 
 			default:

@@ -21,58 +21,69 @@ const target = {
 const request = { requestId: 'request-1', targetId: 'local' }
 const attachment = { ...request, attachmentId: 'attachment-1' }
 const parseJson = (value: object) => parseServerMessage(JSON.stringify(value))
+const parseClient = (value: object) => parseClientMessage(JSON.stringify(value))
 const expectParsed = (value: object, expected: object = value) =>
 	expect(parseJson(value)).toEqual(expected)
 const expectInvalid = (value: object) => expect(parseJson(value)).toBeNull()
 
 describe('session protocol', () => {
 	test('round-trips input messages', () => {
-		const message = { type: 'input' as const, data: 'ls\r' }
+		const message = { type: 'input' as const, attachmentId: attachment.attachmentId, data: 'ls\r' }
 		expect(parseClientMessage(serialiseClientMessage(message))).toEqual(message)
 	})
 
 	test('round-trips input-action messages and validates UTF-8 ID size', () => {
-		const message = { type: 'input-action' as const, id: 'action-1', data: 'echo hello\r' }
+		const message = {
+			type: 'input-action' as const,
+			attachmentId: attachment.attachmentId,
+			id: 'action-1',
+			data: 'echo hello\r',
+		}
 		expect(parseClientMessage(serialiseClientMessage(message))).toEqual(message)
-
 		const maxSizedId = '😀'.repeat(MAX_PROTOCOL_ID_BYTES / 4)
-		expect(parseClientMessage(JSON.stringify({ type: 'ping', id: maxSizedId }))).toEqual({
+		expect(parseClient({ type: 'ping', nonce: maxSizedId })).toEqual({
 			type: 'ping',
-			id: maxSizedId,
+			nonce: maxSizedId,
 		})
-		expect(parseClientMessage(JSON.stringify({ type: 'ping', id: `${maxSizedId}😀` }))).toBeNull()
-		expect(
-			parseClientMessage(JSON.stringify({ type: 'input-action', id: '', data: 'x' })),
-		).toBeNull()
+		expect(parseClient({ type: 'ping', nonce: `${maxSizedId}😀` })).toBeNull()
+		expect(parseClient({ type: 'input-action', attachmentId: 'a', id: '', data: 'x' })).toBeNull()
 	})
 
-	test('requires ping IDs', () => {
-		expect(parseClientMessage(JSON.stringify({ type: 'ping' }))).toBeNull()
-		expect(parseClientMessage(JSON.stringify({ type: 'ping', id: 123 }))).toBeNull()
+	test('requires ping nonces', () => {
+		expect(parseClient({ type: 'ping' })).toBeNull()
+		expect(parseClient({ type: 'ping', nonce: 123 })).toBeNull()
 	})
 
 	test('rejects malformed resize messages', () => {
-		expect(parseClientMessage(JSON.stringify({ type: 'resize', cols: 80, rows: 0 }))).toBeNull()
-		expect(parseClientMessage('{"type":"resize","cols":"80","rows":24}')).toBeNull()
+		expect(parseClient({ type: 'resize', cols: 80, rows: 0 })).toBeNull()
+		expect(
+			parseClientMessage('{"type":"resize","attachmentId":"a","cols":"80","rows":24}'),
+		).toBeNull()
 	})
 
 	test('rejects oversized input messages', () => {
-		const oversized = 'x'.repeat(MAX_CLIENT_INPUT_BYTES + 1)
-		expect(parseClientMessage(JSON.stringify({ type: 'input', data: oversized }))).toBeNull()
+		expect(
+			parseClient({
+				type: 'input',
+				attachmentId: 'a',
+				data: 'x'.repeat(MAX_CLIENT_INPUT_BYTES + 1),
+			}),
+		).toBeNull()
 	})
 
 	test('rejects oversized resize messages', () => {
 		expect(
-			parseClientMessage(JSON.stringify({ type: 'resize', cols: MAX_RESIZE_COLS + 1, rows: 24 })),
+			parseClient({ type: 'resize', attachmentId: 'a', cols: MAX_RESIZE_COLS + 1, rows: 24 }),
 		).toBeNull()
 		expect(
-			parseClientMessage(JSON.stringify({ type: 'resize', cols: 80, rows: MAX_RESIZE_ROWS + 1 })),
+			parseClient({ type: 'resize', attachmentId: 'a', cols: 80, rows: MAX_RESIZE_ROWS + 1 }),
 		).toBeNull()
 	})
 
 	test('round-trips snapshot messages', () => {
 		const message = {
 			type: 'snapshot' as const,
+			attachmentId: attachment.attachmentId,
 			data: '\u001b[2Jhello',
 			sessionId: 'session-1',
 			outputWatermark: 3,
@@ -81,11 +92,17 @@ describe('session protocol', () => {
 	})
 
 	test('round-trips sequenced output and action responses', () => {
+		const aid = attachment.attachmentId
 		const messages = [
-			{ type: 'output' as const, data: 'hello', seq: 4 },
-			{ type: 'pong' as const, id: 'ping-1' },
-			{ type: 'input-accepted' as const, id: 'action-1' },
-			{ type: 'input-rejected' as const, id: 'action-2', reason: 'id-conflict' as const },
+			{ type: 'output' as const, attachmentId: aid, data: 'hello', seq: 4 },
+			{ type: 'pong' as const, nonce: 'ping-1' },
+			{ type: 'input-accepted' as const, attachmentId: aid, id: 'action-1' },
+			{
+				type: 'input-rejected' as const,
+				attachmentId: aid,
+				id: 'action-2',
+				reason: 'id-conflict' as const,
+			},
 		]
 
 		for (const message of messages) {
@@ -103,9 +120,7 @@ describe('session protocol', () => {
 		expect(parseServerMessage(JSON.stringify({ type: 'output', data: 'x', seq: 0 }))).toBeNull()
 		expect(parseServerMessage(JSON.stringify({ type: 'pong' }))).toBeNull()
 		expect(
-			parseServerMessage(
-				JSON.stringify({ type: 'input-rejected', id: 'a', reason: 'pty-write-failed' }),
-			),
+			parseJson({ type: 'input-rejected', attachmentId: 'a', id: 'a', reason: 'pty-write-failed' }),
 		).toBeNull()
 	})
 
@@ -222,11 +237,14 @@ describe('session protocol', () => {
 			cols: 500,
 			rows: 200,
 		}
-		expect(parseClientMessage(JSON.stringify(attach))).toEqual(attach)
+		const terminal = { type: 'input', attachmentId: 'a', data: 'x' }
+		expect(parseClient({ type: 'input', data: 'x' })).toBeNull()
+		expect(parseClient({ type: 'resize', cols: 80, rows: 24 })).toBeNull()
+		expect(parseClient({ type: 'input-action', id: 'a', data: 'x' })).toBeNull()
+		expect(parseClient(terminal)).toEqual(terminal)
+		expect(parseClient(attach)).toEqual(attach)
 		expect(
-			parseClientMessage(
-				JSON.stringify({ type: 'snapshot-applied', requestId: emojiId, attachmentId: emojiId }),
-			),
+			parseClient({ type: 'snapshot-applied', requestId: emojiId, attachmentId: emojiId }),
 		).not.toBeNull()
 
 		const invalid = [

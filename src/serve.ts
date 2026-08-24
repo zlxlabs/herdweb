@@ -11,14 +11,21 @@ import type WebSocket from 'ws'
 import { bundleClientAssets, bundleSwAsset, bundleWorkletAsset, renderClientHtml } from '../build'
 import { bareDocumentRoute, documentRoute, joinBasePath } from './base-path'
 import { createLifecycleGate } from './lifecycle-gate'
+import { buildRestartEvent, buildSessionEndEvent, shouldAnnounceRestart } from './notify/health'
 import { ensureVapidKeys } from './notify/push'
 import { registerNotifyRoutes } from './notify/routes'
 import { createNotifyService, notifyDrain } from './notify/service'
-import type { SilenceDetector } from './notify/silence'
-import { resolveNotifyStateDir } from './notify/state'
+import { type SilenceDetector, createSilenceDetector } from './notify/silence'
+import { readLastSessionStore, resolveNotifyStateDir, updateLastSessionEntry } from './notify/state'
 import { manifestToJson } from './pwa/manifest'
-import type { SessionClient } from './session'
+import type {
+	SessionClient,
+	SessionInputMessage,
+	SessionServerMessage,
+	SharedTerminalSession,
+} from './session'
 import {
+	type AttachError,
 	MAX_CLIENT_MESSAGE_BYTES,
 	type ServerMessage,
 	parseClientMessage,
@@ -26,8 +33,8 @@ import {
 } from './session-protocol'
 import { TargetRegistry } from './target-registry'
 import type { HerdwebConfig } from './types'
-import { spawnProcess } from './util/node-compat'
-import type { SpawnedProcess } from './util/node-compat'
+import { type SpawnedProcess, spawnProcess } from './util/node-compat'
+import { WsAttachmentBinding } from './ws-attachment-binding'
 
 const DEFAULT_PORT = 7681
 const DEFAULT_HOST = '127.0.0.1'
@@ -227,26 +234,8 @@ export function withSecurityHeaders(
 	})
 }
 
-function closeForProtocolViolation(
-	raw: WebSocket,
-	client: SessionClient | undefined,
-	message: string,
-): void {
-	if (raw.readyState === 1) {
-		try {
-			raw.send(serialiseServerMessage({ type: 'error', message }), () => {
-				if (raw.readyState < 2) {
-					raw.close(1008, 'protocol violation')
-				}
-			})
-			return
-		} catch {
-			// Fall through to a direct close if the socket is already unstable.
-		}
-	}
-
-	client?.send({ type: 'error', message })
-	raw.close(1008, 'protocol violation')
+function closeForProtocolViolation(raw: WebSocket, message: string): void {
+	if (raw.readyState < 2) raw.close(1008, message)
 }
 
 // This is the binding's wire boundary: real sockets cannot hold a deterministic bufferedAmount threshold for tests.
@@ -482,6 +471,21 @@ function mountNotifyStack(
 
 export { extractSessionKey } from './notify/health'
 
+type ConnectionState = {
+	readonly id: string
+	readonly transport: ReturnType<typeof createSessionClient>
+	readonly attachments: Map<string, { session: SharedTerminalSession; client: SessionClient }>
+}
+
+function rejectAttach(
+	connection: ConnectionState,
+	requestId: string,
+	targetId: string,
+	reason: AttachError,
+): void {
+	connection.transport.send({ type: 'attach-rejected', requestId, targetId, reason })
+}
+
 /** Start herdweb serve: build client assets, spawn the PTY, and serve HTTP + WS */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: serve bootstraps HTTP, WS, notify, and PTY lifecycle
 export async function serve(
@@ -504,29 +508,105 @@ export async function serve(
 	console.log('herdweb: client ready')
 
 	let caffeinateProc: SpawnedProcess | null = null
-	const targetConfigs =
-		config.targetMode === 'single'
+	const targetConfigs = [
+		...(config.targetMode === 'single'
 			? config.targets.map((target) =>
 					target.id === config.defaultTargetId ? { ...target, command } : target,
 				)
-			: config.targets
-	const clients = new Set<ReturnType<typeof createSessionClient>>()
-	const registry = new TargetRegistry(
-		targetConfigs,
-		(targetCommand) => new SharedTerminalSession(targetCommand),
-		(target) => {
-			for (const client of clients) client.send({ type: 'target-status', target })
-		},
+			: config.targets),
+	].sort((left, right) =>
+		left.id === config.defaultTargetId ? -1 : right.id === config.defaultTargetId ? 1 : 0,
 	)
 	const lifecycle = createLifecycleGate()
+	const notifyStateDir = resolveNotifyStateDir(port)
+	const previousSessions = readLastSessionStore(notifyStateDir)
+	// biome-ignore lint/style/useConst: assigned after HTTP routes, captured by attach lifecycle
+	let notifyService: ReturnType<typeof createNotifyService>
 
 	const manifestJson = config.pwa.enabled ? manifestToJson(config.name, config.pwa, basePath) : null
 	const icon180 = readIcon('icon-180.png')
 	const icon192 = readIcon('icon-192.png')
 	const icon512 = readIcon('icon-512.png')
 
-	const connections = new WeakMap<WebSocket, ReturnType<typeof createSessionClient>>()
+	const connections = new WeakMap<WebSocket, ConnectionState>()
+	const connectionsById = new Map<string, ConnectionState>()
+	const sessionLifecycles = new Map<string, Promise<void>>()
+	let firstExitError: unknown
 	const silenceDetectors = new Map<string, SilenceDetector>()
+	const binding = new WsAttachmentBinding({
+		onTimeout(attachment) {
+			connectionsById
+				.get(attachment.clientId)
+				?.transport.send({ type: 'snapshot-failed', ...attachment, reason: 'timeout' })
+		},
+		onInvalidate(attachment) {
+			const connection = connectionsById.get(attachment.clientId)
+			const record = connection?.attachments.get(attachment.attachmentId)
+			if (!connection || !record) return
+			record.session.removeClient(record.client)
+			connection.attachments.delete(attachment.attachmentId)
+		},
+	})
+	const registry = new TargetRegistry(
+		targetConfigs,
+		(targetCommand) => new SharedTerminalSession(targetCommand),
+		(target, createdSession) => {
+			if (target.processState === 'process-exited') binding.invalidateTarget(target.id)
+			for (const connection of connectionsById.values()) {
+				connection.transport.send({ type: 'target-status', target })
+			}
+			if (target.processState !== 'process-running' || !createdSession) return
+			if (sessionLifecycles.has(createdSession.id)) return
+			// oxlint-disable-next-line typescript/consistent-type-assertions -- factory returns SharedTerminalSession
+			const session = createdSession as SharedTerminalSession
+			if (shouldAnnounceRestart(previousSessions[target.id], session.id, Date.now())) {
+				notifyService.dispatchEvent(
+					buildRestartEvent({
+						sessionKey: target.id,
+						startTime: session.startTime,
+						ts: Date.now(),
+					}),
+				)
+			}
+			const detector = createSilenceDetector({
+				sessionKey: target.id,
+				config: config.notify.silence,
+				bytesInWindow: (windowMs) => session.bytesInWindow(windowMs),
+				lastOutputAt: () => session.lastOutputAt(),
+				dispatch: (event) => notifyService.dispatchEvent(event),
+				lastEventAt: (key) => notifyService.lastEventAt(key),
+			})
+			silenceDetectors.set(session.id, detector)
+			sessionLifecycles.set(
+				session.id,
+				session.onExit
+					.then((exit) => {
+						detector.dispose()
+						silenceDetectors.delete(session.id)
+						const ts = Date.now()
+						notifyService.dispatchEvent(
+							buildSessionEndEvent({
+								sessionKey: target.id,
+								startTime: session.startTime,
+								exitCode: exit.exitCode,
+								signal: exit.signal,
+								ts,
+							}),
+						)
+						updateLastSessionEntry(notifyStateDir, target.id, {
+							sessionId: session.id,
+							exitedAt: ts,
+							exitCode: exit.exitCode,
+							signal: exit.signal,
+						})
+					})
+					.catch((error: unknown) => {
+						console.error('herdweb: target exit fact write failed', error)
+						firstExitError ??= error
+					}),
+			)
+		},
+	)
 
 	function securityHeadersForRequest(hostHeader: string | undefined): Record<string, string> {
 		return buildSecurityHeaders(hostHeader, host, port, scriptNonce, config.asr.enabled)
@@ -576,21 +656,22 @@ export async function serve(
 						raw.close(1012, 'server shutting down')
 						return
 					}
-					const client = createSessionClient(raw)
-					connections.set(raw, client)
-					clients.add(client)
 					try {
-						client.send({ type: 'server-ready', protocol: 2 })
-						setTimeout(() => client.send({ type: 'targets', targets: registry.getSummaries() }), 10)
-					} catch (error: unknown) {
-						if (raw.readyState < 2) {
-							raw.close(1011, error instanceof Error ? error.message : 'session unavailable')
+						const connection: ConnectionState = {
+							id: randomUUID(),
+							transport: createSessionClient(raw),
+							attachments: new Map(),
 						}
+						connections.set(raw, connection)
+						connectionsById.set(connection.id, connection)
+						connection.transport.send({ type: 'server-ready', protocol: 2 })
+						connection.transport.send({ type: 'targets', targets: registry.getSummaries() })
 					} finally {
 						lease.release()
 					}
 				},
-				onMessage(event: MessageEvent, ws: WSContext<WebSocket>) {
+				// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: attach handshake owns the socket
+				async onMessage(event: MessageEvent, ws: WSContext<WebSocket>) {
 					const raw = ws.raw
 					if (!raw) return
 					const lease = lifecycle.tryAcquire()
@@ -598,22 +679,176 @@ export async function serve(
 						raw.close(1012, 'server shutting down')
 						return
 					}
-					const client = connections.get(raw)
+					const connection = connections.get(raw)
+					if (!connection) {
+						raw.close(1008, 'connection not registered')
+						lease.release()
+						return
+					}
 					try {
 						if (typeof event.data !== 'string') {
-							closeForProtocolViolation(raw, client, 'text websocket messages only')
+							closeForProtocolViolation(raw, 'text websocket messages only')
 							return
 						}
 						const message = parseClientMessage(event.data)
 						if (!message) {
-							closeForProtocolViolation(raw, client, 'invalid client message')
+							closeForProtocolViolation(raw, 'invalid client message')
 							return
 						}
 						if (message.type === 'ping') {
-							createSessionClient(raw).send({ type: 'pong', id: message.id })
+							connection.transport.send({ type: 'pong', nonce: message.nonce })
 							return
 						}
-						return
+						if (message.type === 'attach-target') {
+							if (!registry.getSummaries().some((candidate) => candidate.id === message.targetId)) {
+								rejectAttach(connection, message.requestId, message.targetId, 'unknown-target')
+								return
+							}
+							const started = binding.beginAttach(
+								connection.id,
+								message.requestId,
+								message.targetId,
+							)
+							if (!started.ok) {
+								rejectAttach(connection, message.requestId, message.targetId, 'protocol-violation')
+								return
+							}
+							const capability = started.capability
+							connection.transport.send({
+								type: 'attach-started',
+								requestId: capability.requestId,
+								targetId: capability.targetId,
+								attachmentId: capability.attachmentId,
+							})
+							let session: SharedTerminalSession
+							try {
+								// oxlint-disable-next-line typescript/consistent-type-assertions -- factory returns SharedTerminalSession
+								session = (await registry.getOrStart(message.targetId)) as SharedTerminalSession
+							} catch {
+								if (!binding.isCurrentAttempt(connection.id, capability)) return
+								binding.cancelAttach(connection.id, capability)
+								const failed = registry
+									.getSummaries()
+									.find((candidate) => candidate.id === message.targetId)
+								rejectAttach(
+									connection,
+									message.requestId,
+									message.targetId,
+									failed?.failure === 'target-process-exited'
+										? 'target-process-exited'
+										: 'target-start-failed',
+								)
+								return
+							}
+							if (!binding.isCurrentAttempt(connection.id, capability)) return
+							let snapshotSent = false
+							const scoped: SessionClient = {
+								send(sessionMessage: SessionServerMessage) {
+									if (binding.getCapability(connection.id, capability.attachmentId) === null) return
+									// oxlint-disable-next-line typescript/consistent-type-assertions -- session frames gain attachmentId at the wire boundary
+									connection.transport.send({
+										...sessionMessage,
+										attachmentId: capability.attachmentId,
+									} as ServerMessage)
+									if (
+										sessionMessage.type === 'snapshot' &&
+										binding.snapshotSent(connection.id, capability).ok
+									) {
+										snapshotSent = true
+									}
+								},
+								close() {
+									session.removeClient(scoped)
+									binding.invalidateAttachment(connection.id, capability.attachmentId)
+								},
+							}
+							connection.attachments.set(capability.attachmentId, { session, client: scoped })
+							session.handleClientMessage(scoped, {
+								type: 'resize',
+								cols: message.cols,
+								rows: message.rows,
+							})
+							await session.addClient(scoped)
+							if (!snapshotSent && binding.isCurrentAttempt(connection.id, capability)) {
+								binding.cancelAttach(connection.id, capability)
+							}
+							return
+						}
+						if (message.type === 'snapshot-applied') {
+							const capability = binding.getCapability(connection.id, message.attachmentId)
+							if (!capability || capability.requestId !== message.requestId) {
+								closeForProtocolViolation(raw, 'unknown attachment')
+								return
+							}
+							if (!binding.snapshotApplied(connection.id, capability).ok) {
+								closeForProtocolViolation(raw, 'snapshot is not current')
+								return
+							}
+							connection.transport.send({
+								type: 'attach-committed',
+								requestId: capability.requestId,
+								targetId: capability.targetId,
+								attachmentId: capability.attachmentId,
+							})
+							return
+						}
+						if (message.type === 'restart-target') {
+							const summary = registry
+								.getSummaries()
+								.find((candidate) => candidate.id === message.targetId)
+							if (!summary) {
+								rejectAttach(connection, message.requestId, message.targetId, 'unknown-target')
+								return
+							}
+							if (summary.processState !== 'process-exited') {
+								rejectAttach(connection, message.requestId, message.targetId, 'protocol-violation')
+								return
+							}
+							binding.invalidateTarget(message.targetId)
+							let session: SharedTerminalSession
+							try {
+								// oxlint-disable-next-line typescript/consistent-type-assertions -- factory returns SharedTerminalSession
+								session = (await registry.restart(message.targetId)) as SharedTerminalSession
+							} catch {
+								rejectAttach(connection, message.requestId, message.targetId, 'target-start-failed')
+								return
+							}
+							for (const peer of connectionsById.values()) {
+								peer.transport.send({
+									type: 'target-restarted',
+									targetId: message.targetId,
+									sessionId: session.id,
+								})
+							}
+							return
+						}
+						if (
+							message.type !== 'input' &&
+							message.type !== 'resize' &&
+							message.type !== 'input-action'
+						)
+							return
+						const capability = binding.getCapability(connection.id, message.attachmentId)
+						if (!capability) {
+							closeForProtocolViolation(raw, 'unknown attachment')
+							return
+						}
+						const record = connection.attachments.get(message.attachmentId)
+						if (!record || !capability.committed) {
+							connection.transport.send({
+								type: 'error',
+								attachmentId: message.attachmentId,
+								message: 'attachment is not committed',
+							})
+							return
+						}
+						const sessionMessage: SessionInputMessage =
+							message.type === 'input'
+								? { type: 'input', data: message.data }
+								: message.type === 'resize'
+									? { type: 'resize', cols: message.cols, rows: message.rows }
+									: { type: 'input-action', id: message.id, data: message.data }
+						record.session.handleClientMessage(record.client, sessionMessage)
 					} finally {
 						lease.release()
 					}
@@ -621,9 +856,10 @@ export async function serve(
 				onClose(_event: CloseEvent, ws: WSContext<WebSocket>) {
 					const raw = ws.raw
 					if (!raw) return
-					const client = connections.get(raw)
-					if (!client) return
-					clients.delete(client)
+					const connection = connections.get(raw)
+					if (!connection) return
+					binding.disconnect(connection.id)
+					connectionsById.delete(connection.id)
 					connections.delete(raw)
 				},
 			})),
@@ -719,14 +955,7 @@ export async function serve(
 
 	registerImageDropRoutes(app, basePath, securityHeadersForRequest)
 
-	const notifyService = mountNotifyStack(
-		app,
-		config,
-		port,
-		basePath,
-		swJs,
-		securityHeadersForRequest,
-	)
+	notifyService = mountNotifyStack(app, config, port, basePath, swJs, securityHeadersForRequest)
 	const server = honoServe({ fetch: app.fetch, port, hostname: host })
 	injectWebSocket(server)
 	await waitForServerListening(server, port, host)
@@ -745,15 +974,23 @@ export async function serve(
 		const listenerClosed = new Promise<void>((resolveClosed, rejectClosed) => {
 			server.close((error) => (error ? rejectClosed(error) : resolveClosed()))
 		})
-		for (const client of clients) client.close()
+		for (const connection of connectionsById.values()) {
+			binding.disconnect(connection.id)
+			connection.transport.close()
+		}
 		await Promise.all([listenerClosed, lifecycle.waitForZero()])
 		await registry.dispose()
+		await Promise.all(sessionLifecycles.values())
 		try {
 			await notifyDrain(notifyService)
+		} catch (error: unknown) {
+			if (firstExitError !== undefined) throw firstExitError
+			throw error
 		} finally {
 			notifyService.dispose()
 			caffeinateProc?.kill()
 		}
+		if (firstExitError !== undefined) throw firstExitError
 	}
 
 	let shutdownPromise: Promise<void> | undefined
