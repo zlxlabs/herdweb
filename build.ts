@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { escapeAttr, generatePwaHtml } from './src/pwa/meta-tags'
-import type { HerdwebConfig } from './src/types'
+import type { ClientConfigProjection, HerdwebConfig } from './src/types'
 
 function findProjectRoot(): string {
 	let dir = import.meta.dirname
@@ -46,16 +46,46 @@ function readPrebuiltAsset(filename: string): string | null {
 	return null
 }
 
+/** Project server configuration to the fields that browser code may receive. */
+function projectClientConfig(config: HerdwebConfig): ClientConfigProjection {
+	return {
+		name: config.name,
+		theme: config.theme,
+		font: config.font,
+		toolbar: {
+			row1: config.toolbar.row1,
+			row2: config.toolbar.row2,
+		},
+		drawer: { buttons: config.drawer.buttons },
+		gestures: config.gestures,
+		mobile: config.mobile,
+		floatingButtons: config.floatingButtons,
+		scrollButtons: config.scrollButtons,
+		reconnect: config.reconnect,
+		asr: {
+			enabled: config.asr.enabled,
+			provider: config.asr.provider,
+			doubao: {
+				apiKey: config.asr.doubao.apiKey,
+				resourceId: config.asr.doubao.resourceId,
+			},
+			autoEnter: config.asr.autoEnter,
+		},
+		targetMode: config.targetMode,
+	}
+}
+
 /** Bundle the herdweb client JS + CSS into strings */
 export async function bundleClientAssets(
 	config: HerdwebConfig,
 	version: string,
 	basePath = '/',
 ): Promise<{ js: string; css: string }> {
+	const clientConfig = projectClientConfig(config)
 	const prebuiltJs = readPrebuiltAsset('client.iife.js')
 	const prebuiltCss = readPrebuiltAsset('client.css')
 	if (prebuiltJs !== null && prebuiltCss !== null) {
-		const js = `globalThis.__herdwebVersion=${JSON.stringify(version)};globalThis.__herdwebConfig=${JSON.stringify(config)};globalThis.__herdwebBasePath=${JSON.stringify(basePath)};${prebuiltJs}`
+		const js = `globalThis.__herdwebVersion=${JSON.stringify(version)};globalThis.__herdwebConfig=${JSON.stringify(clientConfig)};globalThis.__herdwebBasePath=${JSON.stringify(basePath)};${prebuiltJs}`
 		return { js, css: prebuiltCss }
 	}
 
@@ -79,7 +109,7 @@ export async function bundleClientAssets(
 		throw new Error('herdweb client build produced incomplete output')
 	}
 
-	const js = `globalThis.__herdwebVersion=${JSON.stringify(version)};globalThis.__herdwebConfig=${JSON.stringify(config)};globalThis.__herdwebBasePath=${JSON.stringify(basePath)};${jsOutput.text}`
+	const js = `globalThis.__herdwebVersion=${JSON.stringify(version)};globalThis.__herdwebConfig=${JSON.stringify(clientConfig)};globalThis.__herdwebBasePath=${JSON.stringify(basePath)};${jsOutput.text}`
 	return { js, css: cssOutput.text }
 }
 
