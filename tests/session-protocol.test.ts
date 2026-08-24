@@ -14,6 +14,20 @@ import type { TargetProcessState, TargetSummary } from '../src/session-protocol'
 
 type Protocol2TypeExports = [TargetProcessState, TargetFailure, TargetSummary, AttachError]
 
+const target = {
+	id: 'local',
+	name: 'Local 😀',
+	processState: 'process-exited' as const,
+	lastActivityAt: 123,
+	exit: { code: 0, signal: null },
+	failure: 'target-process-exited' as const,
+	capabilities: { imageDrop: 'local-path' as const },
+} satisfies TargetSummary
+const parseJson = (value: object) => parseServerMessage(JSON.stringify(value))
+const expectParsed = (value: object, expected: object = value) =>
+	expect(parseJson(value)).toEqual(expected)
+const expectInvalid = (value: object) => expect(parseJson(value)).toBeNull()
+
 describe('session protocol', () => {
 	test('round-trips input messages', () => {
 		const message = { type: 'input' as const, data: 'ls\r' }
@@ -125,6 +139,42 @@ describe('session protocol', () => {
 		expect(parseClientMessage(JSON.stringify({ ...messages[0], ignored: true }))).toEqual(
 			messages[0],
 		)
+	})
+
+	test('parses and serialises protocol 2 target controls', () => {
+		const ready = { type: 'server-ready', protocol: 2 } as const
+		const targets = { type: 'targets' as const, targets: [target] }
+		const eight = Array.from({ length: 8 }, (_, index) => ({ ...target, id: `target-${index}` }))
+		const status = { type: 'target-status' as const, target }
+		expectParsed({ ...ready, ignored: true }, ready)
+		expectParsed(targets)
+		expectParsed({ type: 'targets', targets: eight })
+		expectParsed({ ...status, target: { ...target, ignored: true } }, status)
+		expect(serialiseServerMessage(ready)).toBe('{"type":"server-ready","protocol":2}')
+		expect(serialiseServerMessage(targets)).toBe(
+			'{"type":"targets","targets":[{"id":"local","name":"Local 😀","processState":"process-exited","lastActivityAt":123,"exit":{"code":0,"signal":null},"failure":"target-process-exited","capabilities":{"imageDrop":"local-path"}}]}',
+		)
+	})
+
+	test('rejects malformed protocol 2 server controls and summaries', () => {
+		for (const protocol of [1, '2']) expectInvalid({ type: 'server-ready', protocol })
+		const nine = Array.from({ length: 9 }, (_, index) => ({ ...target, id: `t${index}` }))
+		for (const targets of ['nope', [], nine, [target, target]])
+			expectInvalid({ type: 'targets', targets })
+		const invalidSummaries = [
+			{},
+			{ ...target, id: 'Bad' },
+			{ ...target, name: '' },
+			{ ...target, name: '🙂'.repeat(81) },
+			{ ...target, name: 'bad\u0000name' },
+			{ ...target, processState: 'running' },
+			{ ...target, failure: 'other' },
+			{ ...target, capabilities: { imageDrop: 'other' } },
+			{ ...target, lastActivityAt: -1 },
+			{ ...target, exit: { code: 1.5, signal: 'TERM' } },
+		]
+		for (const summary of invalidSummaries)
+			expectInvalid({ type: 'target-status', target: summary })
 	})
 
 	test('validates protocol 2 client control boundaries', () => {
