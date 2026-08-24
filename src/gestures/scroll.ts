@@ -1,5 +1,5 @@
 import type { ScrollConfig, XTerminal } from '../types'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 import type { GestureLock } from './lock'
 import { resetLock, tryLock } from './lock'
 
@@ -249,6 +249,8 @@ export function attachScrollGesture(
 	let rafId: number | null = null
 	let startY = 0
 	let lastY = 0
+	// T4b: generation captured at gesture start; frames only send while it is current.
+	let gestureGuard: (() => boolean) | null = null
 
 	function refreshLayout(touch: Touch): ScrollLayoutCache | null {
 		const screen = screenEl
@@ -271,6 +273,12 @@ export function attachScrollGesture(
 
 	function onFrame(now: number): void {
 		rafId = null
+		if (gestureGuard && !gestureGuard()) {
+			// Target switched mid-gesture: stop the fling, never send into the new target.
+			engine.stopFling()
+			stopRaf()
+			return
+		}
 		const cached = layout
 		if (!cached) {
 			if (engine.isAnimationActive(0)) scheduleRaf()
@@ -294,6 +302,7 @@ export function attachScrollGesture(
 		if (!t) return
 
 		engine.onTouchStart(e.timeStamp)
+		gestureGuard = createAttachmentGuard(term)
 		startY = t.clientY
 		lastY = t.clientY
 		const cached = refreshLayout(t)
@@ -357,4 +366,12 @@ export function attachScrollGesture(
 	}
 
 	attach()
+
+	// T4b: leaving the synced state cancels an active fling immediately.
+	term.onConnectionStatusChange((status) => {
+		if (status.state !== 'synced') {
+			engine.stopFling()
+			stopRaf()
+		}
+	})
 }

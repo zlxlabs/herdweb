@@ -8,18 +8,20 @@ import { el, svg } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
 import { onTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 /** Ctrl sticky modifier state */
 interface CtrlState {
 	active: boolean
 	disposer: { dispose(): void } | null
 	buttonEl: HTMLButtonElement | null
+	/** Attachment generation captured when the modifier was activated (T4b). */
+	generation: string | null | undefined
 }
 
 /** Create the ctrl modifier state manager */
 function createCtrlState(): CtrlState {
-	return { active: false, disposer: null, buttonEl: null }
+	return { active: false, disposer: null, buttonEl: null, generation: undefined }
 }
 
 /** Create the inline composer icon used by the circular voice-input entry. */
@@ -48,12 +50,14 @@ function createComposerIcon(): SVGSVGElement {
 function activateCtrl(state: CtrlState, term: XTerminal, theme: HerdwebConfig['theme']): void {
 	if (!state.buttonEl) return
 	state.active = true
+	state.generation = term.getAttachmentId?.()
 	state.buttonEl.style.background = theme.blue
 	state.buttonEl.style.color = theme.background
 
 	if (!state.disposer) {
 		state.disposer = term.onData((data: string) => {
-			if (state.active && data.length === 1) {
+			// T4b: a pending modifier must never fire into a different attachment.
+			if (state.active && term.getAttachmentId?.() === state.generation && data.length === 1) {
 				const code = data.charCodeAt(0)
 				deactivateCtrl(state, theme)
 				if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
@@ -102,6 +106,9 @@ function wireButton(
 	onTap(button, () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
+		// T4b: captures the attachment generation at tap time; delayed sends below
+		// complete only while this generation is still current.
+		const isGenerationCurrent = createAttachmentGuard(term)
 
 		async function sendWithCtrlAware(data: string): Promise<void> {
 			const before = await hooks.runBeforeSendData({
@@ -113,6 +120,7 @@ function wireButton(
 				data,
 			})
 			if (before.blocked) return
+			if (!isGenerationCurrent()) return
 
 			let nextData = before.data
 			if (ctrlState.active && ctrlState.buttonEl) {
@@ -146,6 +154,7 @@ function wireButton(
 				data,
 			})
 			if (before.blocked) return
+			if (!isGenerationCurrent()) return
 
 			sendData(term, before.data)
 			await hooks.runAfterSendData({
@@ -273,6 +282,12 @@ export function createToolbar(
 			),
 		)
 	}
+
+	// T4b: leaving the synced state (target switch, disconnect) cancels the
+	// pending sticky modifier; persistent config is untouched.
+	term.onConnectionStatusChange((status) => {
+		if (status.state !== 'synced' && ctrlState.active) deactivateCtrl(ctrlState, config.theme)
+	})
 
 	return { element: toolbar, ctrlState }
 }

@@ -261,6 +261,11 @@ export function init(
 					comboPicker.close()
 					if (dpad.element.classList.contains('open')) dpad.toggle()
 				}
+				// T4b: leaving the synced state (target switch, disconnect) closes
+				// transient overlays (open picker/drawer/d-pad); config is untouched.
+				term.onConnectionStatusChange((status) => {
+					if (status.state !== 'synced') closeComposerOverlays()
+				})
 
 				// Create toolbar
 				const { element: toolbar } = createToolbar(

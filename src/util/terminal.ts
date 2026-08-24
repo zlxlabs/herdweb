@@ -5,6 +5,17 @@ export function sendData(term: XTerminal, data: string): void {
 	term.input(data, true)
 }
 
+/**
+ * T4b delayed-input guard: capture the current attachment generation and return
+ * a checker. A delayed send (Promise/RAF/two-stage interaction) may only
+ * complete while the generation captured at initiation is still current —
+ * after a target switch or re-attach the checker turns false and the send drops.
+ */
+export function createAttachmentGuard(term: XTerminal): () => boolean {
+	const captured = term.getAttachmentId?.()
+	return () => term.getAttachmentId?.() === captured
+}
+
 /** Trigger xterm resize via window resize event */
 export function resizeTerm(): void {
 	if (typeof window.__herdwebResize === 'function') {

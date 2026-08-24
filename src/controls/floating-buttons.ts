@@ -5,7 +5,7 @@ import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
 import { onTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 import { decorateKeyboardToggleButton } from './keyboard-controller'
 
 function createGroupButton(
@@ -32,6 +32,8 @@ function createGroupButton(
 	onTap(button, () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
+		// T4b: captures the attachment generation at tap time (same guard as the toolbar).
+		const isGenerationCurrent = createAttachmentGuard(term)
 
 		async function sendWithHooks(data: string): Promise<void> {
 			const before = await hooks.runBeforeSendData({
@@ -43,6 +45,7 @@ function createGroupButton(
 				data,
 			})
 			if (before.blocked) return
+			if (!isGenerationCurrent()) return
 
 			sendData(term, before.data)
 			await hooks.runAfterSendData({

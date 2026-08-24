@@ -10,7 +10,7 @@ import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
 import { onTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 interface DrawerResult {
 	readonly backdrop: HTMLDivElement
@@ -69,6 +69,8 @@ export function createDrawer(
 		onTap(button, () => {
 			const kbWasOpen = isKeyboardOpen()
 			haptic()
+			// T4b: captures the attachment generation at tap time (same guard as the toolbar).
+			const isGenerationCurrent = createAttachmentGuard(term)
 			// Adjust/lookup actions stay open so they can be tapped repeatedly
 			// (font sizing, consulting the guide); everything else closes.
 			const keepsDrawerOpen =
@@ -87,6 +89,7 @@ export function createDrawer(
 					data,
 				})
 				if (before.blocked) return
+				if (!isGenerationCurrent()) return
 
 				sendData(term, before.data)
 				await hooks.runAfterSendData({
