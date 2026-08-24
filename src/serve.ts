@@ -20,6 +20,7 @@ import { manifestToJson } from './pwa/manifest'
 import type { SessionClient, SharedTerminalSession } from './session'
 import {
 	MAX_CLIENT_MESSAGE_BYTES,
+	type ServerMessage,
 	parseClientMessage,
 	serialiseServerMessage,
 } from './session-protocol'
@@ -249,7 +250,10 @@ function closeForProtocolViolation(
 }
 
 // This is the binding's wire boundary: real sockets cannot hold a deterministic bufferedAmount threshold for tests.
-export function createSessionClient(raw: WebSocket): SessionClient {
+export function createSessionClient(raw: WebSocket): {
+	send(message: ServerMessage): void
+	close(): void
+} {
 	return {
 		send(message) {
 			if (raw.readyState !== 1) return
@@ -611,6 +615,12 @@ export async function serve(
 							return
 						}
 						if (!binding || !client) return
+						if (
+							message.type !== 'input' &&
+							message.type !== 'resize' &&
+							message.type !== 'input-action'
+						)
+							return
 						binding.session.handleClientMessage(client, message)
 					} finally {
 						lease.release()

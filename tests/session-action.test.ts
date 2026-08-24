@@ -1,13 +1,12 @@
 import { describe, expect, test, vi } from 'vitest'
-import { SharedTerminalSession } from '../src/session'
-import type { ServerMessage } from '../src/session-protocol'
+import { type SessionServerMessage, SharedTerminalSession } from '../src/session'
 
 function recorder() {
-	const messages: ServerMessage[] = []
+	const messages: SessionServerMessage[] = []
 	let closeCount = 0
 	return {
 		client: {
-			send(message: ServerMessage) {
+			send(message: SessionServerMessage) {
 				messages.push(message)
 			},
 			close() {
@@ -21,19 +20,20 @@ function recorder() {
 	}
 }
 
-function outputText(messages: readonly ServerMessage[]): string {
+function outputText(messages: readonly SessionServerMessage[]): string {
 	return messages
 		.filter(
-			(message): message is Extract<ServerMessage, { type: 'output' }> => message.type === 'output',
+			(message): message is Extract<SessionServerMessage, { type: 'output' }> =>
+				message.type === 'output',
 		)
 		.map((message) => message.data)
 		.join('')
 }
 
-function acceptedIds(messages: readonly ServerMessage[]): string[] {
+function acceptedIds(messages: readonly SessionServerMessage[]): string[] {
 	return messages
 		.filter(
-			(message): message is Extract<ServerMessage, { type: 'input-accepted' }> =>
+			(message): message is Extract<SessionServerMessage, { type: 'input-accepted' }> =>
 				message.type === 'input-accepted',
 		)
 		.map((message) => message.id)
