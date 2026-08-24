@@ -8,6 +8,16 @@ import { joinBasePath } from './base-path'
 import { createImageDropController } from './controls/image-drop-controller'
 import { createHookRegistry, init } from './index'
 import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
+import type { TargetSummary } from './session-protocol'
+import {
+	type TargetRestoreOverlay,
+	createTargetRestoreOverlay,
+	persistLastTargetId,
+	persistUrlTargetId,
+	readLastTargetId,
+	readUrlTargetId,
+	resolveInitialTarget,
+} from './target-restore'
 import type {
 	ClientConfigProjection,
 	ConnectionFailureReason,
@@ -265,6 +275,13 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let notSentNoticeShown = false
 	let exitReceived = false
 	let statusOverlay: SessionStatusOverlay | null = null
+	const basePath = __herdwebBasePath ?? '/'
+	let targets: readonly TargetSummary[] = []
+	let selectedTargetId: string | null = null
+	let restoreResolved = false
+	let restoreBlockedReason: string | null = null
+	let restoreOverlay: TargetRestoreOverlay | null = null
+	const targetListeners = new Set<() => void>()
 
 	function send(message: TerminalMessage): void {
 		if (
@@ -353,6 +370,57 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				rows,
 			}),
 		)
+	}
+
+	function notifyTargetsChange(): void {
+		for (const listener of targetListeners) listener()
+	}
+
+	function showRestoreBlocked(reason: string): void {
+		restoreBlockedReason = reason
+		restoreOverlay ??= createTargetRestoreOverlay((chosenId) => {
+			restoreBlockedReason = null
+			selectTarget(chosenId)
+		})
+		if (!restoreOverlay.element.isConnected) document.body.appendChild(restoreOverlay.element)
+		restoreOverlay.show(reason, targets)
+	}
+
+	/**
+	 * Which target this page attaches: the current selection while it still exists,
+	 * otherwise the one-time initial restore. A provided-but-unknown id or unreadable
+	 * explicit-mode storage blocks fail-loud instead of substituting another target.
+	 */
+	function resolveAttachTarget(): string | null {
+		if (selectedTargetId !== null) {
+			if (targets.some((target) => target.id === selectedTargetId)) return selectedTargetId
+			if (restoreResolved) {
+				showRestoreBlocked(`Target "${selectedTargetId}" no longer exists.`)
+				return null
+			}
+		}
+		restoreResolved = true
+		const resolution = resolveInitialTarget({
+			mode: config.targetMode,
+			urlTargetId: readUrlTargetId(window.location.search),
+			lastTarget:
+				config.targetMode === 'explicit' ? readLastTargetId(basePath) : { kind: 'ok', value: null },
+			targetIds: targets.map((target) => target.id),
+		})
+		if (resolution.kind === 'blocked') {
+			showRestoreBlocked(resolution.reason)
+			return null
+		}
+		selectedTargetId = resolution.targetId
+		return resolution.targetId
+	}
+
+	function selectTarget(nextTargetId: string): void {
+		if (!targets.some((target) => target.id === nextTargetId)) return
+		if (nextTargetId === selectedTargetId && connectionStatus.state === 'synced') return
+		selectedTargetId = nextTargetId
+		notifyTargetsChange()
+		beginAttach(currentEpoch, nextTargetId, term.cols, term.rows)
 	}
 
 	function syncSize(): void {
@@ -621,17 +689,22 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			return
 		snapshotApplying = true
 		term.reset()
-		term.write(data, () => {
+		const buffered = [...pendingOutput.entries()]
+			.filter(([seq]) => seq > outputWatermark)
+			// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
+			.sort(([left], [right]) => left - right)
+		clearPendingOutput()
+		// Mark loaded up front: live outputs enqueue after the sync writes and xterm's
+		// FIFO queue preserves that order. `snapshot-applied` waits until every sync
+		// write callback (snapshot + all buffered outputs) has drained.
+		snapshotLoaded = true
+		sessionId = snapshotSessionId
+		let remainingWrites = buffered.length + 1
+		const onSyncWriteDrained = (): void => {
 			if (myEpoch !== currentEpoch || attachmentId !== myAttachmentId || !snapshotApplying) return
+			remainingWrites -= 1
+			if (remainingWrites > 0) return
 			snapshotApplying = false
-			snapshotLoaded = true
-			sessionId = snapshotSessionId
-			const buffered = [...pendingOutput.entries()]
-				.filter(([seq]) => seq > outputWatermark)
-				// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
-				.sort(([left], [right]) => left - right)
-			clearPendingOutput()
-			for (const [, output] of buffered) term.write(output)
 			if (socket?.readyState === WebSocket.OPEN) {
 				socket.send(
 					serialiseClientMessage({
@@ -641,7 +714,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					}),
 				)
 			}
-		})
+		}
+		term.write(data, onSyncWriteDrained)
+		for (const [, output] of buffered) term.write(output, onSyncWriteDrained)
 	}
 
 	function handleOutput(myEpoch: number, myAttachmentId: string, seq: number, data: string): void {
@@ -687,7 +762,11 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 
 		switch (message.type) {
-			case 'target-status':
+			case 'target-status': {
+				const statusIndex = targets.findIndex((target) => target.id === message.target.id)
+				if (statusIndex === -1) return
+				targets = targets.map((target, index) => (index === statusIndex ? message.target : target))
+				notifyTargetsChange()
 				if (
 					message.target.processState !== 'process-exited' ||
 					(targetId !== null && targetId !== message.target.id)
@@ -696,15 +775,24 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				targetId = message.target.id
 				enterTargetEnded()
 				return
+			}
 			case 'targets': {
-				const target = message.targets[0]
-				if (!target) return
-				targetId = target.id
-				if (exitReceived || target.processState === 'process-exited') {
+				targets = message.targets
+				notifyTargetsChange()
+				if (restoreBlockedReason !== null) {
+					restoreOverlay?.show(restoreBlockedReason, targets)
+					return
+				}
+				const chosenId = resolveAttachTarget()
+				if (chosenId === null) return
+				const chosen = targets.find((target) => target.id === chosenId)
+				if (!chosen) return
+				if (exitReceived || chosen.processState === 'process-exited') {
+					targetId = chosen.id
 					enterTargetEnded()
 					return
 				}
-				beginAttach(myEpoch, target.id, term.cols, term.rows)
+				beginAttach(myEpoch, chosen.id, term.cols, term.rows)
 				return
 			}
 			case 'attach-started':
@@ -735,6 +823,18 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					exitReceived = false
 					if (statusOverlay) statusOverlay.element.style.display = 'none'
 				}
+				// The commit is the only point where a choice becomes durable:
+				// snapshot-applied alone never persists lastTargetId or the URL.
+				selectedTargetId = message.targetId
+				if (!persistLastTargetId(basePath, message.targetId)) {
+					window.dispatchEvent(
+						new CustomEvent('herdweb-connection-notice', {
+							detail: 'Could not save the selected target on this device.',
+						}),
+					)
+				}
+				persistUrlTargetId(message.targetId)
+				notifyTargetsChange()
 				for (const handler of connectionStatusListeners) handler(connectionStatus)
 				notifyConnectionChange()
 				startHeartbeat(myEpoch)
@@ -878,6 +978,18 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		sendInputAction,
 		onInputActionResult,
 	)
+	termBridge.getTargets = () => targets
+	termBridge.getCurrentTargetId = () => selectedTargetId
+	termBridge.selectTarget = selectTarget
+	termBridge.onTargetsChange = (handler) => {
+		targetListeners.add(handler)
+		return {
+			dispose() {
+				targetListeners.delete(handler)
+			},
+		}
+	}
+	termBridge.getAttachmentId = () => attachmentId
 	// xterm handles real keyboard/touch input locally; forward it to the shared PTY.
 	term.onData((data) => {
 		send({ type: 'input', data })
@@ -960,11 +1072,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	// synced state and sendInputAction() enforces heartbeat freshness internally.
 	const imageDrop = createImageDropController({
 		term: termBridge,
-		basePath: __herdwebBasePath ?? '/',
+		basePath,
 	})
 	document.body.appendChild(imageDrop.element)
 
-	const basePath = __herdwebBasePath ?? '/'
 	void registerServiceWorker(basePath)
 
 	init(config, hooks, version, { openImageDrop: imageDrop.open, basePath })
