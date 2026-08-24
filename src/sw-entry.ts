@@ -27,7 +27,7 @@ export function showPushNotification(
 	return registration.showNotification(event.title, { body: event.body, tag, data: event })
 }
 
-export function buildNotifyTargetUrl(scope: string, targetId: string): string {
+function buildNotifyTargetUrl(scope: string, targetId: string): string {
 	const url = new URL(scope.endsWith('/') ? scope : `${scope}/`)
 	url.searchParams.set('target', targetId)
 	return url.toString()
