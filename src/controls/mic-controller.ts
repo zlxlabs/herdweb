@@ -5,6 +5,7 @@ import type { ConnectionStatus, HerdwebConfig, InputActionResult, XTerminal } fr
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
 import { onTap } from '../util/tap'
+import { createAttachmentGuard } from '../util/terminal'
 import { type AsrPreview, type ComposerPending, createAsrPreview } from './asr-preview'
 import { suppressSynthesisedMouse } from './keyboard-controller'
 
@@ -24,6 +25,12 @@ export interface MicController {
 	readonly state: MicState
 	attachComposerToggle(button: HTMLButtonElement): void
 	attachMicButton(button: HTMLButtonElement): void
+	/**
+	 * T6a: switch the composer to another target's storage lane. Cancels any
+	 * transient recording session (without wiping the draft) and reloads the
+	 * incoming target's draft and pending submission.
+	 */
+	setTarget(targetId: string): void
 	dispose(): void
 }
 
@@ -99,7 +106,7 @@ export function createMicController(options: MicControllerOptions): MicControlle
 		})
 	if (!engine.isSupported()) return undefined
 
-	const preview = createAsrPreview()
+	const preview = createAsrPreview({ defaultTargetId: options.config.defaultTargetId })
 	const micButtons = new Set<HTMLButtonElement>()
 	const composerButtons = new Set<HTMLButtonElement>()
 	const buttonDisposers = new Map<HTMLButtonElement, () => void>()
@@ -117,6 +124,9 @@ export function createMicController(options: MicControllerOptions): MicControlle
 	const resentEpochs = new Set<number>()
 	let baseDraft = ''
 	let disposed = false
+	// T6a: the composer's current storage lane; starts at the configured default
+	// target until the runtime reports the resolved one via setTarget.
+	let currentTargetId = options.config.defaultTargetId
 
 	function transition(from: readonly MicState[], to: MicState, event: string): void {
 		if (!from.includes(currentState)) {
@@ -387,6 +397,47 @@ export function createMicController(options: MicControllerOptions): MicControlle
 		setComposerExpanded(false)
 	}
 
+	function setTarget(nextTargetId: string): void {
+		if (disposed || nextTargetId === currentTargetId) return
+		currentTargetId = nextTargetId
+		pendingAction = undefined
+		clearResultDeadline()
+		if (
+			currentState === 'permission-requesting' ||
+			currentState === 'connecting' ||
+			currentState === 'recording' ||
+			currentState === 'stopping' ||
+			currentState === 'waiting-final'
+		) {
+			// Cancel the outgoing target's transient session without wiping its draft:
+			// the generation bump invalidates in-flight engine completions so a late
+			// final result can never land in the incoming target.
+			generation++
+			cleanupSession()
+			stopEngine()
+			transition(
+				['permission-requesting', 'connecting', 'recording', 'stopping', 'waiting-final'],
+				'cancelled',
+				'target-switch',
+			)
+			transition(['cancelled'], 'idle', 'target-switch-idle')
+		}
+		baseDraft = ''
+		preview.setTarget(nextTargetId)
+		pendingSubmission = preview.getPending()
+		preview.setSubmissionControls(pendingSubmission?.status ?? null)
+		if (pendingSubmission) {
+			preview.setSubmissionStatus(
+				pendingSubmission.status,
+				pendingSubmission.status === 'rejected' && pendingSubmission.reason
+					? rejectedMessage(pendingSubmission.reason)
+					: pendingStatusMessage(pendingSubmission.status),
+			)
+		} else {
+			preview.setSubmissionStatus(null, '')
+		}
+	}
+
 	function finishPreview(sessionGeneration: number): void {
 		if (disposed || sessionGeneration !== generation || currentState !== 'waiting-final') return
 		const shouldSend = pendingAction === 'send'
@@ -554,6 +605,9 @@ export function createMicController(options: MicControllerOptions): MicControlle
 			preview.showMessage('Not sent — still syncing.')
 			return
 		}
+		// T6a/T4b: the hook await may span a target switch — capture the attachment
+		// generation now and re-check before anything is sent.
+		const isGenerationCurrent = createAttachmentGuard(options.term)
 		void (async () => {
 			const before = await options.hooks.runBeforeSendData({
 				term: options.term,
@@ -564,6 +618,7 @@ export function createMicController(options: MicControllerOptions): MicControlle
 				data: sourceText,
 			})
 			if (!canSendComposerText(sessionGeneration) || !options.term.isConnected()) return
+			if (!isGenerationCurrent()) return
 			if (before.blocked) return
 			const body = sanitizeVoiceText(before.data)
 			if (!body) {
@@ -664,6 +719,7 @@ export function createMicController(options: MicControllerOptions): MicControlle
 		get state() {
 			return currentState
 		},
+		setTarget,
 		attachComposerToggle(button) {
 			if (buttonDisposers.has(button)) return
 			suppressSynthesisedMouse(button)

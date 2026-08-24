@@ -62,10 +62,11 @@ describe('toolbar integration', () => {
 
 	test('row1 renders the voice-input button when a micController is wired', () => {
 		const micController: MicController = {
-			preview: createAsrPreview(),
+			preview: createAsrPreview({ defaultTargetId: 'default' }),
 			state: 'idle',
 			attachComposerToggle() {},
 			attachMicButton() {},
+			setTarget() {},
 			dispose() {},
 		}
 		const { element: toolbar } = createToolbar(
@@ -100,10 +101,11 @@ describe('toolbar integration', () => {
 			},
 		})
 		const micController: MicController = {
-			preview: createAsrPreview(),
+			preview: createAsrPreview({ defaultTargetId: 'default' }),
 			state: 'idle',
 			attachComposerToggle() {},
 			attachMicButton() {},
+			setTarget() {},
 			dispose() {},
 		}
 		const { element: toolbar } = createToolbar(

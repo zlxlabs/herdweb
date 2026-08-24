@@ -240,6 +240,11 @@ export function init(
 					closeComposerOverlays: () => closeComposerOverlays(),
 				})
 				attachVoiceComposerMic(micController)
+				// T6a: the composer follows the resolved/selected target.
+				term.onTargetsChange?.(() => {
+					const resolvedId = term.getCurrentTargetId?.()
+					if (resolvedId) micController?.setTarget(resolvedId)
+				})
 
 				// Floating d-pad — created before the action registry so
 				// dpad-toggle buttons wire up via DI (same pattern as ⌨).

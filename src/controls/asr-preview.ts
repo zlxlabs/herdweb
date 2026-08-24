@@ -38,23 +38,41 @@ const DRAFT_RESTORE_FAILURE = 'Draft could not be restored; stored copy left unt
 const DRAFT_CORRUPT_RESET = 'Draft storage was corrupt and has been reset; your text is saved.'
 const DRAFT_STORAGE_FAILURE = 'Draft is not protected on this device.'
 
-function composerStorageKey(): string {
-	const basePath = typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
-	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath}`
+function basePath(): string {
+	return typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
+}
+
+/** T6a: drafts and pending submissions are stored per target. */
+function composerStorageKey(targetId: string): string {
+	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}:${targetId}`
+}
+
+/** Pre-multi-target single composer key (herdweb:composer:v1:<basePath>). */
+function singleTargetStorageKey(): string {
+	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
 
 function legacyComposerStorageKey(): string {
-	const basePath = typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
-	return `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}${basePath}`
+	return `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
 
-/** Migrate composer draft from pre-rename localStorage key when the new key is absent. */
-function migrateComposerStorageIfNeeded(storage: Storage): void {
-	const key = composerStorageKey()
-	if (storage.getItem(key) !== null) return
+/**
+ * One-time idempotent migrations into the default target's key. The per-target
+ * key wins when it already exists; the old key is removed only after a
+ * successful write.
+ */
+function migrateComposerStorageIfNeeded(storage: Storage, defaultTargetId: string): void {
+	const targetKey = composerStorageKey(defaultTargetId)
+	if (storage.getItem(targetKey) !== null) return
+	const single = storage.getItem(singleTargetStorageKey())
+	if (single !== null) {
+		storage.setItem(targetKey, single)
+		storage.removeItem(singleTargetStorageKey())
+		return
+	}
 	const legacy = storage.getItem(legacyComposerStorageKey())
 	if (legacy === null) return
-	storage.setItem(key, legacy)
+	storage.setItem(targetKey, legacy)
 	storage.removeItem(legacyComposerStorageKey())
 }
 
@@ -78,7 +96,7 @@ function isComposerPending(value: unknown): value is ComposerPending {
 	)
 }
 
-function readComposerStore(): StorageReadResult {
+function readComposerStore(targetId: string): StorageReadResult {
 	let storage: Storage
 	try {
 		storage = window.localStorage
@@ -86,15 +104,9 @@ function readComposerStore(): StorageReadResult {
 		return { kind: 'unavailable', error }
 	}
 
-	try {
-		migrateComposerStorageIfNeeded(storage)
-	} catch {
-		// Migration failure must not block reading the new key
-	}
-
 	let raw: string | null
 	try {
-		raw = storage.getItem(composerStorageKey())
+		raw = storage.getItem(composerStorageKey(targetId))
 	} catch (error: unknown) {
 		return { kind: 'unavailable', error }
 	}
@@ -147,6 +159,12 @@ export interface AsrPreview {
 	readonly getPending: () => ComposerPending | null
 	readonly setPending: (pending: ComposerPending | null) => boolean
 	readonly restoreDraft: () => void
+	/**
+	 * T6a: switch the composer's storage lane to another target. The current
+	 * input is persisted under the outgoing target first; the incoming target's
+	 * draft is loaded. Storage failures are shown in the composer, never silent.
+	 */
+	readonly setTarget: (targetId: string) => void
 	readonly resetDraft: () => void
 	readonly clear: () => void
 	readonly onOpenChange: (handler: (open: boolean) => void) => { dispose(): void }
@@ -176,7 +194,7 @@ function createMicIcon(): SVGSVGElement {
 }
 
 /** Create the two-layer voice composer; opening it never focuses or starts ASR. */
-export function createAsrPreview(): AsrPreview {
+export function createAsrPreview(options: { readonly defaultTargetId: string }): AsrPreview {
 	const element = el('div', {
 		id: 'wt-asr-composer',
 		role: 'dialog',
@@ -236,9 +254,18 @@ export function createAsrPreview(): AsrPreview {
 	let pendingPartial: string | undefined
 	let partialFrame: number | undefined
 	let storageFailureShown = false
+	// T6a: the storage lane follows the attached target; it starts at the
+	// default target until the runtime resolves the actual one.
+	let currentTargetId = options.defaultTargetId
 	const openChangeHandlers = new Set<(open: boolean) => void>()
 	const heightChangeHandlers = new Set<() => void>()
 	let inputHeight = ''
+
+	try {
+		migrateComposerStorageIfNeeded(window.localStorage, options.defaultTargetId)
+	} catch {
+		// Migration failure must not block reading; real storage failures fail loud later.
+	}
 
 	function resizeInput(): void {
 		const previousHeight = inputHeight
@@ -282,8 +309,12 @@ export function createAsrPreview(): AsrPreview {
 		message.textContent = DRAFT_RESTORE_FAILURE
 	}
 
-	function persistComposer(draft: string, pending: ComposerPending | null): boolean {
-		const stored = readComposerStore()
+	function persistComposer(
+		targetId: string,
+		draft: string,
+		pending: ComposerPending | null,
+	): boolean {
+		const stored = readComposerStore(targetId)
 		if (stored.kind === 'unavailable') {
 			showStorageFailure(stored.error)
 			return false
@@ -291,7 +322,7 @@ export function createAsrPreview(): AsrPreview {
 		const corrupt = stored.kind === 'invalid'
 		try {
 			stored.storage.setItem(
-				composerStorageKey(),
+				composerStorageKey(targetId),
 				JSON.stringify({ version: 1 satisfies ComposerStore['version'], draft, pending }),
 			)
 			if (corrupt) showMessage(DRAFT_CORRUPT_RESET)
@@ -302,10 +333,14 @@ export function createAsrPreview(): AsrPreview {
 		}
 	}
 
-	function persistDraft(draft: string): void {
-		const stored = readComposerStore()
+	function persistDraftFor(targetId: string, draft: string): void {
+		const stored = readComposerStore(targetId)
 		const pending = stored.kind === 'valid' ? stored.value.pending : null
-		persistComposer(draft, pending)
+		persistComposer(targetId, draft, pending)
+	}
+
+	function persistDraft(draft: string): void {
+		persistDraftFor(currentTargetId, draft)
 	}
 
 	input.addEventListener('input', () => {
@@ -360,12 +395,12 @@ export function createAsrPreview(): AsrPreview {
 	}
 
 	function getPending(): ComposerPending | null {
-		const stored = readComposerStore()
+		const stored = readComposerStore(currentTargetId)
 		return stored.kind === 'valid' ? stored.value.pending : null
 	}
 
 	function setPending(pending: ComposerPending | null): boolean {
-		return persistComposer(input.value, pending)
+		return persistComposer(currentTargetId, input.value, pending)
 	}
 
 	function resetDraft(): void {
@@ -385,7 +420,7 @@ export function createAsrPreview(): AsrPreview {
 
 	function restoreDraft(): void {
 		if (input.value) return
-		const stored = readComposerStore()
+		const stored = readComposerStore(currentTargetId)
 		if (stored.kind === 'invalid') {
 			showRestoreFailure()
 			return
@@ -396,6 +431,41 @@ export function createAsrPreview(): AsrPreview {
 		}
 		if (stored.kind === 'missing' || !stored.value.draft) return
 		input.value = stored.value.draft
+		resizeInput()
+	}
+
+	function setTarget(nextTargetId: string): void {
+		if (nextTargetId === currentTargetId) return
+		// Persist the visible draft under the outgoing target before switching lanes.
+		storageFailureShown = false
+		persistDraftFor(currentTargetId, input.value)
+		const outgoingFailed = storageFailureShown
+		currentTargetId = nextTargetId
+		storageFailureShown = false
+		if (partialFrame !== undefined) cancelAnimationFrame(partialFrame)
+		partialFrame = undefined
+		pendingPartial = undefined
+		const stored = readComposerStore(nextTargetId)
+		if (stored.kind === 'unavailable') {
+			input.value = ''
+			resizeInput()
+			showStorageFailure(stored.error)
+			return
+		}
+		if (stored.kind === 'invalid') {
+			input.value = ''
+			setSubmissionStatus(null, '')
+			resizeInput()
+			showRestoreFailure()
+			return
+		}
+		input.value = stored.kind === 'valid' ? stored.value.draft : ''
+		// A storage failure while saving the outgoing draft stays visible (fail-loud).
+		if (outgoingFailed) {
+			showStorageFailure(new Error('outgoing draft could not be persisted'))
+		} else {
+			setSubmissionStatus(null, '')
+		}
 		resizeInput()
 	}
 
@@ -450,6 +520,7 @@ export function createAsrPreview(): AsrPreview {
 		getPending,
 		setPending,
 		restoreDraft,
+		setTarget,
 		resetDraft,
 		clear,
 		onOpenChange(handler) {

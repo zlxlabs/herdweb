@@ -702,7 +702,7 @@ describe('mic-controller tap-to-toggle state machine', () => {
 		dispatchTap(harness.button)
 		harness.engine.emitFinal('spoken final', 1)
 
-		expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/') ?? '')).toEqual({
+		expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/:default') ?? '')).toEqual({
 			version: 1,
 			draft: 'typed base spoken final',
 			pending: null,
@@ -793,7 +793,7 @@ describe('preview injection', () => {
 
 	test('pageshow restores only an empty composer and opening keeps its draft', () => {
 		localStorage.setItem(
-			'herdweb:composer:v1:/',
+			'herdweb:composer:v1:/:default',
 			JSON.stringify({ version: 1, draft: 'stored draft', pending: null }),
 		)
 		const harness = createHarness()
@@ -833,7 +833,7 @@ describe('preview injection', () => {
 		document.dispatchEvent(new Event('visibilitychange'))
 
 		expect(harness.controller.preview.getText()).toBe('typed base')
-		expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/') ?? '')).toEqual({
+		expect(JSON.parse(localStorage.getItem('herdweb:composer:v1:/:default') ?? '')).toEqual({
 			version: 1,
 			draft: 'typed base',
 			pending: null,

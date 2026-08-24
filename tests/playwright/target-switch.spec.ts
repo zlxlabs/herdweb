@@ -1,6 +1,9 @@
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import targetSwitchConfig from './target-switch.config'
 
+// Imported so knip treats the config file as used (same pattern as session-exit).
+void targetSwitchConfig
 const explicitConfigPath = join(import.meta.dirname, 'target-switch.config.ts')
 
 test.describe('explicit target picker (T5)', () => {

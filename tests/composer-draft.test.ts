@@ -2,7 +2,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { LEGACY_COMPOSER_STORAGE_KEY_PREFIX, createAsrPreview } from '../src/controls/asr-preview'
 
-const COMPOSER_STORAGE_KEY = 'herdweb:composer:v1:/'
+const COMPOSER_STORAGE_KEY = 'herdweb:composer:v1:/:default'
 const LEGACY_COMPOSER_STORAGE_KEY = `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}/`
 const DRAFT_RESTORE_FAILURE = 'Draft could not be restored; stored copy left untouched.'
 const DRAFT_CORRUPT_RESET = 'Draft storage was corrupt and has been reset; your text is saved.'
@@ -30,7 +30,7 @@ function readStoredComposer(): unknown {
 
 describe('composer draft persistence', () => {
 	test('serialises typed draft with the fixed schema', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.input.value = '第一行\n第二行\n第三行'
 		composer.input.dispatchEvent(new Event('input', { bubbles: true }))
 
@@ -47,7 +47,7 @@ describe('composer draft persistence', () => {
 			JSON.stringify({ version: 1, draft: '长草稿', pending: null }),
 		)
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		expect(composer.getText()).toBe('长草稿')
 		expect(composer.isOpen()).toBe(false)
@@ -67,7 +67,7 @@ describe('composer draft persistence', () => {
 			COMPOSER_STORAGE_KEY,
 			JSON.stringify({ version: 1, draft: 'old', pending }),
 		)
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		composer.show('final text')
 		expect(readStoredComposer()).toEqual({ version: 1, draft: 'final text', pending })
@@ -88,7 +88,7 @@ describe('composer draft persistence', () => {
 			COMPOSER_STORAGE_KEY,
 			JSON.stringify({ version: 1, draft: 'old', pending }),
 		)
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 		composer.input.value = 'typed over pending'
 		composer.input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -101,7 +101,7 @@ describe('composer draft persistence', () => {
 		['wrong version', JSON.stringify({ version: 2, draft: 'old', pending: null })],
 	])('typing over %s replaces it with the current draft', (_label, raw) => {
 		localStorage.setItem(COMPOSER_STORAGE_KEY, raw)
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 		expect(composer.isOpen()).toBe(true)
 
@@ -126,7 +126,7 @@ describe('composer draft persistence', () => {
 			COMPOSER_STORAGE_KEY,
 			JSON.stringify({ version: 1, draft: 'saved draft', pending: null }),
 		)
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		const before = localStorage.getItem(COMPOSER_STORAGE_KEY)
 
 		vi.useFakeTimers()
@@ -144,7 +144,7 @@ describe('composer draft persistence', () => {
 	])('leaves %s stored data untouched when restoration fails', (_label, raw) => {
 		localStorage.setItem(COMPOSER_STORAGE_KEY, raw)
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		expect(composer.getText()).toBe('')
 		expect(composer.message.textContent).toBe(DRAFT_RESTORE_FAILURE)
@@ -161,7 +161,7 @@ describe('composer draft persistence', () => {
 			},
 		})
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		expect(composer.getText()).toBe('')
 		expect(composer.message.textContent).toBe(DRAFT_STORAGE_FAILURE)
@@ -174,7 +174,7 @@ describe('composer draft persistence', () => {
 			throw new DOMException('denied', 'SecurityError')
 		})
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 		composer.input.value = 'still editable'
 		composer.input.dispatchEvent(new Event('input', { bubbles: true }))
@@ -189,7 +189,7 @@ describe('composer draft persistence', () => {
 		const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
 			throw new DOMException('full', 'QuotaExceededError')
 		})
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		composer.open()
 
 		composer.input.value = 'first draft'
@@ -210,7 +210,7 @@ describe('composer draft persistence', () => {
 			JSON.stringify({ version: 1, draft: 'legacy draft', pending: null }),
 		)
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		expect(composer.getText()).toBe('legacy draft')
 		expect(localStorage.getItem(COMPOSER_STORAGE_KEY)).toContain('legacy draft')
@@ -227,14 +227,14 @@ describe('composer draft persistence', () => {
 			JSON.stringify({ version: 1, draft: 'stale', pending: null }),
 		)
 
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 
 		expect(composer.getText()).toBe('current')
 		expect(localStorage.getItem(LEGACY_COMPOSER_STORAGE_KEY)).not.toBeNull()
 	})
 
 	test('no legacy composer key — migration is a no-op', () => {
-		const composer = createAsrPreview()
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
 		expect(composer.getText()).toBe('')
 		expect(localStorage.getItem(COMPOSER_STORAGE_KEY)).toBeNull()
 	})
