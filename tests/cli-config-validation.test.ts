@@ -168,34 +168,23 @@ describe('CLI command validation', () => {
 		const configPath = writeConfig(dir, 'export default {}')
 		const argvPath = join(dir, 'argv.json')
 		const port = await reservePort()
-		const proc = spawnProcess(
-			[
-				'tsx',
-				join(repoRoot, 'cli.ts'),
-				'serve',
-				'--config',
-				configPath,
-				'--port',
-				String(port),
-				'--',
-				'node',
-				'-e',
-				"require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2))); setTimeout(() => {}, 30000)",
-				argvPath,
-				'sp ace',
-				'值',
-				'--literal',
-			],
-			{ cwd: repoRoot, env: createIsolatedEnv(), stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
-		)
-		try {
-			await waitForHttp(`http://127.0.0.1:${port}`)
-			await sleep(100)
-			expect(JSON.parse(readFileSync(argvPath, 'utf8'))).toEqual(['sp ace', '值', '--literal'])
-		} finally {
-			proc.kill('SIGTERM')
-			await proc.exited
-		}
+		const result = await runCli([
+			'serve',
+			'--config',
+			configPath,
+			'--port',
+			String(port),
+			'--',
+			'node',
+			'-e',
+			"require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))",
+			argvPath,
+			'sp ace',
+			'值',
+			'--literal',
+		])
+		expect(result.exitCode).toBe(0)
+		expect(JSON.parse(readFileSync(argvPath, 'utf8'))).toEqual(['sp ace', '值', '--literal'])
 	})
 
 	test('build exits with a deprecation error', async () => {
