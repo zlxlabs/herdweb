@@ -395,17 +395,11 @@ export interface XTerminal {
 	sendInputAction(id: string, data: string): boolean
 	/** Observe acknowledged or rejected composer actions for the current epoch. */
 	onInputActionResult(handler: (result: InputActionResult) => void): { dispose(): void }
-	/** Latest full target list pushed by the server (protocol 2). */
 	getTargets?(): readonly TargetSummary[]
-	/** Currently selected target id (user intent), or null before restore resolves. */
 	getCurrentTargetId?(): string | null
-	/** Switch target: closes input immediately and re-runs the two-phase attach. */
 	selectTarget?(targetId: string): void
-	/** Observe target list and selection changes. */
 	onTargetsChange?(handler: () => void): { dispose(): void }
-	/** Current attachment capability — the delayed-input generation guard token. */
 	getAttachmentId?(): string | null
-	/** Ask the server to restart an exited target's process (protocol 2). */
 	restartTarget?(targetId: string): void
 }
 

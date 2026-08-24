@@ -25,11 +25,6 @@ export interface MicController {
 	readonly state: MicState
 	attachComposerToggle(button: HTMLButtonElement): void
 	attachMicButton(button: HTMLButtonElement): void
-	/**
-	 * T6a: switch the composer to another target's storage lane. Cancels any
-	 * transient recording session (without wiping the draft) and reloads the
-	 * incoming target's draft and pending submission.
-	 */
 	setTarget(targetId: string): void
 	dispose(): void
 }
@@ -124,8 +119,6 @@ export function createMicController(options: MicControllerOptions): MicControlle
 	const resentEpochs = new Set<number>()
 	let baseDraft = ''
 	let disposed = false
-	// T6a: the composer's current storage lane; starts at the configured default
-	// target until the runtime reports the resolved one via setTarget.
 	let currentTargetId = options.config.defaultTargetId
 
 	function transition(from: readonly MicState[], to: MicState, event: string): void {
@@ -409,9 +402,6 @@ export function createMicController(options: MicControllerOptions): MicControlle
 			currentState === 'stopping' ||
 			currentState === 'waiting-final'
 		) {
-			// Cancel the outgoing target's transient session without wiping its draft:
-			// the generation bump invalidates in-flight engine completions so a late
-			// final result can never land in the incoming target.
 			generation++
 			cleanupSession()
 			stopEngine()
@@ -605,8 +595,6 @@ export function createMicController(options: MicControllerOptions): MicControlle
 			preview.showMessage('Not sent — still syncing.')
 			return
 		}
-		// T6a/T4b: the hook await may span a target switch — capture the attachment
-		// generation now and re-check before anything is sent.
 		const isGenerationCurrent = createAttachmentGuard(options.term)
 		void (async () => {
 			const before = await options.hooks.runBeforeSendData({

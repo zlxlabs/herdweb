@@ -2,9 +2,10 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createDefaultActionRegistry } from '../src/actions/registry'
 import { defineConfig } from '../src/config'
+import { createScrollButtons } from '../src/controls/scroll-buttons'
 import { createDrawer } from '../src/drawer/drawer'
 import { createGestureLock } from '../src/gestures/lock'
-import { attachScrollGesture } from '../src/gestures/scroll'
+import { attachScrollGesture, scrollSeq } from '../src/gestures/scroll'
 import { createHookRegistry } from '../src/hooks/registry'
 import { createToolbar } from '../src/toolbar/toolbar'
 import type { ConnectionState, ConnectionStatus, XTerminal } from '../src/types'
@@ -355,6 +356,90 @@ describe('T4b delayed-input attachment guard', () => {
 		expect(term.sent).toEqual([])
 		document.body.removeChild(screen)
 		vi.unstubAllGlobals()
+	})
+
+	test('scroll remainder from A is cleared before a new B gesture', () => {
+		const term = mockGuardedTerm('att-a')
+		const lock = createGestureLock()
+		const screen = document.createElement('div')
+		screen.className = 'xterm-screen'
+		Object.defineProperty(screen, 'getBoundingClientRect', {
+			value: () => ({
+				left: 0,
+				top: 0,
+				width: 800,
+				height: 480,
+				right: 800,
+				bottom: 480,
+				x: 0,
+				y: 0,
+				toJSON() {},
+			}),
+		})
+		document.body.appendChild(screen)
+		vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => {
+			cb(16)
+			return 1
+		})
+		vi.stubGlobal('cancelAnimationFrame', vi.fn())
+		const config = {
+			enabled: true,
+			strategy: 'wheel' as const,
+			speedMultiplier: 1,
+			linesPerWheel: 1,
+			momentum: { enabled: false, friction: 0.95, minVelocity: 0.02 },
+			maxLinesPerSend: 24,
+			sendIntervalMs: 0,
+		}
+		attachScrollGesture(term, config, lock, () => false)
+		const touch = (clientY: number): Touch =>
+			({
+				identifier: 0,
+				target: screen,
+				clientX: 400,
+				clientY,
+			}) as unknown as Touch
+
+		screen.dispatchEvent(new TouchEvent('touchstart', { touches: [touch(100)] }))
+		screen.dispatchEvent(new TouchEvent('touchmove', { cancelable: true, touches: [touch(139)] }))
+		expect(term.sent).toEqual([scrollSeq('up', 41, 6)])
+		term.sent.length = 0
+		term.fireStatus('syncing')
+		term.setAttachment('att-b')
+		term.fireStatus('synced')
+		screen.dispatchEvent(new TouchEvent('touchstart', { touches: [touch(200)] }))
+		screen.dispatchEvent(new TouchEvent('touchmove', { cancelable: true, touches: [touch(221)] }))
+
+		expect(term.sent).toEqual([scrollSeq('up', 41, 11)])
+		document.body.removeChild(screen)
+		vi.unstubAllGlobals()
+	})
+
+	test('long-press repeat is guarded and stops on target switch', () => {
+		vi.useFakeTimers()
+		const term = mockGuardedTerm('att-a')
+		const { element } = createScrollButtons(term, {
+			enabled: true,
+			strategy: 'keys',
+			speedMultiplier: 1,
+			linesPerWheel: 1,
+			momentum: { enabled: false, friction: 0.95, minVelocity: 0.02 },
+			maxLinesPerSend: 24,
+			sendIntervalMs: 0,
+		})
+		const button = element.querySelector('button')
+		if (!(button instanceof HTMLButtonElement)) throw new Error('no scroll button')
+		button.dispatchEvent(new TouchEvent('touchstart', { cancelable: true, touches: [] }))
+		vi.advanceTimersByTime(500)
+		const sentOnA = term.sent.length
+		expect(sentOnA).toBeGreaterThan(1)
+
+		term.setAttachment('att-b')
+		term.fireStatus('syncing')
+		vi.advanceTimersByTime(500)
+
+		expect(term.sent).toHaveLength(sentOnA)
+		vi.useRealTimers()
 	})
 
 	test('prefix combo pick captured on A sends 0 frames after A→B', async () => {

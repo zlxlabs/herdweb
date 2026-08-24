@@ -42,12 +42,10 @@ function basePath(): string {
 	return typeof __herdwebBasePath === 'undefined' ? '/' : (__herdwebBasePath ?? '/')
 }
 
-/** T6a: drafts and pending submissions are stored per target. */
 function composerStorageKey(targetId: string): string {
 	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}:${targetId}`
 }
 
-/** Pre-multi-target single composer key (herdweb:composer:v1:<basePath>). */
 function singleTargetStorageKey(): string {
 	return `${COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
@@ -56,11 +54,6 @@ function legacyComposerStorageKey(): string {
 	return `${LEGACY_COMPOSER_STORAGE_KEY_PREFIX}${basePath()}`
 }
 
-/**
- * One-time idempotent migrations into the default target's key. The per-target
- * key wins when it already exists; the old key is removed only after a
- * successful write.
- */
 function migrateComposerStorageIfNeeded(storage: Storage, defaultTargetId: string): void {
 	const targetKey = composerStorageKey(defaultTargetId)
 	if (storage.getItem(targetKey) !== null) return
@@ -159,11 +152,6 @@ export interface AsrPreview {
 	readonly getPending: () => ComposerPending | null
 	readonly setPending: (pending: ComposerPending | null) => boolean
 	readonly restoreDraft: () => void
-	/**
-	 * T6a: switch the composer's storage lane to another target. The current
-	 * input is persisted under the outgoing target first; the incoming target's
-	 * draft is loaded. Storage failures are shown in the composer, never silent.
-	 */
 	readonly setTarget: (targetId: string) => void
 	readonly resetDraft: () => void
 	readonly clear: () => void
@@ -254,18 +242,10 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 	let pendingPartial: string | undefined
 	let partialFrame: number | undefined
 	let storageFailureShown = false
-	// T6a: the storage lane follows the attached target; it starts at the
-	// default target until the runtime resolves the actual one.
 	let currentTargetId = options.defaultTargetId
 	const openChangeHandlers = new Set<(open: boolean) => void>()
 	const heightChangeHandlers = new Set<() => void>()
 	let inputHeight = ''
-
-	try {
-		migrateComposerStorageIfNeeded(window.localStorage, options.defaultTargetId)
-	} catch {
-		// Migration failure must not block reading; real storage failures fail loud later.
-	}
 
 	function resizeInput(): void {
 		const previousHeight = inputHeight
@@ -283,6 +263,12 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 		storageFailureShown = true
 		console.error('herdweb: composer draft storage unavailable', error)
 		message.textContent = DRAFT_STORAGE_FAILURE
+	}
+
+	try {
+		migrateComposerStorageIfNeeded(window.localStorage, options.defaultTargetId)
+	} catch (error) {
+		showStorageFailure(error)
 	}
 
 	function setSubmissionStatus(
@@ -436,7 +422,6 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 
 	function setTarget(nextTargetId: string): void {
 		if (nextTargetId === currentTargetId) return
-		// Persist the visible draft under the outgoing target before switching lanes.
 		storageFailureShown = false
 		persistDraftFor(currentTargetId, input.value)
 		const outgoingFailed = storageFailureShown
@@ -460,7 +445,6 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 			return
 		}
 		input.value = stored.kind === 'valid' ? stored.value.draft : ''
-		// A storage failure while saving the outgoing draft stays visible (fail-loud).
 		if (outgoingFailed) {
 			showStorageFailure(new Error('outgoing draft could not be persisted'))
 		} else {

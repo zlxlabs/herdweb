@@ -75,6 +75,7 @@ interface ScrollEngine {
 	onTouchMove(nowMs: number, dy: number): void
 	onTouchEnd(nowMs: number): void
 	stopFling(): void
+	reset(): void
 	tick(nowMs: number, cellHeight: number, cell: ScrollCell): ScrollTickResult | null
 	readonly pendingPx: number
 	readonly isFlinging: boolean
@@ -149,6 +150,14 @@ export function createScrollEngine(config: ScrollConfig): ScrollEngine {
 		velocity = 0
 	}
 
+	function reset(): void {
+		pendingPx = 0
+		stopFling()
+		lastMoveAt = 0
+		lastTickAt = 0
+		lastSendAt = Number.NEGATIVE_INFINITY
+	}
+
 	return {
 		get pendingPx() {
 			return pendingPx
@@ -186,6 +195,7 @@ export function createScrollEngine(config: ScrollConfig): ScrollEngine {
 		},
 
 		stopFling,
+		reset,
 
 		tick(nowMs: number, cellHeight: number, cell: ScrollCell): ScrollTickResult | null {
 			if (isFlinging) {
@@ -249,7 +259,6 @@ export function attachScrollGesture(
 	let rafId: number | null = null
 	let startY = 0
 	let lastY = 0
-	// T4b: generation captured at gesture start; frames only send while it is current.
 	let gestureGuard: (() => boolean) | null = null
 
 	function refreshLayout(touch: Touch): ScrollLayoutCache | null {
@@ -274,8 +283,8 @@ export function attachScrollGesture(
 	function onFrame(now: number): void {
 		rafId = null
 		if (gestureGuard && !gestureGuard()) {
-			// Target switched mid-gesture: stop the fling, never send into the new target.
-			engine.stopFling()
+			engine.reset()
+			gestureGuard = null
 			stopRaf()
 			return
 		}
@@ -367,11 +376,13 @@ export function attachScrollGesture(
 
 	attach()
 
-	// T4b: leaving the synced state cancels an active fling immediately.
 	term.onConnectionStatusChange((status) => {
 		if (status.state !== 'synced') {
-			engine.stopFling()
+			engine.reset()
 			stopRaf()
+			gestureGuard = null
+			layout = null
+			resetLock(lock)
 		}
 	})
 }

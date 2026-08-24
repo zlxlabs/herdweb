@@ -141,12 +141,27 @@ describe('target picker (T5)', () => {
 		picker.open()
 
 		const row = picker.element.querySelector('[data-target-id="b"]')
-		if (!(row instanceof HTMLButtonElement)) throw new Error('row is not a button')
+		if (!(row instanceof HTMLElement)) throw new Error('row is not an element')
 		row.click()
 
 		expect(term.selected).toEqual(['b'])
 		expect(picker.element.classList.contains('open')).toBe(false)
 		expect(picker.badge.textContent).toContain('Beta')
+	})
+
+	test('restarting an exited target does not select it through the row', () => {
+		const term = mockPickerTerm()
+		const picker = createTargetPicker(term)
+		document.body.append(picker.badge, picker.element)
+		term.setTargets([target('dead', 'process-exited')])
+		picker.open()
+
+		const restart = picker.element.querySelector('.wt-target-restart')
+		if (!(restart instanceof HTMLButtonElement)) throw new Error('no restart button')
+		restart.click()
+
+		expect(term.restarted).toEqual(['dead'])
+		expect(term.selected).toEqual([])
 	})
 
 	test('restart appears only on exited rows and sends restart for that target', () => {

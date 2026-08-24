@@ -333,7 +333,8 @@ body.wt-composer-open #wt-toolbar {
 }
 
 /* Tmux drawer */
-#wt-backdrop {
+#wt-backdrop,
+.wt-target-picker-backdrop {
 	display: none;
 	position: fixed;
 	top: 0;
@@ -344,7 +345,8 @@ body.wt-composer-open #wt-toolbar {
 	z-index: 10000;
 }
 
-#wt-drawer {
+#wt-drawer,
+.wt-target-picker-panel {
 	position: fixed;
 	bottom: var(--kb-inset, 0px);
 	left: 0;
@@ -361,7 +363,8 @@ body.wt-composer-open #wt-toolbar {
 	user-select: none;
 }
 
-#wt-drawer.open {
+#wt-drawer.open,
+.wt-target-picker.open .wt-target-picker-panel {
 	transform: translateY(0);
 }
 
@@ -449,7 +452,8 @@ body.wt-composer-open #wt-toolbar {
 	gap: 8px;
 }
 
-#wt-drawer-grid button {
+#wt-drawer-grid button,
+.wt-target-row {
 	background: #45475a;
 	color: #cdd6f4;
 	border: none;
@@ -487,7 +491,6 @@ body.wt-composer-open #wt-toolbar {
 	outline-offset: -2px;
 }
 
-/* Target picker (explicit mode): compact top badge + drawer-style overlay */
 .wt-target-badge {
 	position: fixed;
 	top: calc(4px + env(safe-area-inset-top, 0px));
@@ -522,24 +525,8 @@ body.wt-composer-open #wt-toolbar {
 	display: block;
 }
 
-.wt-target-picker-backdrop {
-	position: absolute;
-	inset: 0;
-	background: rgba(0, 0, 0, 0.5);
-}
-
-.wt-target-picker-panel {
-	position: absolute;
-	bottom: var(--kb-inset, 0px);
-	left: 0;
-	right: 0;
-	max-width: 480px;
-	margin: 0 auto;
-	background: #313244;
-	border-radius: 16px 16px 0 0;
-	padding: 8px 12px calc(12px + env(safe-area-inset-bottom, 0px)) 12px;
-	-webkit-user-select: none;
-	user-select: none;
+.wt-target-picker.open .wt-target-picker-backdrop {
+	display: block;
 }
 
 .wt-target-picker-list {
@@ -559,13 +546,8 @@ body.wt-composer-open #wt-toolbar {
 	gap: 8px;
 	min-height: 44px;
 	padding: 4px 12px;
-	background: #45475a;
-	color: #cdd6f4;
-	border: none;
 	border-radius: 10px;
 	font-size: 15px;
-	cursor: pointer;
-	touch-action: manipulation;
 	text-align: left;
 }
 

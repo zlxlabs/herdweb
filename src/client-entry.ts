@@ -10,7 +10,6 @@ import { createHookRegistry, init } from './index'
 import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
 import type { TargetSummary } from './session-protocol'
 import {
-	type TargetRestoreOverlay,
 	createTargetRestoreOverlay,
 	persistLastTargetId,
 	persistUrlTargetId,
@@ -272,9 +271,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let lastProvenFreshAt = 0
 	const pendingOutput = new Map<number, string>()
 	let pendingOutputBytes = 0
-	// T4c render backlog ledger: counts UTF-8 bytes queued into xterm but not yet
-	// drained by its write callbacks. Snapshot, sync-buffered and live output writes
-	// all share this one ledger.
 	let renderBacklogBytes = 0
 	let renderLedgerId = 0
 	let pendingResize: { cols: number; rows: number } | null = null
@@ -286,7 +282,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let selectedTargetId: string | null = null
 	let restoreResolved = false
 	let restoreBlockedReason: string | null = null
-	let restoreOverlay: TargetRestoreOverlay | null = null
+	let restoreOverlay: ReturnType<typeof createTargetRestoreOverlay> | null = null
 	const targetListeners = new Set<() => void>()
 
 	function send(message: TerminalMessage): void {
@@ -393,11 +389,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		restoreOverlay.show(reason, targets)
 	}
 
-	/**
-	 * Which target this page attaches: the current selection while it still exists,
-	 * otherwise the one-time initial restore. A provided-but-unknown id or unreadable
-	 * explicit-mode storage blocks fail-loud instead of substituting another target.
-	 */
 	function resolveAttachTarget(): string | null {
 		if (selectedTargetId !== null) {
 			if (targets.some((target) => target.id === selectedTargetId)) return selectedTargetId
@@ -573,7 +564,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		renderBacklogBytes = 0
 	}
 
-	function writeTerm(data: string, onDrained?: () => void): void {
+	function writeTerm(data: string, onDrained?: () => void): boolean {
 		const bytes = utf8Encoder.encode(data).byteLength
 		if (renderBacklogBytes + bytes > MAX_RENDER_BACKLOG_BYTES) {
 			failConnection(
@@ -581,20 +572,19 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				'client-render-backlog',
 				'Client render backlog overflow — resyncing.',
 			)
-			return
+			return false
 		}
 		const ledgerId = renderLedgerId
 		renderBacklogBytes += bytes
 		let released = false
 		term.write(data, () => {
-			// A callback arriving after a ledger reset (reconnect/target switch) belongs to
-			// the dead epoch: release its own token once, never touch the new ledger.
 			if (!released) {
 				released = true
 				if (ledgerId === renderLedgerId) renderBacklogBytes -= bytes
 			}
 			onDrained?.()
 		})
+		return true
 	}
 
 	function enterTargetEnded(): void {
@@ -731,9 +721,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
 			.sort(([left], [right]) => left - right)
 		clearPendingOutput()
-		// Mark loaded up front: live outputs enqueue after the sync writes and xterm's
-		// FIFO queue preserves that order. `snapshot-applied` waits until every sync
-		// write callback (snapshot + all buffered outputs) has drained.
 		snapshotLoaded = true
 		sessionId = snapshotSessionId
 		let remainingWrites = buffered.length + 1
@@ -752,8 +739,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				)
 			}
 		}
-		writeTerm(data, onSyncWriteDrained)
-		for (const [, output] of buffered) writeTerm(output, onSyncWriteDrained)
+		if (!writeTerm(data, onSyncWriteDrained)) return
+		for (const [, output] of buffered) {
+			if (!writeTerm(output, onSyncWriteDrained)) return
+		}
 	}
 
 	function handleOutput(myEpoch: number, myAttachmentId: string, seq: number, data: string): void {

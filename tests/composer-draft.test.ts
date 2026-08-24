@@ -217,6 +217,32 @@ describe('composer draft persistence', () => {
 		expect(localStorage.getItem(LEGACY_COMPOSER_STORAGE_KEY)).toBeNull()
 	})
 
+	test('migration write failure is visible and survives draft restoration', () => {
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+		localStorage.setItem(
+			LEGACY_COMPOSER_STORAGE_KEY,
+			JSON.stringify({ version: 1, draft: 'legacy draft', pending: null }),
+		)
+		const realStorage = window.localStorage
+		Object.defineProperty(window, 'localStorage', {
+			configurable: true,
+			value: {
+				getItem: (key: string) => realStorage.getItem(key),
+				setItem: (key: string, value: string) => {
+					if (key === COMPOSER_STORAGE_KEY) throw new DOMException('full', 'QuotaExceededError')
+					realStorage.setItem(key, value)
+				},
+				removeItem: (key: string) => realStorage.removeItem(key),
+			},
+		})
+
+		const composer = createAsrPreview({ defaultTargetId: 'default' })
+
+		expect(composer.message.textContent).toBe(DRAFT_STORAGE_FAILURE)
+		expect(composer.getText()).toBe('')
+		expect(errorSpy).toHaveBeenCalled()
+	})
+
 	test('legacy composer key is ignored when new key already has a value', () => {
 		localStorage.setItem(
 			COMPOSER_STORAGE_KEY,

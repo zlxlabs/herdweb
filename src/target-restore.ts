@@ -2,12 +2,6 @@ import type { TargetMode } from './types'
 import { el } from './util/dom'
 import { onTap } from './util/tap'
 
-/**
- * Initial target restore: resolve which target the page attaches first, and
- * persist the committed choice. URL/lastTargetId are only candidates — they
- * become durable state only after a matching `attach-committed`.
- */
-
 type InitialTargetResolution =
 	| { readonly kind: 'attach'; readonly targetId: string }
 	| { readonly kind: 'blocked'; readonly reason: string }
@@ -30,7 +24,6 @@ export function readLastTargetId(basePath: string): LastTargetRead {
 	}
 }
 
-/** Persist the committed target. Returns false (fail loud) when storage is unavailable. */
 export function persistLastTargetId(basePath: string, targetId: string): boolean {
 	try {
 		window.localStorage.setItem(lastTargetStorageKey(basePath), targetId)
@@ -40,23 +33,16 @@ export function persistLastTargetId(basePath: string, targetId: string): boolean
 	}
 }
 
-/** Raw `?target=` candidate, or null when absent. Invalid values stay visible so restore fails loud. */
 export function readUrlTargetId(search: string): string | null {
 	return new URLSearchParams(search).get('target')
 }
 
-/** Reflect the committed target in the URL without stacking browser history. */
 export function persistUrlTargetId(targetId: string): void {
 	const url = new URL(window.location.href)
 	url.searchParams.set('target', targetId)
 	window.history.replaceState(null, '', url)
 }
 
-/**
- * First-target order: valid URL target → valid lastTargetId → default (targetIds[0],
- * which the server sorts first). Single mode never reads lastTargetId. Any provided
- * but unknown id, and unreadable explicit-mode storage, block instead of substituting.
- */
 export function resolveInitialTarget(input: {
 	readonly mode: TargetMode
 	readonly urlTargetId: string | null
@@ -90,25 +76,10 @@ export function resolveInitialTarget(input: {
 	return { kind: 'attach', targetId: defaultTargetId }
 }
 
-export interface RestoreTargetChoice {
-	readonly id: string
-	readonly name: string
-}
-
-export interface TargetRestoreOverlay {
+export function createTargetRestoreOverlay(onChoose: (targetId: string) => void): {
 	readonly element: HTMLDivElement
-	show(reason: string, targets: readonly RestoreTargetChoice[]): void
-	hide(): void
-}
-
-/**
- * Fail-loud restore overlay: explains why no target was attached and waits for an
- * explicit choice — "continue with default" or any other target. Never auto-attaches,
- * never focuses (keyboard sovereignty stays with the terminal).
- */
-export function createTargetRestoreOverlay(
-	onChoose: (targetId: string) => void,
-): TargetRestoreOverlay {
+	show(reason: string, targets: readonly { readonly id: string; readonly name: string }[]): void
+} {
 	const element = el('div', { id: 'herdweb-target-restore', role: 'dialog', 'aria-modal': 'false' })
 	element.style.display = 'none'
 	const message = el('div', { class: 'herdweb-target-restore-reason', role: 'alert' })
@@ -139,9 +110,6 @@ export function createTargetRestoreOverlay(
 				choices.appendChild(button)
 			}
 			element.style.display = 'flex'
-		},
-		hide() {
-			element.style.display = 'none'
 		},
 	}
 }

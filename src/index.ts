@@ -29,7 +29,7 @@ import { createStartupResizeScheduler } from './startup-resize'
 import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
 import type { ClientConfigProjection, HerdwebConfig, XTerminal } from './types'
-import { resizeTerm, sendData, waitForTerm } from './util/terminal'
+import { createAttachmentGuard, resizeTerm, sendData, waitForTerm } from './util/terminal'
 import { initHeightManager } from './viewport/height'
 
 // Re-export for package consumers
@@ -220,8 +220,6 @@ export function init(
 				const effectiveConfig = withVoiceComposerEntry(setup.effectiveConfig)
 				const keyboardController = setup.keyboard
 
-				// T5: explicit multi-target mode gets the badge + picker; single mode
-				// never renders them.
 				const targetPicker =
 					effectiveConfig.targetMode === 'explicit' ? createTargetPicker(term) : null
 				if (targetPicker) {
@@ -240,7 +238,6 @@ export function init(
 					closeComposerOverlays: () => closeComposerOverlays(),
 				})
 				attachVoiceComposerMic(micController)
-				// T6a: the composer follows the resolved/selected target.
 				term.onTargetsChange?.(() => {
 					const resolvedId = term.getCurrentTargetId?.()
 					if (resolvedId) micController?.setTarget(resolvedId)
@@ -280,8 +277,6 @@ export function init(
 					comboPicker.close()
 					if (dpad.element.classList.contains('open')) dpad.toggle()
 				}
-				// T4b: leaving the synced state (target switch, disconnect) closes
-				// transient overlays (open picker/drawer/d-pad); config is untouched.
 				term.onConnectionStatusChange((status) => {
 					if (status.state !== 'synced') closeComposerOverlays()
 				})
@@ -363,6 +358,7 @@ export function init(
 				// not want mobile init behaviour.
 				if (config.mobile.initData !== null && window.innerWidth < config.mobile.widthThreshold) {
 					const data = config.mobile.initData
+					const isGenerationCurrent = createAttachmentGuard(term)
 					const before = await hooks.runBeforeSendData({
 						term,
 						config,
@@ -371,7 +367,7 @@ export function init(
 						kbWasOpen: false,
 						data,
 					})
-					if (!before.blocked) {
+					if (!before.blocked && isGenerationCurrent()) {
 						sendData(term, before.data)
 						await hooks.runAfterSendData({
 							term,

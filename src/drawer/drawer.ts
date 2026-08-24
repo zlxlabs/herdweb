@@ -69,7 +69,6 @@ export function createDrawer(
 		onTap(button, () => {
 			const kbWasOpen = isKeyboardOpen()
 			haptic()
-			// T4b: captures the attachment generation at tap time (same guard as the toolbar).
 			const isGenerationCurrent = createAttachmentGuard(term)
 			// Adjust/lookup actions stay open so they can be tapped repeatedly
 			// (font sizing, consulting the guide); everything else closes.

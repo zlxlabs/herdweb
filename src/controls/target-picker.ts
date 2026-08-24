@@ -3,16 +3,6 @@ import type { ConnectionState, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
 
-interface TargetPicker {
-	/** Compact top badge showing the current target name. */
-	readonly badge: HTMLButtonElement
-	/** Picker overlay element (hidden until opened). */
-	readonly element: HTMLDivElement
-	open(): void
-	close(): void
-	isOpen(): boolean
-}
-
 const PROCESS_STATE_LABELS: Record<TargetSummary['processState'], string> = {
 	'not-started': '○ Not started',
 	starting: '◌ Starting',
@@ -21,18 +11,10 @@ const PROCESS_STATE_LABELS: Record<TargetSummary['processState'], string> = {
 }
 
 function browserStateLabel(state: ConnectionState): string {
-	if (state === 'synced') return '✓ Connected'
-	if (state === 'syncing') return '… Syncing'
-	return '… Switching'
+	return state === 'synced' ? '✓ Connected' : state === 'syncing' ? '… Syncing' : '… Switching'
 }
 
-/**
- * Explicit-mode target picker: a compact top badge plus a drawer-style overlay
- * listing every target with its process state and this browser's attach state.
- * Data comes from the client bridge (getTargets/getCurrentTargetId/selectTarget);
- * it never holds its own copy of target state.
- */
-export function createTargetPicker(term: XTerminal): TargetPicker {
+export function createTargetPicker(term: XTerminal) {
 	const badge = el('button', { class: 'wt-target-badge', type: 'button' })
 	const element = el('div', { class: 'wt-target-picker' })
 	const backdrop = el('div', { class: 'wt-target-picker-backdrop' })
@@ -47,14 +29,12 @@ export function createTargetPicker(term: XTerminal): TargetPicker {
 
 	let open = false
 
-	function currentTargets(): readonly TargetSummary[] {
-		return term.getTargets?.() ?? []
-	}
+	const currentTargets = (): readonly TargetSummary[] => term.getTargets?.() ?? []
 
 	function renderBadge(): void {
 		const currentId = term.getCurrentTargetId?.() ?? null
-		const current = currentTargets().find((target) => target.id === currentId)
-		const name = current?.name ?? currentId ?? '…'
+		const name =
+			currentTargets().find((target) => target.id === currentId)?.name ?? currentId ?? '…'
 		badge.textContent = name
 		badge.setAttribute('aria-label', `Current target: ${name} — choose target`)
 		badge.setAttribute('title', name)
@@ -74,15 +54,16 @@ export function createTargetPicker(term: XTerminal): TargetPicker {
 			const stateLabel = PROCESS_STATE_LABELS[target.processState]
 			const nameEl = el('span', { class: 'wt-target-name', title: target.name }, target.name)
 			const statusEl = el('span', { class: 'wt-target-status' }, stateLabel)
-			const row = el('button', {
+			const row = el('div', {
 				class: 'wt-target-row',
-				type: 'button',
+				role: 'button',
+				tabindex: '0',
 				'data-target-id': target.id,
 				'aria-label': `Target ${target.name} — ${stateLabel}${isCurrent ? `, ${browserStateLabel(connectionState)}` : ''}`,
 			})
 			if (isCurrent) {
 				row.setAttribute('aria-current', 'true')
-				statusEl.appendChild(
+				statusEl.append(
 					el(
 						'span',
 						{ class: 'wt-target-browser-state' },
@@ -90,9 +71,16 @@ export function createTargetPicker(term: XTerminal): TargetPicker {
 					),
 				)
 			}
-			onTap(row, () => {
+			const select = (): void => {
 				term.selectTarget?.(target.id)
 				close()
+			}
+			onTap(row, select)
+			row.addEventListener('keydown', (event) => {
+				if (event.key === 'Enter' || event.key === ' ') {
+					event.preventDefault()
+					select()
+				}
 			})
 			row.append(nameEl, statusEl)
 			if (target.processState === 'process-exited') {
@@ -102,7 +90,8 @@ export function createTargetPicker(term: XTerminal): TargetPicker {
 					'aria-label': `Restart target ${target.name}`,
 				})
 				restart.textContent = 'Restart'
-				onTap(restart, () => {
+				onTap(restart, (event) => {
+					event.stopPropagation()
 					term.restartTarget?.(target.id)
 					close()
 				})

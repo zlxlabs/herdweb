@@ -146,7 +146,6 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 			return
 		}
 
-		// T4b: clipboard reads are deferred — capture the generation at tap time.
 		const isGenerationCurrent = createAttachmentGuard(context.term)
 
 		const runPaste = async (): Promise<void> => {

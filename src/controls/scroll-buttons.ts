@@ -2,7 +2,7 @@ import { pageSeq, scrollSeq } from '../gestures/scroll'
 import type { ScrollConfig, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 const LONG_PRESS_DELAY = 300
 const REPEAT_INTERVAL = 100
@@ -49,19 +49,21 @@ export function createScrollButtons(
 		return scrollSeq(direction, x, y)
 	}
 
-	function wireButton(button: HTMLButtonElement, direction: 'up' | 'down'): void {
+	function wireButton(button: HTMLButtonElement, direction: 'up' | 'down'): () => void {
 		let repeatTimer: ReturnType<typeof setInterval> | undefined
 		let delayTimer: ReturnType<typeof setTimeout> | undefined
 
-		function send(): void {
+		function send(guard?: () => boolean): void {
+			if (guard && !guard()) return
 			const kbWasOpen = isKeyboardOpen()
 			sendData(term, sequence(direction))
 			conditionalFocus(term, kbWasOpen)
 		}
 
-		function startRepeat(): void {
+		function startRepeat(guard: () => boolean): void {
 			delayTimer = setTimeout(() => {
-				repeatTimer = setInterval(send, REPEAT_INTERVAL)
+				if (!guard()) return stopRepeat()
+				repeatTimer = setInterval(() => send(guard), REPEAT_INTERVAL)
 			}, LONG_PRESS_DELAY)
 		}
 
@@ -79,8 +81,9 @@ export function createScrollButtons(
 		// Touch events for long-press repeat
 		button.addEventListener('touchstart', (e) => {
 			e.preventDefault()
-			send()
-			startRepeat()
+			const guard = createAttachmentGuard(term)
+			send(guard)
+			startRepeat(guard)
 			resetFade()
 		})
 
@@ -92,10 +95,16 @@ export function createScrollButtons(
 			send()
 			resetFade()
 		})
+
+		return stopRepeat
 	}
 
-	wireButton(upBtn, 'up')
-	wireButton(downBtn, 'down')
+	const stopRepeats = [wireButton(upBtn, 'up'), wireButton(downBtn, 'down')]
+	term.onConnectionStatusChange((status) => {
+		if (status.state !== 'synced') {
+			for (const stopRepeat of stopRepeats) stopRepeat()
+		}
+	})
 
 	// Auto-fade logic
 	let fadeTimer: ReturnType<typeof setTimeout> | undefined

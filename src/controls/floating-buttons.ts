@@ -32,7 +32,6 @@ function createGroupButton(
 	onTap(button, () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
-		// T4b: captures the attachment generation at tap time (same guard as the toolbar).
 		const isGenerationCurrent = createAttachmentGuard(term)
 
 		async function sendWithHooks(data: string): Promise<void> {

@@ -534,6 +534,7 @@ describe('client render backlog (T4c)', () => {
 		})
 		send(socket, { type: 'output', attachmentId: 'att-big', data: halfMiB(), seq: 1 })
 		send(socket, { type: 'output', attachmentId: 'att-big', data: 'B'.repeat(1024), seq: 2 })
+		send(socket, { type: 'output', attachmentId: 'att-big', data: 'must-not-write', seq: 3 })
 		send(socket, {
 			type: 'snapshot',
 			attachmentId: 'att-big',
@@ -544,6 +545,7 @@ describe('client render backlog (T4c)', () => {
 
 		expect(socket.readyState).toBe(FakeSocket.CLOSED)
 		expect(window.term?.getConnectionStatus().lastFailureReason).toBe('client-render-backlog')
+		expect(term.writes).toEqual(['<reset>', halfMiB(), halfMiB()])
 		expect(sentFrames(socket).some((frame) => frame.type === 'snapshot-applied')).toBe(false)
 		window.term?.input('blocked', true)
 		expect(sentFrames(socket).some((frame) => frame.type === 'input')).toBe(false)

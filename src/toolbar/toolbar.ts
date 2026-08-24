@@ -15,7 +15,6 @@ interface CtrlState {
 	active: boolean
 	disposer: { dispose(): void } | null
 	buttonEl: HTMLButtonElement | null
-	/** Attachment generation captured when the modifier was activated (T4b). */
 	generation: string | null | undefined
 }
 
@@ -56,7 +55,6 @@ function activateCtrl(state: CtrlState, term: XTerminal, theme: HerdwebConfig['t
 
 	if (!state.disposer) {
 		state.disposer = term.onData((data: string) => {
-			// T4b: a pending modifier must never fire into a different attachment.
 			if (state.active && term.getAttachmentId?.() === state.generation && data.length === 1) {
 				const code = data.charCodeAt(0)
 				deactivateCtrl(state, theme)
@@ -106,8 +104,6 @@ function wireButton(
 	onTap(button, () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
-		// T4b: captures the attachment generation at tap time; delayed sends below
-		// complete only while this generation is still current.
 		const isGenerationCurrent = createAttachmentGuard(term)
 
 		async function sendWithCtrlAware(data: string): Promise<void> {
@@ -283,8 +279,6 @@ export function createToolbar(
 		)
 	}
 
-	// T4b: leaving the synced state (target switch, disconnect) cancels the
-	// pending sticky modifier; persistent config is untouched.
 	term.onConnectionStatusChange((status) => {
 		if (status.state !== 'synced' && ctrlState.active) deactivateCtrl(ctrlState, config.theme)
 	})
