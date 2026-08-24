@@ -284,8 +284,11 @@ async function main(): Promise<void> {
 			if (loaded.config.targetMode === 'explicit' && command_.length > 0) {
 				throw new Error('Explicit targets cannot be combined with a trailing command after --')
 			}
-			const defaultTarget = loaded.config.targets.at(0)
-			if (!defaultTarget) throw new Error('Resolved target config must contain at least one target')
+			const defaultTarget = loaded.config.targets.find(
+				({ id }) => id === loaded.config.defaultTargetId,
+			)
+			if (!defaultTarget)
+				throw new Error('Resolved target config defaultTargetId must reference a configured target')
 			const serveConfig =
 				loaded.config.targetMode === 'single' && command_.length > 0
 					? { ...loaded.config, targets: [{ ...defaultTarget, command: command_ }] }
