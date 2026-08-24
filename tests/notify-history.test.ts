@@ -115,6 +115,25 @@ describe('readEventHistory', () => {
 		)
 		expect(readEventHistory(stateDir, 1, 'a').map((event) => event.id)).toEqual(['a-old'])
 	})
+
+	test('trim retains per-target lanes without cross-target eviction', async () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-history-'))
+		const limit = 1
+		appendEventLine(
+			stateDir,
+			{ ...validBase, v: 2, targetId: 'a', id: 'a-old', kind: 'done', ts: 1 },
+			limit,
+		)
+		for (const [id, ts] of [
+			['b-1', 2],
+			['b-2', 3],
+		] as const) {
+			appendEventLine(stateDir, { ...validBase, v: 2, targetId: 'b', id, kind: 'done', ts }, limit)
+		}
+		await new Promise<void>((resolve) => setImmediate(resolve))
+		expect(readEventHistory(stateDir, limit, 'a').map((e) => e.id)).toEqual(['a-old'])
+		expect(readEventHistory(stateDir, limit, 'b').map((e) => e.id)).toEqual(['b-2'])
+	})
 })
 
 function routeVariants(basePath: string, path: string): readonly string[] {
