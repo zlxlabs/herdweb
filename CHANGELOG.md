@@ -1,3 +1,20 @@
+# [1.10.0](https://github.com/zlxlabs/herdweb/compare/v1.9.0...v1.10.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **image:** hide stale paths after target switches ([9a6d6ba](https://github.com/zlxlabs/herdweb/commit/9a6d6ba8480962d4802a5b50051db10e993f440e))
+* **image:** invalidate stale uploads on lifecycle changes ([4e2dad9](https://github.com/zlxlabs/herdweb/commit/4e2dad94d6fd40444e1ddc40ef2592727b2c39b5))
+* **notify:** isolate history retention by target ([29674f0](https://github.com/zlxlabs/herdweb/commit/29674f0da66fc2e6d407770b59072c4366630222))
+* **notify:** scope history limits by target ([3dfbf20](https://github.com/zlxlabs/herdweb/commit/3dfbf20d6ed7037bcb8ab24e3f625b0e393f1053))
+
+
+### Features
+
+* **image:** bind uploads to live attachments ([5cb3bfb](https://github.com/zlxlabs/herdweb/commit/5cb3bfbeef3c791e73ef9018b1f81fc12af7257f))
+* **notify:** isolate target identity ([8489b8a](https://github.com/zlxlabs/herdweb/commit/8489b8ac2c317897d4d8943bafdafc33e5e96821))
+* **notify:** route push clicks and panel tests through target identity ([a2fbeef](https://github.com/zlxlabs/herdweb/commit/a2fbeef328b5d641e4f07f094a0de32fac828ec4))
+
 # [1.9.0](https://github.com/zlxlabs/herdweb/compare/v1.8.0...v1.9.0) (2026-08-24)
 
 
