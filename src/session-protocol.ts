@@ -48,6 +48,7 @@ export type ClientMessage =
 	| RestartTargetMessage
 	| SnapshotAppliedMessage
 
+export const X_HERDWEB_ATTACHMENT_ID_HEADER = 'x-herdweb-attachment-id'
 export const MAX_CLIENT_MESSAGE_BYTES = 256 * 1024
 export const MAX_CLIENT_INPUT_BYTES = 256 * 1024
 export const MAX_PROTOCOL_ID_BYTES = 64

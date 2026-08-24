@@ -4,6 +4,7 @@ import {
 	type ImageDropController,
 	createImageDropController,
 } from '../src/controls/image-drop-controller'
+import { type TargetSummary, X_HERDWEB_ATTACHMENT_ID_HEADER } from '../src/session-protocol'
 import type { InputActionResult } from '../src/types'
 
 beforeEach(() => GlobalRegistrator.register())
@@ -20,17 +21,27 @@ function jsonResponse(body: unknown, status = 200): Response {
 	return { ok: status === 200, status, json: () => Promise.resolve(body) } as unknown as Response
 }
 
-function setup() {
+function setup(
+	options: { imageDrop?: 'local-path' | 'disabled'; attachmentId?: string | null } = {},
+) {
 	const sent: Array<{ id: string; data: string }> = []
 	const listeners = new Set<(result: InputActionResult) => void>()
-	const session = { id: 's1' as string | null, connected: true }
+	const attachment = { id: options.attachmentId === undefined ? 'att-1' : options.attachmentId }
+	const targets = [
+		{
+			id: 'default',
+			capabilities: { imageDrop: options.imageDrop ?? 'local-path' },
+		} as TargetSummary,
+	]
 	let aid = 0
 	const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ path: PATH })))
 	const writeText = vi.fn(() => Promise.resolve())
 	const controller = createImageDropController({
 		term: {
-			getSessionId: () => session.id,
-			isConnected: () => session.connected,
+			isConnected: () => attachment.id !== null,
+			getAttachmentId: () => attachment.id,
+			getTargets: () => targets,
+			getCurrentTargetId: () => 'default',
 			sendInputAction: (id: string, data: string) => {
 				sent.push({ id, data })
 				return true
@@ -52,7 +63,7 @@ function setup() {
 	const emit = (result: InputActionResult) => {
 		for (const listener of listeners) listener(result)
 	}
-	return { controller, session, sent, emit, fetchMock, writeText }
+	return { controller, attachment, sent, emit, fetchMock, writeText }
 }
 
 function query<T extends HTMLElement>(c: ImageDropController, sel: string): T {
@@ -85,6 +96,7 @@ test('picker: cancel hides the panel; reset allows re-select; single-flight; raw
 	expect(h.fetchMock).toHaveBeenCalledWith('/herdweb/api/image-drop', {
 		method: 'POST',
 		body: file,
+		headers: { [X_HERDWEB_ATTACHMENT_ID_HEADER]: 'att-1' },
 	})
 	expect(query<HTMLInputElement>(h.controller, 'input').value).toBe('')
 	pick(h.controller, png())
@@ -149,22 +161,6 @@ test('gating: session/freshness guard auto-insert; stale ACKs and clipboard feed
 	expect(statusText(h.controller)).toContain('Inserting')
 	h.emit({ id: 'image-drop-a2', accepted: true, reason: null })
 	expect(statusText(h.controller)).toContain('Inserted')
-	// changed, empty, or unsynced session: never auto-insert
-	pick(h.controller, png())
-	h.session.id = 's2'
-	await flush()
-	expect(h.sent).toHaveLength(2)
-	expect(statusText(h.controller)).toContain('session changed')
-	h.session.id = null
-	pick(h.controller, png())
-	await flush()
-	expect(h.sent).toHaveLength(2)
-	h.session.id = 's1'
-	h.session.connected = false
-	pick(h.controller, png())
-	await flush()
-	expect(h.sent).toHaveLength(2)
-	expect(statusText(h.controller)).toContain('not synced')
 	// clipboard denial and success are both visible
 	h.writeText.mockRejectedValueOnce(new Error('denied'))
 	query<HTMLButtonElement>(h.controller, '.wt-image-drop-copy').click()
@@ -207,4 +203,34 @@ test('done toast: no path/buttons, auto-hides after ~2.5s, newer pick survives t
 	expect(statusText(h.controller)).toContain('Inserting')
 	await vi.advanceTimersByTimeAsync(2_000) // the old toast timer would have fired here
 	expect(h.controller.element.style.display).toBe('flex')
+})
+
+test('capability and attachment gates: no request when disabled or unsynced; switch blocks insert', async () => {
+	const disabled = setup({ imageDrop: 'disabled' })
+	disabled.controller.open()
+	expect(statusText(disabled.controller)).toContain('disabled')
+	pick(disabled.controller, png())
+	expect(disabled.fetchMock).not.toHaveBeenCalled()
+
+	const unsynced = setup({ attachmentId: null })
+	pick(unsynced.controller, png())
+	expect(unsynced.fetchMock).not.toHaveBeenCalled()
+	expect(statusText(unsynced.controller)).toContain('syncing')
+
+	const h = setup()
+	let resolveUpload: ((value: Response) => void) | undefined
+	h.fetchMock.mockImplementationOnce(
+		() =>
+			new Promise<Response>((resolve) => {
+				resolveUpload = resolve
+			}),
+	)
+	pick(h.controller, png())
+	h.attachment.id = 'att-2'
+	resolveUpload?.(jsonResponse({ path: PATH }))
+	await flush()
+	expect(h.sent).toHaveLength(0)
+	expect(statusText(h.controller)).toContain('Upload became stale')
+	expect(query(h.controller, '.wt-image-drop-path').style.display).toBe('none')
+	expect(query(h.controller, '.wt-image-drop-actions').style.display).toBe('none')
 })

@@ -1,4 +1,5 @@
 import { joinBasePath } from '../base-path'
+import { X_HERDWEB_ATTACHMENT_ID_HEADER } from '../session-protocol'
 import type { InputActionResult, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
@@ -13,11 +14,9 @@ const IMAGE_DROP_DONE_TOAST_MS = 2_500
 type ImageDropState = 'idle' | 'uploading' | 'file-ready' | 'inserting' | 'done' | 'error'
 
 interface ImageDropControllerDeps {
-	/** Synced/fresh signals — only these four term bridge methods are used. */
-	readonly term: Pick<
-		XTerminal,
-		'getSessionId' | 'isConnected' | 'sendInputAction' | 'onInputActionResult'
-	>
+	/** Synced/fresh signals — only these term bridge methods are used. */
+	readonly term: Pick<XTerminal, 'isConnected' | 'sendInputAction' | 'onInputActionResult'> &
+		Pick<XTerminal, 'getAttachmentId' | 'getTargets' | 'getCurrentTargetId'>
 	readonly basePath: string
 	/** Test seams — production defaults: fetch / navigator.clipboard / crypto.randomUUID. */
 	readonly fetchFn?: typeof fetch
@@ -35,7 +34,7 @@ export interface ImageDropController {
 
 /**
  * Image drop flow: POST the picked raw File to {basePath}/api/image-drop, then auto-insert
- * ` ${path} ` (never Enter) only when the start session is non-empty, unchanged and synced.
+ * ` ${path} ` (never Enter) only when the starting attachment is unchanged and synced.
  * Success is a transient toast — status text only, auto-hiding after ~2.5s (the inserted
  * path in the agent input is the success evidence; nothing to close). Only failure states
  * show the path text and the retry/copy/close actions.
@@ -61,7 +60,8 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	let generation = 0
 	let path: string | null = null
 	let actionId: string | null = null
-	let startSessionId: string | null = null
+	let startAttachmentId: string | null = null
+	let imageDropEnabled = false
 	let ackTimer: ReturnType<typeof setTimeout> | undefined
 	let disposed = false
 
@@ -82,6 +82,22 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		ackTimer = undefined
 	}
 
+	function pickAttachment(): string | null {
+		const targetId = term.getCurrentTargetId?.()
+		const id = term.getAttachmentId?.() ?? null
+		const target = term.getTargets?.().find((item) => item.id === targetId)
+		imageDropEnabled = target?.capabilities.imageDrop === 'local-path'
+		return id !== null && term.isConnected() && imageDropEnabled ? id : null
+	}
+
+	const attachmentMatches = () =>
+		startAttachmentId !== null && term.getAttachmentId?.() === startAttachmentId
+	const showNotReady = () =>
+		setState(
+			'error',
+			imageDropEnabled ? 'Not ready — still syncing.' : 'Image upload disabled for this target.',
+		)
+
 	function attemptInsert(gen: number): void {
 		if (path === null || actionId === null) return
 		setState('inserting', 'Inserting path…')
@@ -98,13 +114,12 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	}
 
 	function maybeAutoInsert(gen: number): void {
-		if (startSessionId === null || term.getSessionId() !== startSessionId) {
-			setState('file-ready', 'Ready — session changed, retry or copy the path.')
-		} else if (!term.isConnected()) {
-			setState('file-ready', 'Ready — not synced yet, tap Retry insert.')
-		} else {
-			attemptInsert(gen)
+		if (!attachmentMatches() || !term.isConnected()) {
+			path = null
+			setState('error', 'Upload became stale — choose the image again.')
+			return
 		}
+		attemptInsert(gen)
 	}
 
 	function failUpload(gen: number, message: string): void {
@@ -123,10 +138,20 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		}
 		const gen = generation
 		actionId = `image-drop-${newActionId()}`
-		startSessionId = term.getSessionId()
+		const attachment = pickAttachment()
+		if (attachment === null) {
+			path = startAttachmentId = null
+			showNotReady()
+			return
+		}
+		startAttachmentId = attachment
 		path = null
 		setState('uploading', `Uploading ${file.name || 'image'}…`)
-		fetchFn(joinBasePath(deps.basePath, '/api/image-drop'), { method: 'POST', body: file }).then(
+		fetchFn(joinBasePath(deps.basePath, '/api/image-drop'), {
+			method: 'POST',
+			body: file,
+			headers: { [X_HERDWEB_ATTACHMENT_ID_HEADER]: attachment },
+		}).then(
 			(res) => {
 				if (!res.ok) return failUpload(gen, `Upload failed (HTTP ${res.status}).`)
 				res.json().then(
@@ -167,8 +192,9 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 
 	onTap(retryBtn, () => {
 		if (state !== 'file-ready') return
-		if (startSessionId === null || term.getSessionId() !== startSessionId) {
-			setState('file-ready', 'Session changed — copy the path instead.')
+		if (!attachmentMatches()) {
+			path = null
+			setState('error', 'Attachment changed — choose the image again.')
 			return
 		}
 		if (!term.isConnected()) {
@@ -198,6 +224,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		element: panel,
 		open() {
 			if (state === 'uploading' || state === 'inserting') return // single-flight
+			if (pickAttachment() === null) return showNotReady()
 			input.click()
 		},
 		dispose() {

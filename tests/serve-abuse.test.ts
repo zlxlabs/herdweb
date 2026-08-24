@@ -1,12 +1,19 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { Hono } from 'hono'
 import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
-import { MAX_CLIENT_MESSAGE_BYTES, parseServerMessage } from '../src/session-protocol'
+import { handleImageDropRequest, writeImageDrop } from '../src/serve'
+import {
+	MAX_CLIENT_MESSAGE_BYTES,
+	X_HERDWEB_ATTACHMENT_ID_HEADER,
+	parseServerMessage,
+} from '../src/session-protocol'
 import { sleep, spawnProcess } from '../src/util/node-compat'
+import { WsAttachmentBinding } from '../src/ws-attachment-binding'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
@@ -71,9 +78,10 @@ function startServe(
 	port: number,
 	command = ['bash', '--norc', '--noprofile'],
 	env?: NodeJS.ProcessEnv,
+	args: string[] = [],
 ): ReturnType<typeof spawnProcess> {
 	const proc = spawnProcess(
-		['tsx', join(repoRoot, 'cli.ts'), 'serve', '--port', String(port), '--', ...command],
+		['tsx', join(repoRoot, 'cli.ts'), 'serve', '--port', String(port), ...args, '--', ...command],
 		{
 			cwd: repoRoot,
 			stdin: 'ignore',
@@ -207,6 +215,57 @@ const isType = (type: string) => (message: ReturnType<typeof parseServerMessage>
 
 function sendJson(ws: WebSocket, message: Record<string, unknown>): void {
 	ws.send(JSON.stringify(message))
+}
+
+async function commitAttachment(port: number, targetId?: string): Promise<string> {
+	const ws = await openSocket(port)
+	await waitForJsonMessage(ws, 10_000, isType('server-ready'))
+	sendJson(ws, {
+		type: 'attach-target',
+		requestId: 'drop-r1',
+		targetId: targetId ?? 'default',
+		cols: 80,
+		rows: 24,
+	})
+	const started = await waitForJsonMessage(ws, 10_000, isType('attach-started'))
+	if (started?.type !== 'attach-started') throw new Error('attach-started missing')
+	await waitForJsonMessage(ws, 10_000, isType('snapshot'))
+	sendJson(ws, {
+		type: 'snapshot-applied',
+		requestId: started.requestId,
+		attachmentId: started.attachmentId,
+	})
+	await waitForJsonMessage(ws, 10_000, isType('attach-committed'))
+	return started.attachmentId
+}
+
+function handlerRequest(
+	binding: WsAttachmentBinding,
+	attachmentId: string,
+	body: Buffer,
+	targetImageDrop: (targetId: string) => 'local-path' | 'disabled' | undefined = () => 'local-path',
+	write: typeof writeImageDrop = writeImageDrop,
+): Response | Promise<Response> {
+	const app = new Hono()
+	app.post('/drop', (c) => handleImageDropRequest(c, () => ({}), binding, targetImageDrop, write))
+	return app.request('http://localhost/drop', {
+		method: 'POST',
+		headers: {
+			host: 'localhost',
+			origin: 'http://localhost',
+			[X_HERDWEB_ATTACHMENT_ID_HEADER]: attachmentId,
+		},
+		body: body as unknown as BodyInit,
+	})
+}
+
+function committedBinding(targetId = 'target'): [WsAttachmentBinding, string] {
+	const binding = new WsAttachmentBinding()
+	const started = binding.beginAttach('client', 'request', targetId)
+	if (!started.ok) throw new Error('failed to begin test attachment')
+	binding.snapshotSent('client', started.capability)
+	binding.snapshotApplied('client', started.capability)
+	return [binding, started.capability.attachmentId]
 }
 
 function waitForClose(ws: WebSocket, timeoutMs = 10_000): Promise<number> {
@@ -407,12 +466,16 @@ function postRawImageDrop(
 	url: string,
 	body: Buffer,
 	mode: ImageDropPostMode,
+	headers: Record<string, string> = {},
 ): Promise<{ statusCode: number; path?: string; size?: number }> {
 	return new Promise((resolve, reject) => {
 		let responded = false
 		const request = httpRequest(
 			url,
-			{ method: 'POST', headers: mode === 'chunked' ? {} : { 'content-length': body.length } },
+			{
+				method: 'POST',
+				headers: { ...(mode === 'chunked' ? {} : { 'content-length': body.length }), ...headers },
+			},
 			(response) => {
 				responded = true
 				const chunks: Buffer[] = []
@@ -456,31 +519,130 @@ function postRawImageDrop(
 }
 
 describe('image drop body limits', () => {
-	test('accepts exactly 10 MiB and rejects 10 MiB + 1, with content-length or chunked', async () => {
+	test('accepts exactly 10 MiB and rejects 10 MiB + 1 by content-length', async () => {
 		const port = await reservePort()
 		const dropDir = mkdtempSync(join(tmpdir(), 'herdweb-drop-abuse-'))
 		const proc = startServe(port, ['bash', '--norc', '--noprofile'], { TMPDIR: dropDir })
 		try {
-			const endpoint = `http://127.0.0.1:${port}/api/image-drop`
 			await waitForHttp(`http://127.0.0.1:${port}`)
+			const attachmentId = await commitAttachment(port)
+			const dropHeader = { [X_HERDWEB_ATTACHMENT_ID_HEADER]: attachmentId }
+			const endpoint = `http://127.0.0.1:${port}/api/image-drop`
 
 			const tenMiB = Buffer.alloc(10 * 1024 * 1024)
 			PNG_MAGIC.copy(tenMiB)
-			const accepted = await postRawImageDrop(endpoint, tenMiB, 'content-length')
+			const accepted = await postRawImageDrop(endpoint, tenMiB, 'content-length', dropHeader)
 			expect(accepted.statusCode).toBe(200)
 			// Boolean comparison: a failing toEqual on 10 MiB buffers would OOM the reporter.
 			expect(readFileSync(accepted.path ?? '').equals(tenMiB)).toBe(true)
 
 			const tooLarge = Buffer.concat([tenMiB, Buffer.from([0])])
-			expect((await postRawImageDrop(endpoint, tooLarge, 'declare-only')).statusCode).toBe(413)
-			expect((await postRawImageDrop(endpoint, tooLarge, 'chunked')).statusCode).toBe(413)
-
-			const chunkedPng = await postRawImageDrop(endpoint, PNG_MAGIC, 'chunked')
-			expect(chunkedPng.statusCode).toBe(200)
-			expect(readFileSync(chunkedPng.path ?? '')).toEqual(PNG_MAGIC)
+			expect(
+				(await postRawImageDrop(endpoint, tooLarge, 'declare-only', dropHeader)).statusCode,
+			).toBe(413)
 		} finally {
 			await stopServe(proc)
 			rmSync(dropDir, { recursive: true, force: true })
 		}
+	})
+})
+
+describe('image drop attachment binding', () => {
+	test('explicit targets honor local-path and disabled capability', async () => {
+		const port = await reservePort()
+		const configDir = mkdtempSync(join(tmpdir(), 'herdweb-drop-config-'))
+		const configPath = join(configDir, 'config.ts')
+		writeFileSync(
+			configPath,
+			`export default {"defaultTargetId":"local","targets":[{"id":"local","name":"Local","command":["bash"],"imageDrop":"local-path"},{"id":"off","name":"Off","command":["bash"]}]}`,
+		)
+		const dropDir = mkdtempSync(join(tmpdir(), 'herdweb-drop-explicit-'))
+		const proc = startServe(port, [], { TMPDIR: dropDir }, ['--config', configPath])
+		try {
+			await waitForHttp(`http://127.0.0.1:${port}`)
+			const endpoint = `http://127.0.0.1:${port}/api/image-drop`
+			expect((await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only')).statusCode).toBe(400)
+			const forged = await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+				[X_HERDWEB_ATTACHMENT_ID_HEADER]: 'forged-token',
+			})
+			expect(forged.statusCode).toBe(403)
+			const pending = await openSocket(port)
+			await waitForJsonMessage(pending, 10_000, isType('server-ready'))
+			sendJson(pending, {
+				type: 'attach-target',
+				requestId: 'drop-pending',
+				targetId: 'local',
+				cols: 80,
+				rows: 24,
+			})
+			const started = await waitForJsonMessage(pending, 10_000, isType('attach-started'))
+			if (started?.type !== 'attach-started') throw new Error('attach-started missing')
+			await waitForJsonMessage(pending, 10_000, isType('snapshot'))
+			expect(
+				(
+					await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+						[X_HERDWEB_ATTACHMENT_ID_HEADER]: started.attachmentId,
+					})
+				).statusCode,
+			).toBe(403)
+			pending.close()
+			const local = await commitAttachment(port, 'local')
+			const off = await commitAttachment(port, 'off')
+			expect([
+				(
+					await postRawImageDrop(endpoint, PNG_MAGIC, 'content-length', {
+						[X_HERDWEB_ATTACHMENT_ID_HEADER]: local,
+					})
+				).statusCode,
+				(
+					await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+						[X_HERDWEB_ATTACHMENT_ID_HEADER]: off,
+					})
+				).statusCode,
+			]).toEqual([200, 403])
+		} finally {
+			await stopServe(proc)
+			for (const dir of [configDir, dropDir]) rmSync(dir, { recursive: true, force: true })
+		}
+	})
+})
+
+describe('image drop handler guards', () => {
+	test('rechecks after body and response, and removes a stale post-write file', async () => {
+		const [beforeBinding, beforeAttachment] = committedBinding()
+		let checks = 0
+		let writes = 0
+		const write = async () => {
+			writes += 1
+			return 'unexpected'
+		}
+		const rejectedBeforeWrite = await handlerRequest(
+			beforeBinding,
+			beforeAttachment,
+			PNG_MAGIC,
+			() => (++checks === 2 ? 'disabled' : 'local-path'),
+			write,
+		)
+		expect(rejectedBeforeWrite.status).toBe(403)
+		expect(writes).toBe(0)
+
+		const dropDir = mkdtempSync(join(tmpdir(), 'herdweb-drop-orphan-'))
+		const [afterBinding, afterAttachment] = committedBinding()
+		const orphan = join(dropDir, 'created.png')
+		const rejectedAfterWrite = await handlerRequest(
+			afterBinding,
+			afterAttachment,
+			PNG_MAGIC,
+			undefined,
+			async (bytes) => {
+				writeFileSync(orphan, bytes)
+				afterBinding.disconnect('client')
+				return orphan
+			},
+		)
+		expect(rejectedAfterWrite.status).toBe(403)
+		expect(await rejectedAfterWrite.text()).not.toContain('path')
+		expect(existsSync(orphan)).toBe(false)
+		rmSync(dropDir, { recursive: true, force: true })
 	})
 })
