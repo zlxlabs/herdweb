@@ -219,7 +219,11 @@ describe('serve websocket hardening', () => {
 
 			const healthyClient = await openSocket(port)
 			await waitForJsonMessage(healthyClient)
-			const responsePromise = waitForJsonMessage(healthyClient)
+			const responsePromise = waitForJsonMessage(
+				healthyClient,
+				10_000,
+				(message) => message?.type === 'pong' && message.id === 'health-ping',
+			)
 			healthyClient.send(JSON.stringify({ type: 'ping', id: 'health-ping' }))
 
 			const response = await responsePromise
