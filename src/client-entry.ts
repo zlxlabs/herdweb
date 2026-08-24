@@ -7,8 +7,7 @@ import '../styles/base.css'
 import { joinBasePath } from './base-path'
 import { createImageDropController } from './controls/image-drop-controller'
 import { createHookRegistry, init } from './index'
-import { parseServerMessage, serialiseClientMessage } from './session-protocol'
-import type { ClientMessage } from './session-protocol'
+import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
 import type {
 	ClientConfigProjection,
 	ConnectionFailureReason,
@@ -52,10 +51,13 @@ const BUFFERED_AMOUNT_SETTLE_MS = 100
 // Heartbeats refresh this proof every 10s; 25s leaves margin while remaining ahead of the 15s deadline.
 const FRESHNESS_WINDOW_MS = 25_000
 const utf8Encoder = new TextEncoder()
+type TerminalMessage =
+	| { readonly type: 'input'; readonly data: string }
+	| { readonly type: 'resize'; readonly cols: number; readonly rows: number }
 
 function createTermBridge(
 	term: Terminal,
-	send: (message: ClientMessage) => void,
+	send: (message: TerminalMessage) => void,
 	isConnected: () => boolean,
 	onConnectionChange: (handler: (connected: boolean) => void) => { dispose(): void },
 	getConnectionStatus: () => ConnectionStatus,
@@ -253,6 +255,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let snapshotLoaded = false
 	let snapshotApplying = false
 	let sessionId: string | null = null
+	let targetId: string | null = null
+	let attachRequestId: string | null = null
+	let attachmentId: string | null = null
 	let lastProvenFreshAt = 0
 	const pendingOutput = new Map<number, string>()
 	let pendingOutputBytes = 0
@@ -261,14 +266,19 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let exitReceived = false
 	let statusOverlay: SessionStatusOverlay | null = null
 
-	function send(message: ClientMessage): void {
-		if (connectionStatus.state === 'synced' && socket?.readyState === WebSocket.OPEN) {
+	function send(message: TerminalMessage): void {
+		if (
+			connectionStatus.state === 'synced' &&
+			attachmentId !== null &&
+			socket?.readyState === WebSocket.OPEN
+		) {
 			if (message.type === 'input' && Date.now() - lastProvenFreshAt > FRESHNESS_WINDOW_MS) {
 				failConnection(currentEpoch, 'heartbeat-timeout')
 			} else {
 				const activeSocket = socket
 				const wasBuffered = message.type === 'input' && activeSocket.bufferedAmount > 0
-				activeSocket.send(serialiseClientMessage(message))
+				const framed: ClientMessage = { ...message, attachmentId }
+				activeSocket.send(serialiseClientMessage(framed))
 				if (message.type === 'input' && (wasBuffered || activeSocket.bufferedAmount > 0)) {
 					scheduleBufferedAmountCheck(currentEpoch, activeSocket)
 				} else if (message.type === 'input') {
@@ -280,6 +290,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 		if (message.type === 'resize') {
 			pendingResize = { cols: message.cols, rows: message.rows }
+			if (!exitReceived && targetId !== null && socket?.readyState === WebSocket.OPEN) {
+				beginAttach(currentEpoch, targetId, message.cols, message.rows)
+			}
 			return
 		}
 		if (!notSentNoticeShown) {
@@ -311,11 +324,35 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 		const activeSocket = socket
 		const wasBuffered = activeSocket.bufferedAmount > 0
-		activeSocket.send(serialiseClientMessage({ type: 'input-action', id, data }))
+		if (attachmentId === null) return false
+		activeSocket.send(serialiseClientMessage({ type: 'input-action', attachmentId, id, data }))
 		if (wasBuffered || activeSocket.bufferedAmount > 0) {
 			scheduleBufferedAmountCheck(currentEpoch, activeSocket)
 		}
 		return true
+	}
+
+	function beginAttach(myEpoch: number, nextTargetId: string, cols: number, rows: number): void {
+		if (myEpoch !== currentEpoch || socket?.readyState !== WebSocket.OPEN) return
+		const requestId = crypto.randomUUID()
+		targetId = nextTargetId
+		attachRequestId = requestId
+		attachmentId = null
+		snapshotLoaded = false
+		snapshotApplying = false
+		sessionId = null
+		clearPendingOutput()
+		pendingResize = null
+		setConnectionStatus('syncing')
+		socket.send(
+			serialiseClientMessage({
+				type: 'attach-target',
+				requestId,
+				targetId: nextTargetId,
+				cols,
+				rows,
+			}),
+		)
 	}
 
 	function syncSize(): void {
@@ -456,6 +493,28 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pendingOutputBytes = 0
 	}
 
+	function enterTargetEnded(): void {
+		const newlyEnded = !exitReceived
+		exitReceived = true
+		clearConnectionTimers()
+		stopHeartbeat()
+		snapshotLoaded = false
+		snapshotApplying = false
+		sessionId = null
+		attachRequestId = null
+		attachmentId = null
+		clearPendingOutput()
+		pendingResize = null
+		notSentNoticeShown = true
+		setConnectionStatus('disconnected')
+		if (!newlyEnded) return
+		const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
+		window.dispatchEvent(
+			new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
+		)
+		showSessionStatus(sessionEndedNotice)
+	}
+
 	function recordPreSyncFailure(reason: ConnectionFailureReason): void {
 		connectionStatus = {
 			state: 'disconnected',
@@ -496,29 +555,29 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		snapshotLoaded = false
 		snapshotApplying = false
 		sessionId = null
+		targetId = null
+		attachRequestId = null
+		attachmentId = null
 		clearPendingOutput()
 	}
 
 	function failConnection(myEpoch: number, reason: ConnectionFailureReason, notice?: string): void {
 		if (myEpoch !== currentEpoch) return
 		const sessionEnded = exitReceived
+		const endedTargetId = targetId
 		const failedSocket = socket
 		invalidateConnection()
 		socket = null
 		if (notice) {
 			window.dispatchEvent(new CustomEvent('herdweb-connection-notice', { detail: notice }))
 		}
-		if (connectionStatus.state !== 'synced' || reason === 'protocol-error') {
+		if (sessionEnded) {
+			targetId = endedTargetId
+			enterTargetEnded()
+		} else if (connectionStatus.state !== 'synced' || reason === 'protocol-error') {
 			recordPreSyncFailure(reason)
 		} else {
 			setConnectionStatus('disconnected', reason)
-		}
-		if (sessionEnded) {
-			const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
-			window.dispatchEvent(
-				new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
-			)
-			showSessionStatus(sessionEndedNotice)
 		}
 		failedSocket?.close()
 		if (!sessionEnded) scheduleReconnect()
@@ -533,11 +592,11 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		) {
 			return
 		}
-		const id = crypto.randomUUID()
-		heartbeatPingId = id
-		socket.send(serialiseClientMessage({ type: 'ping', id }))
+		const nonce = crypto.randomUUID()
+		heartbeatPingId = nonce
+		socket.send(serialiseClientMessage({ type: 'ping', nonce }))
 		heartbeatDeadlineTimer = window.setTimeout(() => {
-			if (heartbeatPingId === id) failConnection(myEpoch, 'heartbeat-timeout')
+			if (heartbeatPingId === nonce) failConnection(myEpoch, 'heartbeat-timeout')
 		}, HEARTBEAT_DEADLINE_MS)
 	}
 
@@ -548,48 +607,45 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	function applySnapshot(
 		myEpoch: number,
+		myAttachmentId: string,
 		data: string,
 		snapshotSessionId: string,
 		outputWatermark: number,
 	): void {
-		if (myEpoch !== currentEpoch || snapshotLoaded || snapshotApplying) return
+		if (
+			myEpoch !== currentEpoch ||
+			attachmentId !== myAttachmentId ||
+			snapshotLoaded ||
+			snapshotApplying
+		)
+			return
 		snapshotApplying = true
 		term.reset()
 		term.write(data, () => {
-			if (myEpoch !== currentEpoch || !snapshotApplying) return
-			clearTimer(snapshotDeadlineTimer)
-			snapshotDeadlineTimer = undefined
+			if (myEpoch !== currentEpoch || attachmentId !== myAttachmentId || !snapshotApplying) return
 			snapshotApplying = false
 			snapshotLoaded = true
 			sessionId = snapshotSessionId
-			connectionStatus = {
-				state: 'synced',
-				consecutivePreSyncFailures: 0,
-				lastFailureReason: null,
-			}
-			notSentNoticeShown = false
-			lastProvenFreshAt = Date.now()
-			for (const listener of connectionStatusListeners) listener(connectionStatus)
-			notifyConnectionChange()
-
 			const buffered = [...pendingOutput.entries()]
-			clearPendingOutput()
-			for (const [, output] of buffered
 				.filter(([seq]) => seq > outputWatermark)
 				// oxlint-disable-next-line unicorn/no-array-sort -- buffered is a fresh local array
-				.sort(([left], [right]) => left - right)) {
-				term.write(output)
-			}
-			startHeartbeat(myEpoch)
-			if (pendingResize && socket?.readyState === WebSocket.OPEN) {
-				const resize = pendingResize
-				pendingResize = null
-				socket.send(serialiseClientMessage({ type: 'resize', ...resize }))
+				.sort(([left], [right]) => left - right)
+			clearPendingOutput()
+			for (const [, output] of buffered) term.write(output)
+			if (socket?.readyState === WebSocket.OPEN) {
+				socket.send(
+					serialiseClientMessage({
+						type: 'snapshot-applied',
+						requestId: attachRequestId ?? '',
+						attachmentId: myAttachmentId,
+					}),
+				)
 			}
 		})
 	}
 
-	function handleOutput(myEpoch: number, seq: number, data: string): void {
+	function handleOutput(myEpoch: number, myAttachmentId: string, seq: number, data: string): void {
+		if (attachmentId !== myAttachmentId) return
 		if (snapshotLoaded) {
 			term.write(data)
 			return
@@ -605,8 +661,8 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 	}
 
-	function handlePong(myEpoch: number, id: string): void {
-		if (heartbeatPingId !== id) return
+	function handlePong(myEpoch: number, nonce: string): void {
+		if (heartbeatPingId !== nonce) return
 		clearTimer(heartbeatDeadlineTimer)
 		heartbeatDeadlineTimer = undefined
 		heartbeatPingId = null
@@ -617,6 +673,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}, HEARTBEAT_INTERVAL_MS)
 	}
 
+	// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: attach handshake plus existing session frames
 	function handleServerMessage(myEpoch: number, event: MessageEvent): void {
 		if (myEpoch !== currentEpoch) return
 		if (typeof event.data !== 'string') {
@@ -630,27 +687,110 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 
 		switch (message.type) {
+			case 'target-status':
+				if (
+					message.target.processState !== 'process-exited' ||
+					(targetId !== null && targetId !== message.target.id)
+				)
+					return
+				targetId = message.target.id
+				enterTargetEnded()
+				return
+			case 'targets': {
+				const target = message.targets[0]
+				if (!target) return
+				targetId = target.id
+				if (exitReceived || target.processState === 'process-exited') {
+					enterTargetEnded()
+					return
+				}
+				beginAttach(myEpoch, target.id, term.cols, term.rows)
+				return
+			}
+			case 'attach-started':
+				if (attachRequestId !== message.requestId || targetId !== message.targetId) return
+				attachmentId = message.attachmentId
+				clearTimer(snapshotDeadlineTimer)
+				snapshotDeadlineTimer = window.setTimeout(() => {
+					failConnection(myEpoch, 'snapshot-timeout')
+				}, SNAPSHOT_DEADLINE_MS)
+				return
+			case 'attach-committed':
+				if (
+					attachRequestId !== message.requestId ||
+					attachmentId !== message.attachmentId ||
+					targetId !== message.targetId
+				)
+					return
+				clearTimer(snapshotDeadlineTimer)
+				snapshotDeadlineTimer = undefined
+				connectionStatus = {
+					state: 'synced',
+					consecutivePreSyncFailures: 0,
+					lastFailureReason: null,
+				}
+				notSentNoticeShown = false
+				lastProvenFreshAt = Date.now()
+				if (exitReceived) {
+					exitReceived = false
+					if (statusOverlay) statusOverlay.element.style.display = 'none'
+				}
+				for (const handler of connectionStatusListeners) handler(connectionStatus)
+				notifyConnectionChange()
+				startHeartbeat(myEpoch)
+				if (pendingResize && socket?.readyState === WebSocket.OPEN) {
+					const resize = pendingResize
+					pendingResize = null
+					send({ type: 'resize', ...resize })
+				}
+				return
+			case 'attach-rejected':
+				if (attachRequestId !== message.requestId || targetId !== message.targetId) return
+				if (message.reason === 'target-process-exited') {
+					enterTargetEnded()
+					return
+				}
+				clearTimer(snapshotDeadlineTimer)
+				snapshotDeadlineTimer = undefined
+				attachmentId = null
+				setConnectionStatus('disconnected', 'protocol-error')
+				return
+			case 'snapshot-failed':
+				if (attachRequestId === message.requestId && attachmentId === message.attachmentId)
+					failConnection(myEpoch, 'snapshot-timeout')
+				return
+			case 'target-restarted':
+				if (targetId === message.targetId) beginAttach(myEpoch, targetId, term.cols, term.rows)
+				return
 			case 'snapshot':
-				applySnapshot(myEpoch, message.data, message.sessionId, message.outputWatermark)
+				applySnapshot(
+					myEpoch,
+					message.attachmentId,
+					message.data,
+					message.sessionId,
+					message.outputWatermark,
+				)
 				return
 			case 'output':
-				handleOutput(myEpoch, message.seq, message.data)
+				handleOutput(myEpoch, message.attachmentId, message.seq, message.data)
 				return
 			case 'exit':
-				exitReceived = true
+				if (attachmentId === message.attachmentId) enterTargetEnded()
 				return
 			case 'error':
-				console.error(`herdweb: ${message.message}`)
+				if (attachmentId === message.attachmentId) console.error(`herdweb: ${message.message}`)
 				return
 			case 'pong':
-				handlePong(myEpoch, message.id)
+				handlePong(myEpoch, message.nonce)
 				return
 			case 'input-accepted':
+				if (attachmentId !== message.attachmentId) return
 				for (const handler of inputActionResultListeners) {
 					handler({ id: message.id, accepted: true, reason: null })
 				}
 				return
 			case 'input-rejected':
+				if (attachmentId !== message.attachmentId) return
 				for (const handler of inputActionResultListeners) {
 					handler({
 						id: message.id,
@@ -704,7 +844,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		snapshotApplying = false
 		sessionId = null
 		clearPendingOutput()
-		exitReceived = false
 		setConnectionStatus('reconnecting')
 
 		const nextSocket = new WebSocket(createSocketUrl())
@@ -714,10 +853,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		nextSocket.addEventListener('open', () => {
 			if (myEpoch !== currentEpoch) return
 			setConnectionStatus('syncing')
-			clearTimer(snapshotDeadlineTimer)
-			snapshotDeadlineTimer = window.setTimeout(() => {
-				failConnection(myEpoch, 'snapshot-timeout')
-			}, SNAPSHOT_DEADLINE_MS)
 			syncSize()
 		})
 		nextSocket.addEventListener('close', () => {

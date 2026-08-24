@@ -94,6 +94,32 @@ function orphanedServePids(port: number): number[] {
 		.filter((pid) => Number.isInteger(pid) && pid > 0)
 }
 
+function attachDefaultTarget(ws: WebSocket, requestId: string): Promise<string> {
+	return new Promise((resolve, reject) => {
+		let attachmentId = ''
+		ws.once('error', reject)
+		ws.on('message', (data) => {
+			const message = JSON.parse(data.toString()) as Record<string, unknown>
+			if (message.type === 'targets') {
+				ws.send(
+					JSON.stringify({
+						type: 'attach-target',
+						requestId,
+						targetId: 'default',
+						cols: 80,
+						rows: 24,
+					}),
+				)
+			}
+			if (message.type === 'attach-started') attachmentId = String(message.attachmentId)
+			if (message.type === 'snapshot') {
+				ws.send(JSON.stringify({ type: 'snapshot-applied', requestId, attachmentId }))
+			}
+			if (message.type === 'attach-committed') resolve(attachmentId)
+		})
+	})
+}
+
 async function readPort(proc: ReturnType<typeof spawnProcess>): Promise<number> {
 	const stdout = proc.stdout
 	if (!stdout) throw new Error('caller stdout is not piped')
@@ -123,7 +149,7 @@ test('isolated serve dies with the caller process', async () => {
 			tsxLoader,
 			'--eval',
 			[
-				"void (async () => { const { startIsolatedServe } = await import('./tests/playwright/isolated-serve.ts'); const server = await startIsolatedServe({ configPath: 'tests/playwright/session-exit.config.ts' }); console.log(server.port); setInterval(() => {}, 1000) })()",
+				"void (async () => { const { startIsolatedServe } = await import('./tests/playwright/isolated-serve.ts'); const server = await startIsolatedServe({ configPath: 'tests/playwright/session-exit.config.ts' }); console.log(String(server.port)); setInterval(() => {}, 1000) })()",
 			].join('\n'),
 		],
 		{
@@ -135,6 +161,7 @@ test('isolated serve dies with the caller process', async () => {
 		},
 	)
 	let port: number | undefined
+	caller.stderr?.resume()
 	try {
 		port = await readPort(caller)
 		expect(await isPortListening(port)).toBe(true)
@@ -195,16 +222,10 @@ test('target exit retains the server when exit fact writing fails', async () => 
 		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
 			origin: `http://127.0.0.1:${port}`,
 		})
-		await new Promise<void>((resolve, reject) => {
-			ws.once('error', reject)
-			ws.on('message', (data) => {
-				if (JSON.parse(data.toString()).type !== 'snapshot') return
-				resolve()
-			})
-		})
+		const attachmentId = await attachDefaultTarget(ws, 'lifecycle-attach')
 		const stateDir = join(stateRoot, 'herdweb', String(port))
 		chmodSync(stateDir, 0o500)
-		ws.send(JSON.stringify({ type: 'input', data: '\r' }))
+		ws.send(JSON.stringify({ type: 'input', attachmentId, data: '\r' }))
 		await waitForStderr(proc, 'herdweb: target exit fact write failed')
 		expect(exited).toBe(false)
 		expect(await isPortListening(port)).toBe(true)
@@ -239,13 +260,13 @@ test('healthy target exit fact persists before clean shutdown', async () => {
 		await waitForPort(port, true, 10_000)
 		await new Promise<void>((resolve, reject) => {
 			const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`)
-			ws.once('error', reject).on('message', (data) => {
-				const type = JSON.parse(data.toString()).type
-				if (type === 'snapshot') ws.send(JSON.stringify({ type: 'input', data: '\r' }))
-				if (type === 'exit') {
-					ws.close()
-					resolve()
-				}
+			void attachDefaultTarget(ws, 'healthy-attach').then((attachmentId) => {
+				ws.send(JSON.stringify({ type: 'input', attachmentId, data: '\r' }))
+			}, reject)
+			ws.on('message', (data) => {
+				if (JSON.parse(data.toString()).type !== 'exit') return
+				ws.close()
+				resolve()
 			})
 		})
 		const stateFile = join(stateRoot, 'herdweb', String(port), 'last-session.json')

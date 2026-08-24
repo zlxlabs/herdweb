@@ -1,15 +1,14 @@
 import { describe, expect, test, vi } from 'vitest'
-import { SharedTerminalSession, buildSessionEnv } from '../src/session'
-import type { ServerMessage } from '../src/session-protocol'
+import { type SessionServerMessage, SharedTerminalSession, buildSessionEnv } from '../src/session'
 import { sleep } from '../src/util/node-compat'
 
 function createClientRecorder() {
-	const messages: ServerMessage[] = []
+	const messages: SessionServerMessage[] = []
 	let closeCount = 0
 
 	return {
 		client: {
-			send(message: ServerMessage) {
+			send(message: SessionServerMessage) {
 				messages.push(message)
 			},
 			close() {
@@ -212,9 +211,7 @@ describe('SharedTerminalSession', () => {
 		session.handleClientMessage(recorder.client, { type: 'input', data: 'hello' })
 		session.handleClientMessage(recorder.client, { type: 'resize', cols: 120, rows: 40 })
 
-		// ping should still work — pure WS, no PTY involvement
-		session.handleClientMessage(recorder.client, { type: 'ping', id: 'ping-1' })
-		expect(recorder.getMessages()).toEqual([{ type: 'pong', id: 'ping-1' }])
+		expect(recorder.getMessages()).toEqual([])
 	})
 
 	test('snapshot identifies the session and watermarks sequenced output', async () => {
@@ -243,7 +240,7 @@ describe('SharedTerminalSession', () => {
 			const outputs = recorder
 				.getMessages()
 				.filter(
-					(message): message is Extract<ServerMessage, { type: 'output' }> =>
+					(message): message is Extract<SessionServerMessage, { type: 'output' }> =>
 						message.type === 'output',
 				)
 			expect(outputs.map((message) => message.seq)).toEqual(outputs.map((_, index) => index + 1))
@@ -277,7 +274,7 @@ describe('SharedTerminalSession', () => {
 			const outputSeqs = recorder
 				.getMessages()
 				.filter(
-					(message): message is Extract<ServerMessage, { type: 'output' }> =>
+					(message): message is Extract<SessionServerMessage, { type: 'output' }> =>
 						message.type === 'output',
 				)
 				.map((message) => message.seq)

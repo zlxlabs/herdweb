@@ -34,6 +34,96 @@ describe('TargetRegistry', () => {
 		expect(factory).not.toHaveBeenCalled()
 		expect(() => registry.getOrStart('missing')).toThrow('Unknown target')
 	})
+	test('summaries expose an allowlist and retain process facts', async () => {
+		const sessions: FakeSession[] = []
+		const registry = new TargetRegistry(
+			[
+				{ ...target('a'), name: 'Alpha', imageDrop: 'local-path' },
+				{ ...target('b'), name: 'Beta', imageDrop: 'disabled' },
+			],
+			(command) => {
+				const session = new FakeSession(command[1] ?? 'session')
+				sessions.push(session)
+				return session
+			},
+		)
+		expect(registry.getSummaries()).toEqual([
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'not-started',
+				capabilities: { imageDrop: 'local-path' },
+			},
+			{
+				id: 'b',
+				name: 'Beta',
+				processState: 'not-started',
+				capabilities: { imageDrop: 'disabled' },
+			},
+		])
+		expect(JSON.stringify(registry.getSummaries())).not.toContain('fake')
+		await registry.getOrStart('a')
+		expect(registry.getSummaries()[0]).toMatchObject({ id: 'a', processState: 'process-running' })
+		sessions[0]?.exit(7, 15)
+		await sessions[0]?.onExit
+		expect(registry.getSummaries()[0]).toEqual({
+			id: 'a',
+			name: 'Alpha',
+			processState: 'process-exited',
+			exit: { code: 7, signal: 15 },
+			failure: 'target-process-exited',
+			capabilities: { imageDrop: 'local-path' },
+		})
+		await registry.dispose()
+		const failed = new TargetRegistry([target('failed')], () => {
+			throw new Error('private command failure')
+		})
+		expect(() => failed.getOrStart('failed')).toThrow('private command failure')
+		expect(failed.getSummaries()).toEqual([
+			{
+				id: 'failed',
+				name: 'failed',
+				processState: 'process-exited',
+				failure: 'target-start-failed',
+				capabilities: { imageDrop: 'disabled' },
+			},
+		])
+	})
+	test('publishes complete status summaries when a target starts and exits', async () => {
+		const statuses: unknown[] = []
+		const session = new FakeSession('session-a')
+		const registry = new TargetRegistry(
+			[{ ...target('a'), name: 'Alpha', imageDrop: 'local-path' }],
+			() => session,
+			(summary) => statuses.push(summary),
+		)
+		await registry.getOrStart('a')
+		session.exit(7, 15)
+		await session.onExit
+		expect(statuses).toEqual([
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'starting',
+				capabilities: { imageDrop: 'local-path' },
+			},
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'process-running',
+				capabilities: { imageDrop: 'local-path' },
+			},
+			{
+				id: 'a',
+				name: 'Alpha',
+				processState: 'process-exited',
+				exit: { code: 7, signal: 15 },
+				failure: 'target-process-exited',
+				capabilities: { imageDrop: 'local-path' },
+			},
+		])
+		await registry.dispose()
+	})
 	test('single-flights concurrent starts and isolates an exited target', async () => {
 		const sessions: FakeSession[] = []
 		const factory = vi.fn<TargetSessionFactory>((command) => {

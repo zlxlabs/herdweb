@@ -1,15 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
 import { MAX_CLIENT_MESSAGE_BYTES, parseServerMessage } from '../src/session-protocol'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
+const queuedMessages = new WeakMap<WebSocket, string[]>()
 
 afterEach(async () => {
 	while (runningProcesses.length > 0) {
@@ -89,15 +90,26 @@ function rawPayload(data: WebSocket.RawData): string {
 	return typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf-8') : ''
 }
 
+function takeQueued(ws: WebSocket, match: (payload: string) => boolean): string | undefined {
+	const queue = queuedMessages.get(ws)
+	const index = queue?.findIndex(match) ?? -1
+	if (!queue || index < 0) return
+	return queue.splice(index, 1)[0]
+}
+
 function waitForRawMessage(ws: WebSocket, timeoutMs = 10_000): Promise<string> {
+	const queued = takeQueued(ws, () => true)
+	if (queued !== undefined) return Promise.resolve(queued)
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
 			cleanup()
 			reject(new Error('timed out waiting for websocket message'))
 		}, timeoutMs)
 		const onMessage = (data: WebSocket.RawData) => {
+			const payload = rawPayload(data)
+			takeQueued(ws, (item) => item === payload)
 			cleanup()
-			resolve(rawPayload(data))
+			resolve(payload)
 		}
 		const onClose = () => {
 			cleanup()
@@ -127,6 +139,9 @@ function openSocket(port: number): Promise<WebSocket> {
 		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
 			origin: `http://127.0.0.1:${port}`,
 		})
+		const queue: string[] = []
+		queuedMessages.set(ws, queue)
+		ws.on('message', (data) => queue.push(rawPayload(data)))
 
 		const onError = (error: Error) => {
 			cleanup()
@@ -151,6 +166,11 @@ function waitForJsonMessage(
 	timeoutMs = 10_000,
 	predicate: (message: ReturnType<typeof parseServerMessage>) => boolean = () => true,
 ): Promise<ReturnType<typeof parseServerMessage>> {
+	const queued = takeQueued(ws, (payload) => {
+		const parsed = parseServerMessage(payload)
+		return parsed !== null && predicate(parsed)
+	})
+	if (queued !== undefined) return Promise.resolve(parseServerMessage(queued))
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
 			cleanup()
@@ -160,9 +180,8 @@ function waitForJsonMessage(
 		const onMessage = (data: WebSocket.RawData) => {
 			const payload = rawPayload(data)
 			const parsed = parseServerMessage(payload)
-			if (parsed === null || !predicate(parsed)) {
-				return
-			}
+			if (parsed === null || !predicate(parsed)) return
+			takeQueued(ws, (item) => item === payload)
 			cleanup()
 			resolve(parsed)
 		}
@@ -181,6 +200,13 @@ function waitForJsonMessage(
 		ws.on('message', onMessage)
 		ws.on('close', onClose)
 	})
+}
+
+const isType = (type: string) => (message: ReturnType<typeof parseServerMessage>) =>
+	message?.type === type
+
+function sendJson(ws: WebSocket, message: Record<string, unknown>): void {
+	ws.send(JSON.stringify(message))
 }
 
 function waitForClose(ws: WebSocket, timeoutMs = 10_000): Promise<number> {
@@ -222,79 +248,148 @@ describe('serve websocket hardening', () => {
 			const responsePromise = waitForJsonMessage(
 				healthyClient,
 				10_000,
-				(message) => message?.type === 'pong' && message.id === 'health-ping',
+				(message) => message?.type === 'pong' && message.nonce === 'health-ping',
 			)
-			healthyClient.send(JSON.stringify({ type: 'ping', id: 'health-ping' }))
+			healthyClient.send(JSON.stringify({ type: 'ping', nonce: 'health-ping' }))
 
 			const response = await responsePromise
-			expect(response).toEqual({ type: 'pong', id: 'health-ping' })
+			expect(response).toEqual({ type: 'pong', nonce: 'health-ping' })
 			healthyClient.close()
 		} finally {
 			await stopServe(proc)
 		}
 	})
 
-	test('real websocket snapshot frame carries a session identity and output watermark', async () => {
+	test('real websocket sends ready then target summaries without starting a PTY', async () => {
 		const port = await reservePort()
-		const proc = startServe(port)
+		const markerDir = mkdtempSync(join(tmpdir(), 'herdweb-no-spawn-'))
+		const marker = join(markerDir, 'started')
+		const proc = startServe(port, ['bash', '-c', `touch ${marker}; sleep 60`])
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const client = await openSocket(port)
-			const raw = await waitForRawMessage(client)
-			const message = parseServerMessage(raw)
-			if (message?.type !== 'snapshot') throw new Error(`unexpected frame: ${raw}`)
-			expect(raw).toContain('"type":"snapshot"')
-			expect(message.sessionId).toMatch(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			expect(await waitForRawMessage(client)).toBe('{"type":"server-ready","protocol":2}')
+			expect(await waitForRawMessage(client)).toBe(
+				'{"type":"targets","targets":[{"id":"default","name":"Default","processState":"not-started","capabilities":{"imageDrop":"local-path"}}]}',
 			)
-			expect(typeof message.outputWatermark).toBe('number')
+			expect(existsSync(marker)).toBe(false)
 			client.close()
 		} finally {
 			await stopServe(proc)
+			rmSync(markerDir, { recursive: true, force: true })
 		}
 	})
 
-	test('real websocket input-action retries are accepted once without duplicate output', async () => {
+	test('real websocket gates old committed input during a provisional attach', async () => {
 		const port = await reservePort()
-		const proc = startServe(port, ['cat'])
+		const proc = startServe(port, [
+			'bash',
+			'-c',
+			'stty -echo; while IFS= read -r line; do if [ "$line" = size ]; then printf "%s" "$(stty size)"; fi; done',
+		])
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const client = await openSocket(port)
-			await waitForRawMessage(client)
-			const rawFrames: string[] = []
-			const collectFrame = (data: WebSocket.RawData) => rawFrames.push(rawPayload(data))
-			client.on('message', collectFrame)
-			const action = JSON.stringify({ type: 'input-action', id: 'ws-action-1', data: 'ws-marker' })
-			const firstAccepted = waitForJsonMessage(
+			expect(await waitForJsonMessage(client)).toEqual({ type: 'server-ready', protocol: 2 })
+			const targets = await waitForJsonMessage(client)
+			if (targets?.type !== 'targets' || !targets.targets[0]) {
+				throw new Error('targets frame missing')
+			}
+			const pong = waitForJsonMessage(
 				client,
 				10_000,
-				(message) => message?.type === 'input-accepted' && message.id === 'ws-action-1',
+				(message) => message?.type === 'pong' && message.nonce === 'health-ping',
 			)
-			client.send(action)
-			expect(await firstAccepted).toEqual({ type: 'input-accepted', id: 'ws-action-1' })
-			const secondAccepted = waitForJsonMessage(
-				client,
-				10_000,
-				(message) => message?.type === 'input-accepted' && message.id === 'ws-action-1',
-			)
-			client.send(action)
-			expect(await secondAccepted).toEqual({ type: 'input-accepted', id: 'ws-action-1' })
+			sendJson(client, { type: 'ping', nonce: 'health-ping' })
+			expect(await pong).toEqual({ type: 'pong', nonce: 'health-ping' })
+			const targetId = targets.targets[0].id
+			const status = (processState: string) => (message: ReturnType<typeof parseServerMessage>) =>
+				message?.type === 'target-status' && message.target.processState === processState
+			sendJson(client, {
+				type: 'attach-target',
+				requestId: 'attach-1',
+				targetId,
+				cols: 80,
+				rows: 24,
+			})
+			const started = await waitForJsonMessage(client, 10_000, isType('attach-started'))
+			if (started?.type !== 'attach-started') throw new Error('attach-started frame missing')
+			expect(await waitForJsonMessage(client, 10_000, status('starting'))).toMatchObject({
+				type: 'target-status',
+				target: { id: targetId, processState: 'starting' },
+			})
+			expect(await waitForJsonMessage(client, 10_000, status('process-running'))).toMatchObject({
+				type: 'target-status',
+				target: { id: targetId, processState: 'process-running' },
+			})
+			const snapshot = await waitForJsonMessage(client, 10_000, isType('snapshot'))
+			if (snapshot?.type !== 'snapshot') throw new Error('snapshot frame missing')
+			expect(snapshot.attachmentId).toBe(started.attachmentId)
+			sendJson(client, {
+				type: 'snapshot-applied',
+				requestId: started.requestId,
+				attachmentId: started.attachmentId,
+			})
+			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toEqual({
+				type: 'attach-committed',
+				requestId: started.requestId,
+				targetId: started.targetId,
+				attachmentId: started.attachmentId,
+			})
+			sendJson(client, {
+				type: 'attach-target',
+				requestId: 'attach-2',
+				targetId,
+				cols: 80,
+				rows: 24,
+			})
+			const replacement = await waitForJsonMessage(client, 10_000, isType('attach-started'))
+			if (replacement?.type !== 'attach-started')
+				throw new Error('replacement attach-started missing')
+			await waitForJsonMessage(client, 10_000, isType('snapshot'))
 
-			await vi.waitFor(() => {
-				const output = rawFrames
-					.map((frame) => parseServerMessage(frame))
-					.filter(
-						(
-							message,
-						): message is Extract<ReturnType<typeof parseServerMessage>, { type: 'output' }> =>
-							message?.type === 'output',
-					)
-				const occurrences =
-					output
-						.map((message) => message.data)
-						.join('')
-						.split('ws-marker').length - 1
-				expect(occurrences).toBe(1)
+			const staleFrames = [
+				{ type: 'input', attachmentId: started.attachmentId, data: 'stale\n' },
+				{ type: 'resize', attachmentId: started.attachmentId, cols: 123, rows: 45 },
+				{
+					type: 'input-action',
+					attachmentId: started.attachmentId,
+					id: 'stale-action',
+					data: 'size\n',
+				},
+			] as const
+			for (const frame of staleFrames) {
+				const error = waitForJsonMessage(client, 10_000, isType('error'))
+				sendJson(client, frame)
+				expect(await error).toEqual({
+					type: 'error',
+					attachmentId: started.attachmentId,
+					message: 'attachment is not committed',
+				})
+			}
+
+			sendJson(client, {
+				type: 'snapshot-applied',
+				requestId: replacement.requestId,
+				attachmentId: replacement.attachmentId,
+			})
+			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toMatchObject({
+				type: 'attach-committed',
+				attachmentId: replacement.attachmentId,
+			})
+			sendJson(client, { type: 'input', attachmentId: replacement.attachmentId, data: 'size\n' })
+			const replacementOutput = await waitForJsonMessage(client, 10_000, isType('output'))
+			if (replacementOutput?.type !== 'output') throw new Error('replacement PTY output missing')
+			expect(replacementOutput.data).toContain('24 80')
+			sendJson(client, {
+				type: 'input-action',
+				attachmentId: replacement.attachmentId,
+				id: 'live-action',
+				data: 'size\n',
+			})
+			expect(await waitForJsonMessage(client, 10_000, isType('input-accepted'))).toMatchObject({
+				type: 'input-accepted',
+				id: 'live-action',
 			})
 			client.close()
 		} finally {
