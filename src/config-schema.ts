@@ -549,35 +549,29 @@ const notifyResolvedSchema = v.strictObject({
 	silence: notifySilenceResolvedSchema,
 })
 
-const targetIdSchema = v.pipe(
-	v.string(),
-	v.regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, 'lowercase target id, 1-64 bytes'),
-)
-const targetNameSchema = v.pipe(
-	v.string(),
-	v.minLength(1, 'target name must not be empty'),
-	v.maxLength(80, 'target name must be at most 80 characters'),
-	v.check((value) => !/\p{Cc}/u.test(value), 'target name must not contain control characters'),
-)
-const targetCommandArgSchema = v.pipe(
-	v.string(),
-	v.minLength(1, 'target command arguments must not be empty'),
-	v.check(
-		(value) => utf8Bytes(value) <= 4096,
-		'target command arguments must be at most 4096 UTF-8 bytes',
-	),
-)
-const targetCommandSchema = v.pipe(
-	v.array(targetCommandArgSchema),
-	v.minLength(1, 'target command must contain at least one argument'),
-	v.maxLength(64, 'target command must contain at most 64 arguments'),
-)
-const targetImageDropSchema = v.picklist(['disabled', 'local-path'])
 const targetInputSchema = v.strictObject({
-	id: targetIdSchema,
-	name: targetNameSchema,
-	command: targetCommandSchema,
-	imageDrop: v.optional(targetImageDropSchema),
+	id: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, 'lowercase target id, 1-64 bytes')),
+	name: v.pipe(
+		v.string(),
+		v.minLength(1, 'target name must not be empty'),
+		v.maxLength(80, 'target name must be at most 80 characters'),
+		v.check((value) => !/\p{Cc}/u.test(value), 'target name must not contain control characters'),
+	),
+	command: v.pipe(
+		v.array(
+			v.pipe(
+				v.string(),
+				v.minLength(1, 'target command arguments must not be empty'),
+				v.check(
+					(value) => utf8Bytes(value) <= 4096,
+					'target command arguments must be at most 4096 UTF-8 bytes',
+				),
+			),
+		),
+		v.minLength(1, 'target command must contain at least one argument'),
+		v.maxLength(64, 'target command must contain at most 64 arguments'),
+	),
+	imageDrop: v.optional(v.picklist(['disabled', 'local-path'])),
 })
 
 function targetConfigCheck<T extends Record<string, unknown>>(resolved: boolean) {
@@ -585,28 +579,27 @@ function targetConfigCheck<T extends Record<string, unknown>>(resolved: boolean)
 		if (!dataset.typed || !isRecord(dataset.value) || !Array.isArray(dataset.value.targets)) return
 		const targets = dataset.value.targets
 		const issue = (message: string, input: unknown = targets) => addIssue({ message, input })
-		const targetIds = targets
-			.filter(isRecord)
-			.map((target) => target.id)
-			.filter((id): id is string => typeof id === 'string')
-		const defaultTargetId = dataset.value.defaultTargetId
-		if (targets.length === 0 || targets.length > 8)
-			issue('target config must contain 1 to 8 targets')
-		if (new Set(targetIds).size !== targetIds.length)
-			issue('target config contains duplicate target ids')
-		for (const target of targets) {
-			if (!isRecord(target)) continue
-			if (resolved && target.imageDrop !== 'disabled' && target.imageDrop !== 'local-path')
-				issue('resolved target config requires imageDrop')
-		}
-		if (typeof defaultTargetId !== 'string') {
-			issue('target config requires defaultTargetId when targets are configured', defaultTargetId)
-		} else if (!targetIds.includes(defaultTargetId)) {
-			issue('target config defaultTargetId must reference a configured target', defaultTargetId)
-		}
-		if (resolved && dataset.value.targetMode === 'single' && targets.length !== 1) {
+		const ids = targets.map((value) => (isRecord(value) ? value.id : undefined))
+		if (targets.length < 1 || targets.length > 8) issue('target config must contain 1 to 8 targets')
+		if (new Set(ids).size !== ids.length) issue('target config contains duplicate target ids')
+		if (
+			typeof dataset.value.defaultTargetId !== 'string' ||
+			!ids.includes(dataset.value.defaultTargetId)
+		)
+			issue(
+				'target config defaultTargetId must reference a configured target',
+				dataset.value.defaultTargetId,
+			)
+		if (resolved && dataset.value.targetMode === 'single' && targets.length !== 1)
 			issue('single target config must contain exactly one target')
-		}
+		if (
+			resolved &&
+			targets.some(
+				(value) =>
+					!isRecord(value) || !['disabled', 'local-path'].includes(String(value.imageDrop)),
+			)
+		)
+			issue('resolved target config requires imageDrop')
 	})
 }
 
@@ -634,7 +627,7 @@ const herdwebConfigOverridesBaseSchema = v.strictObject({
 	asr: v.optional(asrOverridesSchema),
 	notify: v.optional(notifyOverridesSchema),
 	targets: v.optional(v.array(targetInputSchema)),
-	defaultTargetId: v.optional(targetIdSchema),
+	defaultTargetId: v.optional(v.string()),
 })
 
 /** Schema for config overrides (all fields optional, button arrays accept array | function) */
@@ -666,7 +659,7 @@ const herdwebConfigResolvedBaseSchema = v.strictObject({
 	notify: notifyResolvedSchema,
 	targetMode: v.picklist(['single', 'explicit']),
 	targets: v.array(targetInputSchema),
-	defaultTargetId: targetIdSchema,
+	defaultTargetId: v.string(),
 })
 
 export const herdwebConfigResolvedSchema = v.pipe(

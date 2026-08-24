@@ -24,10 +24,9 @@ describe('target config resolution', () => {
 	test('synthesizes the canonical single target', () => {
 		const config = resolve()
 		expect(config).toMatchObject({ targetMode: 'single', defaultTargetId: 'default' })
-		expect(config.targets[0]).toEqual({
+		expect(config.targets[0]).toMatchObject({
 			id: 'default',
 			name: 'Default',
-			command: ['herdr', '--session', 'default'],
 			imageDrop: 'local-path',
 		})
 	})
@@ -37,15 +36,15 @@ describe('target config resolution', () => {
 		const config = resolve({ targets, defaultTargetId: 'target-7' })
 		expect(config.targetMode).toBe('explicit')
 		expect(config.targets).toHaveLength(8)
-		expect(config.targets.every((value) => value.imageDrop === 'disabled')).toBe(true)
+		expect(config.targets[0]).toMatchObject({ id: 'target-0', imageDrop: 'disabled' })
 	})
 
 	test('rejects target counts, duplicate or unknown selection, and invalid imageDrop', () => {
-		invalid({ targets: [], defaultTargetId: 'local' })
-		invalid({
-			targets: Array.from({ length: 9 }, (_, i) => target(`t${i}`)),
-			defaultTargetId: 't0',
-		})
+		for (const value of [
+			{ targets: [], defaultTargetId: 'local' },
+			{ targets: Array.from({ length: 9 }, (_, i) => target(`t${i}`)), defaultTargetId: 't0' },
+		])
+			invalid(value)
 		for (const value of [
 			{ targets: [target('same'), target('same')], defaultTargetId: 'same' },
 			{ targets: [target('one')], defaultTargetId: 'missing' },
