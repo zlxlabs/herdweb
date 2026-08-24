@@ -137,13 +137,17 @@ test('failures: HTTP status, malformed 200, rejected, lost ACK — all keep a vi
 	expect(retryBtn.disabled).toBe(false)
 	retryBtn.click() // retry in the same session reuses the actionId (server dedupes)
 	expect(h.sent.map((s) => s.id)).toEqual(['image-drop-a1', 'image-drop-a1'])
-	// lost ACK times out back to file-ready
+	// lost ACK after a target switch must not expose A's path to B
 	vi.useFakeTimers()
 	h.emit({ id: 'image-drop-a1', accepted: false, reason: 'id-conflict' })
 	retryBtn.click()
+	h.attachment.id = 'att-2'
 	await vi.advanceTimersByTimeAsync(31)
-	expect(statusText(h.controller)).toContain('No confirmation')
-	expect(retryBtn.disabled).toBe(false)
+	expect(statusText(h.controller)).toContain('stale')
+	expect(query(h.controller, '.wt-image-drop-path').style.display).toBe('none')
+	expect(query(h.controller, '.wt-image-drop-actions').style.display).toBe('none')
+	query<HTMLButtonElement>(h.controller, '.wt-image-drop-copy').click()
+	expect(h.writeText).not.toHaveBeenCalled()
 })
 
 test('gating: session/freshness guard auto-insert; stale ACKs and clipboard feedback are safe', async () => {

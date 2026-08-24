@@ -92,6 +92,12 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 
 	const attachmentMatches = () =>
 		startAttachmentId !== null && term.getAttachmentId?.() === startAttachmentId
+	const ensureLive = () => {
+		if (attachmentMatches() && term.isConnected()) return true
+		path = null
+		setState('error', 'Upload became stale — choose the image again.')
+		return false
+	}
 	const showNotReady = () =>
 		setState(
 			'error',
@@ -102,6 +108,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		if (path === null || actionId === null) return
 		setState('inserting', 'Inserting path…')
 		if (!term.sendInputAction(actionId, ` ${path} `)) {
+			if (!ensureLive()) return
 			setState('file-ready', 'Not sent — still syncing. Tap Retry insert.')
 			return
 		}
@@ -109,17 +116,13 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		ackTimer = setTimeout(() => {
 			ackTimer = undefined
 			if (disposed || gen !== generation || state !== 'inserting') return
+			if (!ensureLive()) return
 			setState('file-ready', 'No confirmation from terminal — tap Retry insert.')
 		}, ackTimeoutMs)
 	}
 
 	function maybeAutoInsert(gen: number): void {
-		if (!attachmentMatches() || !term.isConnected()) {
-			path = null
-			setState('error', 'Upload became stale — choose the image again.')
-			return
-		}
-		attemptInsert(gen)
+		if (ensureLive()) attemptInsert(gen)
 	}
 
 	function failUpload(gen: number, message: string): void {
@@ -185,6 +188,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 				setState('idle', '')
 			}, IMAGE_DROP_DONE_TOAST_MS)
 		} else {
+			if (!ensureLive()) return
 			const reason = result.reason ? ` (${result.reason})` : ''
 			setState('file-ready', `Insert rejected${reason} — tap Retry insert.`)
 		}
@@ -192,20 +196,12 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 
 	onTap(retryBtn, () => {
 		if (state !== 'file-ready') return
-		if (!attachmentMatches()) {
-			path = null
-			setState('error', 'Attachment changed — choose the image again.')
-			return
-		}
-		if (!term.isConnected()) {
-			setState('file-ready', 'Not sent — still syncing.')
-			return
-		}
+		if (!ensureLive()) return
 		attemptInsert(generation)
 	})
 
 	onTap(copyBtn, () => {
-		if (path === null) return
+		if (path === null || !ensureLive()) return
 		clipboard.writeText(path).then(
 			() => setState(state, 'Copied to clipboard.'),
 			() => setState(state, 'Copy failed — select the path and copy it manually.'),
