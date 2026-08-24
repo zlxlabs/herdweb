@@ -13,7 +13,7 @@ description: >
 
 Interactive onboarding skill for herdweb — purpose-built Web UI for [herdr](https://github.com/ogulcancelik/herdr).
 
-The guiding principle: **detect everything possible, default everything sensible, ask only what requires human intent.** Most users answer 1–3 questions total.
+Detect what can be verified locally; ask only for choices the config cannot determine.
 
 ## Workflow
 
@@ -109,20 +109,30 @@ herdweb serve --config /path/to/herdweb.config.ts --port 18765 -- /bin/true
 
 See [Config reference](#config-reference) below.
 
-Default herdr drawer uses these button IDs (shipped defaults):
+#### Target mode and generation rules
 
-| `id` | `label` | `action` |
-|------|---------|----------|
-| `herdr-new-window` | + Win | `send` `\x02c` |
-| `herdr-split-v` | Split \| | `send` `\x02v` |
-| `herdr-split-h` | Split — | `send` `\x02-` |
-| `herdr-zoom` | Zoom | `send` `\x02z` |
-| `herdr-workspaces` | Spaces | `send` `\x02w` |
-| `herdr-sidebar` | Sidebar | `send` `\x02b` |
-| `herdr-scrollback` | Scroll | `send` `\x02e` |
-| `herdr-kill-pane` | Kill | `send` `\x02x` |
-| `herdr-help` | Keys | `send` `\x02?` |
-| `herdr-prefix` | Prefix | `send` `\x02` |
+- If the generated config omits `targets`, it is **single** mode. `herdweb serve` uses the default
+  `herdr --session default`; `herdweb serve -- <command...>` replaces that single command for a local
+  probe or custom session. The target picker and target persistence stay off.
+- If the user needs more than one session, generate **explicit** mode with 1–8 unique target ids and a
+  `defaultTargetId` that names one of them. Do not add a trailing command after `--`; explicit commands
+  belong in the config.
+- Every explicit target has `id`, `name`, and `command`. Add `imageDrop: 'local-path'` only when that
+  target should receive uploaded local paths; otherwise use `imageDrop: 'disabled'`.
+
+```typescript
+export default {
+  defaultTargetId: 'local',
+  targets: [
+    { id: 'local', name: 'Local', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
+    { id: 'workbox', name: 'Workbox', command: ['herdr', '--remote', 'workbox'], imageDrop: 'disabled' },
+  ],
+}
+```
+
+The browser receives target names, status, and image capability—not command argv. Switching waits for a
+fresh snapshot and `attach-committed` before input or explicit target persistence resumes; unknown restore
+ids must be shown as blocked, not silently replaced.
 
 ### Phase 5: Deploy and wrap up
 
@@ -175,7 +185,8 @@ Tell the user:
 2. How to start: `herdweb serve` (default command: `herdr --session default`)
 3. How to access from their phone
 4. PWA install: Add to Home Screen (required on iOS for push)
-5. Built-in controls: font size, scroll, combo picker, help overlay, d-pad, keyboard sovereignty, voice composer, image upload, push notifications (☰ → 🔔)
+5. Built-in controls: target picker (explicit mode), font size, scroll, combo picker, help overlay, d-pad,
+   keyboard sovereignty, voice composer, target-scoped image upload, and push notifications (☰ → 🔔)
 6. This is a starting point — run this skill again to tweak
 
 ---
@@ -185,7 +196,7 @@ Tell the user:
 ### Allowed root keys
 
 ```
-name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify
+name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify  targets  defaultTargetId
 ```
 
 ### ButtonAction union
@@ -357,6 +368,9 @@ Start with `herdweb serve` (default: `herdr --session default`).
 - **`send` actions require `data`**
 - **`floatingButtons` is an array of groups** — `{ position, buttons }`
 - **`mobile.initData`** is `string | null`
+- **`targets` switches to explicit mode**; pair it with a valid `defaultTargetId`, and do not combine it
+  with a trailing command after `serve --`
+- **`imageDrop` is per target**: `'local-path'` or `'disabled'`
 
 ## Validation
 

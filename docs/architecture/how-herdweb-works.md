@@ -1,8 +1,10 @@
 # How herdweb works
 
-herdweb is a small web terminal stack tuned for phone-sized control of herdr sessions. The server runs a single local PTY-backed command, the browser renders that terminal with `xterm.js`, and the herdweb overlay adds the mobile controls on top.
+herdweb is a phone-sized control surface for herdr. One server owns a target registry; each configured
+target lazily gets one local PTY-backed `SharedTerminalSession`. A browser renders only the currently
+committed target attachment through `xterm.js`.
 
-This page is the high-level view. For the transport, message protocol, and request lifecycle, see [Networking and WebSocket flow](networking-and-websockets.md).
+For transport and lifecycle details, see [Networking and WebSocket flow](networking-and-websockets.md).
 
 ## System view
 
@@ -10,81 +12,78 @@ This page is the high-level view. For the transport, message protocol, and reque
 flowchart LR
     Phone[Phone or desktop browser]
     Tunnel[Trusted access layer<br/>Tailscale / VPN / tunnel]
-    Server[herdweb server<br/>Hono HTTP + WebSocket]
-    Session[SharedTerminalSession<br/>fan-out + snapshot state]
-    Pty[node-pty]
+    Server[herdweb server<br/>Hono HTTP + one WS]
+    Registry[TargetRegistry<br/>lazy target sessions]
+    A[Target A<br/>SharedTerminalSession + PTY]
+    B[Target B<br/>SharedTerminalSession + PTY]
     Cmd[herdr or custom command]
-    Overlay[herdweb overlay<br/>touch controls + gestures]
-    Xterm[xterm.js]
+    Overlay[herdweb overlay<br/>target picker + controls]
+    Xterm[xterm.js<br/>one committed attachment]
 
-    Phone --> Tunnel
-    Tunnel --> Server
+    Phone --> Tunnel --> Server
     Server --> Overlay
     Server --> Xterm
-    Server --> Session
-    Session --> Pty
-    Pty --> Cmd
+    Server --> Registry
+    Registry --> A
+    Registry --> B
+    A --> Cmd
+    B --> Cmd
 ```
 
 ## Main pieces
 
 | Piece | Role |
 | --- | --- |
-| Browser client | Loads the HTML shell, boots `xterm.js`, opens `/ws`, and renders terminal output |
-| herdweb overlay | Adds toolbar, drawer, gestures, reconnect handling, and mobile viewport behaviour |
-| Hono server | Serves `/`, `/ws`, and optional PWA assets with security headers |
-| `SharedTerminalSession` | Owns the PTY, mirrors terminal state, and fans output out to every browser client |
-| `node-pty` | Spawns the local command and bridges raw terminal I/O |
-| herdr or custom command | The actual program herdweb exposes |
+| Browser client | Opens one `/ws`, lists targets, and controls its committed attachment |
+| herdweb overlay | Adds target picker, restore state, controls, reconnect handling, and mobile viewport behaviour |
+| Hono server | Serves `/`, `/ws`, PWA assets, image-drop, and notification routes |
+| `TargetRegistry` | Keeps configured targets and starts each target session lazily; one target exit does not end the server |
+| `SharedTerminalSession` | Owns one PTY, mirrors terminal state, and fans output to attachment clients |
+| `node-pty` | Spawns the target command on the herdweb host |
+
+Commands and credentials remain server-side. The browser receives target names, process state, and an
+allowlisted capability summary, not target argv.
 
 ## Runtime boot path
 
-`herdweb serve` owns the whole path now. It does not launch `ttyd` or patch someone else's HTML.
+`herdweb serve` bundles the browser client, renders HTML, mounts HTTP/WS routes, then creates the registry.
+No target PTY is required at boot: the default or selected target is started when its attachment begins.
 
 ```mermaid
 flowchart TD
     Start[herdweb serve]
-    Bundle[Bundle browser client<br/>JS + CSS in memory]
-    Html[Render HTML with inline config,<br/>version, CSS, and CSP nonce]
-    Routes[Create Hono routes<br/>/, /ws, manifest, icons]
+    Bundle[Bundle browser JS + CSS]
+    Html[Render HTML with client projection and CSP nonce]
+    Routes[Create HTTP, WS, PWA, image and notify routes]
     Listen[Start HTTP server]
-    Spawn[Create SharedTerminalSession]
-    PTY[Spawn node-pty process<br/>default: herdr --session default]
-    Mirror[Mirror PTY output into<br/>xterm-headless serializer]
-    Ready[Ready for browsers]
+    Registry[Create TargetRegistry]
+    Attach[Browser sends attach-target]
+    Spawn[Registry lazily creates SharedTerminalSession]
+    PTY[Spawn node-pty target command]
+    Mirror[Mirror PTY output into xterm-headless]
+    Commit[Snapshot applied; attachment committed]
 
-    Start --> Bundle
-    Bundle --> Html
-    Html --> Routes
-    Routes --> Listen
-    Listen --> Spawn
-    Spawn --> PTY
-    PTY --> Mirror
-    Mirror --> Ready
+    Start --> Bundle --> Html --> Routes --> Listen --> Registry
+    Registry --> Attach --> Spawn --> PTY --> Mirror --> Commit
 ```
 
-## What is shared vs per-browser
+## Shared vs per-browser state
 
-- The PTY session is shared. Multiple browsers can attach to the same terminal session.
-- Terminal output is broadcast to all connected clients.
-- Each newly connected browser receives a serialized snapshot first, then live output.
-- The overlay state is local to each browser. Font size, focus, reconnect UI, and viewport handling stay in the client.
+- A configured target owns one session and can be reused by multiple browsers.
+- Each browser has one WebSocket and at most one committed attachment; switching invalidates the old one.
+- A new attachment receives a snapshot, drains pending output into xterm, then commits before input opens.
+- Target picker choice, drafts, reconnect UI, and viewport state remain local to the browser.
 
 ## Where the code lives
 
 | Area | Notes |
 | --- | --- |
-| `src/serve.ts` | HTTP server, WebSocket upgrade, headers, origin checks, shutdown |
-| `src/session.ts` | PTY lifecycle, state mirroring, snapshots, fan-out to clients |
-| `src/session-protocol.ts` | JSON message types and bounds checks |
-| `src/client-entry.ts` | Browser bootstrap, `xterm.js`, WebSocket client, snapshot/output handling |
-| `src/index.ts` | Overlay initialisation on top of the terminal instance |
+| `src/serve.ts` | HTTP/WS routes, registry wiring, attachment routing, headers, and shutdown |
+| `src/target-registry.ts` | Lazy target lifecycle and per-target status |
+| `src/session.ts` | PTY lifecycle, state mirroring, snapshots, and fan-out |
+| `src/session-protocol.ts` | Protocol 2 messages, target summaries, and bounds checks |
+| `src/ws-attachment-binding.ts` | Provisional/committed attachment capabilities and input gate |
+| `src/client-entry.ts` | One-socket client, target restore/switch, snapshot/commit state machine |
 
-## Why the snapshot layer exists
-
-The browser does not become the source of truth for terminal state. `SharedTerminalSession` keeps a headless xterm mirror on the server so a newly attached browser can be brought up to date before live output resumes.
-
-That gives herdweb two useful properties:
-
-- opening the same session from another device does not start a second shell
-- reconnecting clients can rebuild the visible terminal without the PTY needing to replay history itself
+The headless mirror is the server source of terminal screen truth. It lets a new attachment rebuild the
+visible screen without asking herdr to replay history, while the target registry keeps other targets lazy.
