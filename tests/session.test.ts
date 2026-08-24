@@ -62,7 +62,88 @@ async function lateJoinSnapshot(sequence: string): Promise<string> {
 	}
 }
 
+function createMirrorBacklogProbe() {
+	const session = new SharedTerminalSession(['bash', '--norc', '--noprofile', '-lc', 'sleep 5'])
+	const pty = (session as unknown as { pty: { pause(): void; resume(): void } }).pty
+	const mirror = (
+		session as unknown as {
+			mirror: { write(data: string, callback: () => void): void }
+		}
+	).mirror
+	const callbacks: Array<() => void> = []
+	mirror.write = (_data, callback) => callbacks.push(callback)
+	return {
+		session,
+		mirror,
+		pause: vi.spyOn(pty, 'pause'),
+		resume: vi.spyOn(pty, 'resume'),
+		callbacks,
+		enqueue: (
+			session as unknown as { enqueueMirrorWrite(data: string): void }
+		).enqueueMirrorWrite.bind(session),
+		chunk: 'a'.repeat(512 * 1024),
+	}
+}
+
 describe('SharedTerminalSession', () => {
+	test('mirror backlog pauses at high watermark and resumes below low watermark', async () => {
+		const { session, pause, resume, callbacks, enqueue, chunk } = createMirrorBacklogProbe()
+
+		try {
+			enqueue(chunk)
+			enqueue(chunk)
+			expect(pause).toHaveBeenCalledTimes(1)
+			await vi.waitFor(() => expect(callbacks).toHaveLength(1))
+			callbacks[0]?.()
+			expect(resume).not.toHaveBeenCalled()
+			await vi.waitFor(() => expect(callbacks).toHaveLength(2))
+			callbacks[1]?.()
+			expect(resume).toHaveBeenCalledTimes(1)
+		} finally {
+			await session.dispose()
+		}
+	})
+
+	test('mirror backlog failure resumes PTY and keeps terminal failure close behavior', async () => {
+		const { session, mirror, pause, resume, enqueue, chunk } = createMirrorBacklogProbe()
+		const recorder = createClientRecorder()
+		let writes = 0
+		mirror.write = (_data, callback) => {
+			writes += 1
+			if (writes === 1) {
+				callback()
+				return
+			}
+			throw new Error('mirror contains terminal data')
+		}
+		try {
+			await session.addClient(recorder.client)
+			enqueue(chunk)
+			enqueue(chunk)
+			await vi.waitFor(() => expect(writes).toBe(2))
+			expect(pause).toHaveBeenCalledTimes(1)
+			expect(resume).toHaveBeenCalledTimes(1)
+			expect(recorder.getMessages()).toContainEqual({
+				type: 'error',
+				message: 'Terminal failed; restart herdweb.',
+			})
+			expect(recorder.getCloseCount()).toBe(1)
+		} finally {
+			await session.dispose()
+		}
+	})
+
+	test('mirror backlog disposal resumes a paused PTY', async () => {
+		const { session, mirror, pause, resume, enqueue, chunk } = createMirrorBacklogProbe()
+		mirror.write = () => {}
+
+		enqueue(chunk)
+		enqueue(chunk)
+		expect(pause).toHaveBeenCalledTimes(1)
+		await session.dispose()
+		expect(resume).toHaveBeenCalledTimes(1)
+	})
+
 	test('buildSessionEnv strips HERDR-prefixed variables before launching the command', () => {
 		const env = buildSessionEnv({
 			SHELL: '/bin/zsh',
