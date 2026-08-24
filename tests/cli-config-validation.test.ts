@@ -120,18 +120,6 @@ async function waitForHttp(url: string, timeoutMs = 10_000): Promise<string> {
 	throw new Error(`timed out waiting for ${url}`)
 }
 
-async function waitForFile(path: string, timeoutMs = 10_000): Promise<string> {
-	const deadline = Date.now() + timeoutMs
-	while (Date.now() < deadline) {
-		try {
-			return readFileSync(path, 'utf8')
-		} catch {
-			await sleep(50)
-		}
-	}
-	throw new Error(`timed out waiting for ${path}`)
-}
-
 describe('CLI command validation', () => {
 	test('init scaffolds a plain default export without herdweb imports', async () => {
 		const dir = createTempDir()
@@ -172,7 +160,7 @@ describe('CLI command validation', () => {
 		expect(result.exitCode).toBe(1)
 		expect(result.stdout).not.toContain('starting command')
 		expect(result.stdout).not.toContain('spawn-sentinel')
-		expect(result.stderr).toContain('explicit targets')
+		expect(result.stderr).toContain('Explicit targets')
 	})
 
 	test('single mode passes every trailing argv byte to the producer', async () => {
@@ -202,7 +190,8 @@ describe('CLI command validation', () => {
 		)
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
-			expect(JSON.parse(await waitForFile(argvPath))).toEqual(['sp ace', '值', '--literal'])
+			await sleep(100)
+			expect(JSON.parse(readFileSync(argvPath, 'utf8'))).toEqual(['sp ace', '值', '--literal'])
 		} finally {
 			proc.kill('SIGTERM')
 			await proc.exited

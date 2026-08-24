@@ -8,6 +8,10 @@ import * as v from 'valibot'
 
 const finiteNumber = v.pipe(v.number(), v.finite())
 
+function utf8Bytes(value: string): number {
+	return new TextEncoder().encode(value).byteLength
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
@@ -545,6 +549,67 @@ const notifyResolvedSchema = v.strictObject({
 	silence: notifySilenceResolvedSchema,
 })
 
+const targetIdSchema = v.pipe(
+	v.string(),
+	v.regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, 'lowercase target id, 1-64 bytes'),
+)
+const targetNameSchema = v.pipe(
+	v.string(),
+	v.minLength(1, 'target name must not be empty'),
+	v.maxLength(80, 'target name must be at most 80 characters'),
+	v.check((value) => !/\p{Cc}/u.test(value), 'target name must not contain control characters'),
+)
+const targetCommandArgSchema = v.pipe(
+	v.string(),
+	v.minLength(1, 'target command arguments must not be empty'),
+	v.check(
+		(value) => utf8Bytes(value) <= 4096,
+		'target command arguments must be at most 4096 UTF-8 bytes',
+	),
+)
+const targetCommandSchema = v.pipe(
+	v.array(targetCommandArgSchema),
+	v.minLength(1, 'target command must contain at least one argument'),
+	v.maxLength(64, 'target command must contain at most 64 arguments'),
+)
+const targetImageDropSchema = v.picklist(['disabled', 'local-path'])
+const targetInputSchema = v.strictObject({
+	id: targetIdSchema,
+	name: targetNameSchema,
+	command: targetCommandSchema,
+	imageDrop: v.optional(targetImageDropSchema),
+})
+
+function targetConfigCheck<T extends Record<string, unknown>>(resolved: boolean) {
+	return v.rawCheck<T>(({ dataset, addIssue }) => {
+		if (!dataset.typed || !isRecord(dataset.value) || !Array.isArray(dataset.value.targets)) return
+		const targets = dataset.value.targets
+		const issue = (message: string, input: unknown = targets) => addIssue({ message, input })
+		const targetIds = targets
+			.filter(isRecord)
+			.map((target) => target.id)
+			.filter((id): id is string => typeof id === 'string')
+		const defaultTargetId = dataset.value.defaultTargetId
+		if (targets.length === 0 || targets.length > 8)
+			issue('target config must contain 1 to 8 targets')
+		if (new Set(targetIds).size !== targetIds.length)
+			issue('target config contains duplicate target ids')
+		for (const target of targets) {
+			if (!isRecord(target)) continue
+			if (resolved && target.imageDrop !== 'disabled' && target.imageDrop !== 'local-path')
+				issue('resolved target config requires imageDrop')
+		}
+		if (typeof defaultTargetId !== 'string') {
+			issue('target config requires defaultTargetId when targets are configured', defaultTargetId)
+		} else if (!targetIds.includes(defaultTargetId)) {
+			issue('target config defaultTargetId must reference a configured target', defaultTargetId)
+		}
+		if (resolved && dataset.value.targetMode === 'single' && targets.length !== 1) {
+			issue('single target config must contain exactly one target')
+		}
+	})
+}
+
 const herdwebConfigOverridesBaseSchema = v.strictObject({
 	name: v.optional(v.string()),
 	theme: v.optional(termThemeOverridesSchema),
@@ -568,12 +633,15 @@ const herdwebConfigOverridesBaseSchema = v.strictObject({
 	reconnect: v.optional(reconnectOverridesSchema),
 	asr: v.optional(asrOverridesSchema),
 	notify: v.optional(notifyOverridesSchema),
+	targets: v.optional(v.array(targetInputSchema)),
+	defaultTargetId: v.optional(targetIdSchema),
 })
 
 /** Schema for config overrides (all fields optional, button arrays accept array | function) */
 export const herdwebConfigOverridesSchema = v.pipe(
 	herdwebConfigOverridesBaseSchema,
 	voiceInputPlacementCheck<v.InferOutput<typeof herdwebConfigOverridesBaseSchema>>(),
+	targetConfigCheck<v.InferOutput<typeof herdwebConfigOverridesBaseSchema>>(false),
 )
 
 /** Schema for fully resolved config (all required fields, plain button arrays) */
@@ -596,9 +664,13 @@ const herdwebConfigResolvedBaseSchema = v.strictObject({
 	reconnect: reconnectResolvedSchema,
 	asr: asrResolvedSchema,
 	notify: notifyResolvedSchema,
+	targetMode: v.picklist(['single', 'explicit']),
+	targets: v.array(targetInputSchema),
+	defaultTargetId: targetIdSchema,
 })
 
 export const herdwebConfigResolvedSchema = v.pipe(
 	herdwebConfigResolvedBaseSchema,
 	voiceInputPlacementCheck<v.InferOutput<typeof herdwebConfigResolvedBaseSchema>>(),
+	targetConfigCheck<v.InferOutput<typeof herdwebConfigResolvedBaseSchema>>(true),
 )
