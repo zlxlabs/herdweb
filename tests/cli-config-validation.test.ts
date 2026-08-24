@@ -69,15 +69,30 @@ function openSession(port: number): Promise<void> {
 		const requestId = 'cli-single-mode-attach'
 		let attachmentId = ''
 		let ready = false
-		ws.once('error', reject)
+		let settled = false
+		const fail = (error: Error): void => {
+			if (settled) return
+			settled = true
+			ws.close()
+			reject(error)
+		}
+		const finish = (): void => {
+			if (settled) return
+			settled = true
+			resolve()
+		}
+		ws.once('error', (error) => fail(error instanceof Error ? error : new Error(String(error))))
+		ws.on('close', () => {
+			if (attachmentId !== '') finish()
+			else fail(new Error('websocket closed before attach-started'))
+		})
 		ws.on('message', (raw) => {
 			const message = JSON.parse(String(raw)) as Record<string, unknown>
 			if (message.type === 'server-ready' && message.protocol === 2) ready = true
 			if (message.type === 'targets') {
 				const targetId = (message.targets as { id?: string }[] | undefined)?.[0]?.id
 				if (!ready || !targetId) {
-					ws.close()
-					reject(new Error('attach requires protocol 2 server-ready then targets'))
+					fail(new Error('attach requires protocol 2 server-ready then targets'))
 					return
 				}
 				ws.send(JSON.stringify({ type: 'attach-target', requestId, targetId, cols: 80, rows: 24 }))
@@ -88,7 +103,7 @@ function openSession(port: number): Promise<void> {
 			}
 			if (message.type === 'attach-committed') {
 				ws.close()
-				resolve()
+				finish()
 			}
 		})
 	})
