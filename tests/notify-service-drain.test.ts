@@ -55,7 +55,7 @@ describe('notify service awaitInFlight drain', () => {
 		notifyService.dispose()
 	})
 
-	test('returns within timeoutMs when in-flight promises never settle', async () => {
+	test('rejects when in-flight promises never settle', async () => {
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -78,9 +78,8 @@ describe('notify service awaitInFlight drain', () => {
 		notifyService.dispatchEvent(event)
 
 		const started = Date.now()
-		await notifyService.awaitInFlight(50)
+		await expect(notifyService.awaitInFlight(50)).rejects.toThrow('timed out')
 		const elapsed = Date.now() - started
-
 		expect(elapsed).toBeGreaterThanOrEqual(40)
 		expect(elapsed).toBeLessThan(500)
 		notifyService.dispose()

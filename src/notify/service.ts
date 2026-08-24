@@ -254,8 +254,11 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			try {
 				await Promise.race([
 					Promise.allSettled(pending),
-					new Promise<void>((resolve) => {
-						timer = setTimeout(resolve, timeoutMs)
+					new Promise<void>((_, reject) => {
+						timer = setTimeout(
+							() => reject(new Error(`notify drain timed out after ${timeoutMs}ms`)),
+							timeoutMs,
+						)
 						timer.unref()
 					}),
 				])

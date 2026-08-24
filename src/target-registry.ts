@@ -26,6 +26,8 @@ function required<T>(value: T | undefined): T {
 export class TargetRegistry {
 	private readonly entries = new Map<string, Entry>()
 	private readonly createSession: TargetSessionFactory
+	private closing = false
+	private disposePromise: Promise<void> | undefined
 	constructor(
 		targets: readonly TargetConfig[],
 		createSession: TargetSessionFactory = (command) => new SharedTerminalSession(command),
@@ -43,6 +45,7 @@ export class TargetRegistry {
 		return this.entry(id).status
 	}
 	getOrStart(id: string): Promise<TargetSession> {
+		this.assertOpen()
 		const entry = this.entry(id)
 		if (entry.restartInFlight) return required(entry.startPromise)
 		if (entry.status.state === 'process-running') {
@@ -57,6 +60,7 @@ export class TargetRegistry {
 		return this.start(entry)
 	}
 	restart(id: string): Promise<TargetSession> {
+		this.assertOpen()
 		const entry = this.entry(id)
 		if (entry.restartInFlight) return required(entry.startPromise)
 		if (entry.status.state !== 'process-exited') {
@@ -64,15 +68,24 @@ export class TargetRegistry {
 		}
 		return this.start(entry, true)
 	}
+	close(): void {
+		this.closing = true
+	}
 	async dispose(): Promise<void> {
-		await Promise.all(
+		if (this.disposePromise !== undefined) return this.disposePromise
+		this.close()
+		this.disposePromise = Promise.all(
 			[...this.entries.values()].map(
 				(entry) =>
 					entry.startPromise?.then((session) => session.dispose()) ??
 					entry.session?.dispose() ??
 					Promise.resolve(),
 			),
-		)
+		).then(() => undefined)
+		return this.disposePromise
+	}
+	private assertOpen(): void {
+		if (this.closing) throw new Error('Target registry is closing')
 	}
 	private entry(id: string): Entry {
 		const entry = this.entries.get(id)

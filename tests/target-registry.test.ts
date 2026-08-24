@@ -90,4 +90,14 @@ describe('TargetRegistry', () => {
 			error,
 		})
 	})
+	test('dispose closes the registry before taking its session snapshot', async () => {
+		const factory = vi.fn<TargetSessionFactory>(() => new FakeSession('late'))
+		const registry = registryFor(factory)
+		const disposePromise = registry.dispose()
+
+		expect(() => registry.getOrStart('a')).toThrow('closing')
+		expect(() => registry.restart('a')).toThrow('closing')
+		expect(factory).not.toHaveBeenCalled()
+		await disposePromise
+	})
 })
