@@ -9,9 +9,11 @@ type AttachmentResult =
 type Options = Readonly<{
 	idGenerator?: () => string
 	onTimeout?: (binding: Attachment) => void
+	onInvalidate?: (binding: Attachment) => void
 }>
 type ClientState = {
 	acceptsInput: boolean
+	requestIds: Set<string>
 	committed?: AttachmentCapability
 	provisional?: AttachmentCapability
 	timer?: ReturnType<typeof setTimeout>
@@ -27,41 +29,57 @@ export class WsAttachmentBinding {
 	private readonly issuedIds = new Set<string>()
 	private readonly idGenerator: () => string
 	private readonly onTimeout?: (binding: Attachment) => void
+	private readonly onInvalidate?: (binding: Attachment) => void
 	constructor(options: Options = {}) {
 		this.idGenerator = options.idGenerator ?? defaultId
 		this.onTimeout = options.onTimeout
+		this.onInvalidate = options.onInvalidate
 	}
-	beginAttach(clientId: string, requestId: string, targetId: string): Attachment {
+	beginAttach(clientId: string, requestId: string, targetId: string): AttachmentResult {
+		const state = this.clients.get(clientId) ?? { acceptsInput: true, requestIds: new Set() }
+		if (state.requestIds.has(requestId)) return { ok: false, reason: 'protocol-violation' }
 		const attachmentId = this.idGenerator()
 		if (this.issuedIds.has(attachmentId)) throw new Error('attachment ID collision')
 		this.issuedIds.add(attachmentId)
-		const state = this.clients.get(clientId) ?? { acceptsInput: true }
+		state.requestIds.add(requestId)
 		this.clear(state, 'provisional')
 		state.acceptsInput = false
 		const provisional = { clientId, requestId, attachmentId, targetId, committed: false }
 		state.provisional = provisional
 		this.clients.set(clientId, state)
 		this.capabilities.set(attachmentId, provisional)
+		return { ok: true, capability: provisional }
+	}
+	isCurrentAttempt(clientId: string, binding: Attachment): boolean {
+		const attempt = this.clients.get(clientId)?.provisional
+		return attempt !== undefined && binding.clientId === clientId && same(attempt, binding)
+	}
+	snapshotSent(clientId: string, binding: Attachment): AttachmentResult {
+		if (!this.isCurrentAttempt(clientId, binding))
+			return { ok: false, reason: 'protocol-violation' }
+		const state = this.clients.get(clientId)
+		const provisional = state?.provisional
+		if (!state || !provisional || state.timer !== undefined)
+			return { ok: false, reason: 'protocol-violation' }
 		state.timer = setTimeout(() => {
 			if (this.clients.get(clientId)?.provisional !== provisional) return
 			this.clear(state, 'provisional')
 			state.acceptsInput = false
 			this.onTimeout?.(provisional)
 		}, DEFAULT_TIMEOUT_MS)
-		return provisional
-	}
-	isCurrentAttempt(clientId: string, binding: Attachment): boolean {
-		const attempt = this.clients.get(clientId)?.provisional
-		return attempt !== undefined && same(attempt, { ...binding, clientId })
+		return { ok: true, capability: provisional }
 	}
 	snapshotApplied(clientId: string, binding: Attachment): AttachmentResult {
 		if (!this.isCurrentAttempt(clientId, binding))
 			return { ok: false, reason: 'protocol-violation' }
 		const state = this.clients.get(clientId)
 		const provisional = state?.provisional
-		if (!state || !provisional) return { ok: false, reason: 'protocol-violation' }
+		if (!state || !provisional || state.timer === undefined)
+			return { ok: false, reason: 'protocol-violation' }
 		this.clear(state, 'committed')
-		this.clear(state, 'provisional')
+		if (state.timer !== undefined) clearTimeout(state.timer)
+		state.timer = undefined
+		state.provisional = undefined
 		const committed = { ...provisional, committed: true }
 		state.committed = committed
 		state.acceptsInput = true
@@ -79,7 +97,7 @@ export class WsAttachmentBinding {
 		const state = this.clients.get(clientId)
 		if (!state) return
 		for (const key of ['provisional', 'committed'] as const) this.clear(state, key)
-		this.clients.delete(clientId)
+		state.acceptsInput = false
 	}
 	dispose(clientId: string): void {
 		this.disconnect(clientId)
@@ -99,7 +117,9 @@ export class WsAttachmentBinding {
 			state.timer = undefined
 		}
 		const capability = state[key]
-		if (capability) this.capabilities.delete(capability.attachmentId)
+		if (!capability) return
+		this.capabilities.delete(capability.attachmentId)
 		state[key] = undefined
+		this.onInvalidate?.(capability)
 	}
 }
