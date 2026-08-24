@@ -1,117 +1,102 @@
 # Networking and WebSocket flow
 
-This page explains how a browser reaches herdweb, how the WebSocket transport works, and how the shared terminal session stays in sync across clients.
-
-For the high-level runtime layout, see [How herdweb works](how-herdweb-works.md).
+herdweb uses one same-origin WebSocket per browser. Protocol 2 routes terminal traffic with an
+`attachmentId`; target selection is a server-side attachment lifecycle, not a second browser connection.
 
 ## Network boundary
 
-herdweb is intentionally simple at the network edge:
+- `herdweb serve` binds to `127.0.0.1` by default; there is no built-in login or ACL.
+- Put the localhost server behind Tailscale Serve, a VPN, or another trusted access layer.
+- `GET /` serves the client; `GET /ws` is the terminal control plane; `POST /api/image-drop` accepts raw image bytes.
+- `POST /api/events` is a loopback-only event ingress with an optional configured Bearer token; it does
+  not use the browser Origin check.
+- Browser push mutations (`POST /api/push/test`, `POST /api/push/subscribe`, and
+  `DELETE /api/push/subscription`) require same-origin Origin validation and rate limiting; they do not
+  use the events loopback/Bearer policy.
+- Read-only notification routes have their own rules: `GET /api/events/history` validates its target and
+  limit and is rate-limited, while `GET /api/push/vapid-key` is rate-limited and returns the public key.
+  Neither is covered by the mutation Origin or events Bearer/loopback check.
+- `--base-path /prefix` adds the same routes under `/prefix/...`.
 
-- `herdweb serve` binds to `127.0.0.1` by default
-- there is no built-in auth layer
-- the recommended deployment model is localhost herdweb behind Tailscale Serve, a VPN, or another trusted tunnel
-- using `--host 0.0.0.0` deliberately exposes terminal control beyond loopback
-
-The browser talks to three server entry points:
-
-- `GET /` for the HTML document with inline JS, CSS, config, and CSP nonce
-- `GET /ws` for the terminal WebSocket
-- `POST /api/image-drop` for image uploads from the drawer Image button
-
-When `herdweb serve --base-path /prefix` is used, herdweb also serves the same HTML, WebSocket, manifest, and icon routes under `/prefix/...`. Root routes stay available for direct local access.
-
-## Browser-to-session sequence
+## Protocol 2 attach flow
 
 ```mermaid
 sequenceDiagram
     participant Browser
-    participant Server as herdweb server
-    participant Session as SharedTerminalSession
-    participant PTY as node-pty command
+    participant Server
+    participant Registry as TargetRegistry
+    participant Session as Target session
 
-    Browser->>Server: GET / or /prefix
-    Server-->>Browser: HTML + inline config + client bundle
-    Browser->>Server: GET /ws or /prefix/ws (upgrade)
-    Server->>Server: Validate Origin against Host
-    Server->>Session: addClient(client)
-    Note over Session,Browser: live output may race with snapshot
-    Session-->>Browser: snapshot
-    Browser->>Server: resize
-    Server->>Session: handle resize
-    Browser->>Server: input
-    Server->>Session: write to PTY
-    PTY-->>Session: output bytes
-    Session-->>Browser: output
-    PTY-->>Session: exit
-    Session-->>Browser: exit
-    Server-->>Browser: socket closes
+    Browser->>Server: WebSocket /ws
+    Server-->>Browser: server-ready(protocol: 2)
+    Server-->>Browser: targets(target summaries + capabilities)
+    Browser->>Server: attach-target(requestId, targetId, cols, rows)
+    Server->>Server: binding.beginAttach()
+    Server-->>Browser: attach-started(attachmentId)
+    Server->>Registry: getOrStart(targetId)
+    Registry->>Session: lazily spawn/reuse PTY session
+    Server-->>Browser: target-status + snapshot/output
+    Browser->>Server: snapshot-applied(requestId, attachmentId)
+    Server-->>Browser: attach-committed(attachmentId)
+    Browser->>Server: input/resize/input-action(attachmentId)
 ```
 
-## Message protocol
+The server sends `targets` on connection and `target-status` as an individual target changes. A target
+summary contains `id`, display name, process state/exit information, and `capabilities.imageDrop`.
 
-The WebSocket payloads are JSON strings. herdweb validates both shape and size before acting on them.
+### Browser to server
 
-### Browser -> server
-
-| Type | Purpose |
+| Type | Routing and purpose |
 | --- | --- |
-| `input` | Raw terminal input bytes to write into the PTY |
-| `resize` | Updated terminal `cols` and `rows` after fit/viewport changes |
-| `ping` | Lightweight liveness probe |
+| `attach-target` | Starts or reuses a target attachment; carries request id and geometry |
+| `snapshot-applied` | Confirms that the matching attachment snapshot and all queued xterm writes are applied |
+| `input`, `resize`, `input-action` | Carry the committed `attachmentId`; stale or uncommitted ids are rejected |
+| `restart-target` | Requests restart only for a target in `process-exited` state |
+| `ping` | Liveness probe |
 
-### Server -> browser
+### Server to browser
 
-| Type | Purpose |
+| Type | Routing and purpose |
 | --- | --- |
-| `snapshot` | Serialized current terminal screen for first attach |
-| `output` | Live PTY output stream |
-| `exit` | PTY exit code and signal |
-| `error` | Protocol or session attach error |
-| `pong` | Response to `ping` |
+| `targets` | Initial target list and per-target image capability |
+| `target-status` | Process state change for one target |
+| `attach-started` | Provisional request/target/attachment identity |
+| `snapshot`, `output`, `exit`, `error` | Terminal frames carrying `attachmentId` |
+| `attach-committed` | The only point at which the matching attachment accepts input |
+| `attach-rejected`, `snapshot-failed`, `target-restarted`, `pong` | Lifecycle result or liveness response |
 
-Important current limits from `src/session-protocol.ts`:
+## Attachment safety
 
-- max client message bytes: `256 KiB`
-- max input bytes per message: `256 KiB`
-- max resize: `500` cols, `200` rows
+Starting a new attach closes the input gate and invalidates the prior committed attachment for that
+browser. The new attachment remains provisional while geometry is applied, the snapshot is rendered, and
+all buffered output writes drain. `snapshot-applied` must match both request and `attachmentId`; only then
+does `attach-committed` open input and allow explicit-mode target persistence. An unknown, stale, or
+uncommitted id is not routed to any PTY.
 
-These message shapes are implementation details, not a supported public API.
+Terminal protocol limits are enforced in `src/session-protocol.ts`: client messages and individual input
+messages are at most 256 KiB; resize is bounded to 500 columns by 200 rows. These wire shapes are internal
+implementation contracts.
 
-## Image drop endpoint
+## Image-drop capability and guards
 
-`POST {basePath}/api/image-drop` receives one image for the drawer Image button and stores it for agent-path insertion:
+`POST {basePath}/api/image-drop` must carry the dedicated
+`x-herdweb-attachment-id` header. The server resolves that header to the browser's current committed
+attachment and checks that target's `imageDrop` capability is `local-path`; `disabled` targets fail.
 
-- raw request body, no multipart; Origin checked against Host with the same rule as `/ws`
-- exact 10 MiB limit; PNG/JPEG/WebP/GIF sniffed from magic bytes — client Content-Type and file names are never trusted
-- the file lands in the OS temp dir with mode `0600`; the JSON response is `{ path, format, size }` with `Cache-Control: no-store`
+The request has three guards:
 
-## Session sync model
+1. **Pre-body:** origin and committed attachment/capability are checked before reading bytes.
+2. **Post-body:** the same binding is checked after the bounded raw body is read, before format handling.
+3. **Post-write:** the binding is checked after writing a fresh `0600` temp file; a stale result removes
+   only that request's file and does not return a path.
 
-When a client attaches, the server does not wait for fresh PTY output to rebuild the screen. Instead:
+Bodies are magic-byte sniffed (PNG/JPEG/WebP/GIF; HEIC is explicitly rejected), capped at 10 MiB, and
+returned with `Cache-Control: no-store`. The browser inserts the returned path only for the still-current
+attachment and never sends Enter as part of the upload.
 
-1. `SharedTerminalSession` keeps a headless xterm mirror of the PTY output.
-2. The client is added to the live broadcast set before the snapshot work completes.
-3. A serialized snapshot of the mirror is sent as soon as it is ready.
-4. Live `output` can arrive before that snapshot, so the browser buffers pre-snapshot output until the snapshot has been applied.
+## Client reconnect and target restore
 
-That is why the browser client has both snapshot handling and pending-output buffering during attach.
-
-## Security and browser constraints
-
-The current server behaviour matters for docs because herdweb is usually deployed behind another network layer:
-
-- `/ws` upgrades, including prefixed variants such as `/prefix/ws`, are gated by an Origin check against the request Host header
-- when no Origin is sent, loopback hosts are the only implicit allow case
-- CSP `connect-src` is scoped to the request authority, including explicit `ws://` and `wss://` entries for Safari compatibility
-- security headers are applied to both HTML and WebSocket-adjacent responses
-
-## Client-side connection behaviour
-
-The browser opens exactly one terminal socket to `${location.host}${basePath}/ws`, where `basePath` is `/` by default and can be overridden with `--base-path`.
-
-- before the socket opens, outbound messages are queued locally
-- on open, the client sends a resize based on the fitted terminal size, then flushes queued messages
-- inbound `output` can arrive before `snapshot`, so the client buffers that output until the snapshot has been written
-- if reconnect UI is enabled, herdweb can show a reconnect overlay when the socket closes or errors
-- if reconnect UI is disabled, the browser shows a simple session-ended or connection-lost overlay with a reload button
+The client reconnects the same `/ws`, receives a fresh target list, and repeats the attach handshake. In
+explicit mode, a URL/local-storage target is durable only after `attach-committed`; missing or invalid
+ids show a restore-blocked state instead of silently attaching another target. Single mode has no picker
+or durable target choice and attaches its default target.

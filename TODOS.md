@@ -24,3 +24,25 @@ Format: What / Why / Pros / Cons / Context / Effort / Priority / Depends on.
 - **Effort:** S（human ~0.5 天 / CC ~30min，接口同构）
 - **Priority:** P3
 - **Depends on:** ASR 增量 1+2 落地
+
+## M6 — 远端结构化事件桥
+
+- **What:** 为 explicit target 的远端 herdr/agent 提供经过身份校验的结构化事件入口，并把事件路由到对应 target。
+- **Why:** 当前 `/api/events` 是 herdweb 主机 loopback 入口；`herdr --remote` 的终端输出可见，但远端 asking/done/ci-red 事件不会自动汇聚。
+- **Pros:** 远端 target 的通知与本地 target 具备同等事件来源；保持通知 targetId 隔离。
+- **Cons:** 增加跨主机认证、重放/断线语义和部署面；不能把 SSH 连接状态当成事件健康。
+- **Context:** 多目标最终实现明确不做本项；先保持同机事件源和当前 single-v1/explicit-v2 契约，不预留代码接口。
+- **Effort:** L（需单独评审、跨主机探针和安全边界）
+- **Priority:** P2
+- **Depends on:** 远端事件 producer、身份/传输方案和真实远端部署证据
+
+## M7 — herdr session 自动发现
+
+- **What:** 从本机或明确授权的远端 herdr 安全列出可选 session，辅助生成或更新 explicit targets。
+- **Why:** 当前 target 必须由用户在配置中写出；自动发现尚未有稳定的跨主机权限和生命周期契约。
+- **Pros:** 减少手工维护 session command 的成本，降低输入错误。
+- **Cons:** 发现结果不是稳定身份；远端 SSH/权限失败、session 退出和重命名都需要可解释状态，不能静默改配置。
+- **Context:** 当前实现只接受静态 `targets`，不扫描 socket、SSH argv 或连接进程推断远端状态；本项不预留代码接口。
+- **Effort:** M（需先确定 herdr API、授权边界和持久化交互）
+- **Priority:** P3
+- **Depends on:** herdr session discovery API、明确授权模型和真实本机/远端探针

@@ -76,7 +76,7 @@ To report a vulnerability, see [SECURITY.md](SECURITY.md).
 ```text
 herdweb serve [--config <path>] [--port <n>] [--host <addr>] [--base-path <path>] [-- <command...>]
   Start herdweb with its built-in web terminal and PWA support.
-  Default host: 127.0.0.1. Default port: 7681. Default command: herdr --session default
+  Default host: 127.0.0.1. Default port: 7681. Single default command: herdr --session default
   Example: herdweb serve --host 0.0.0.0 --port 8080
   Example: herdweb serve --base-path /random-token
   Example: herdweb serve --port 8080 -- herdr --session dev
@@ -96,7 +96,9 @@ herdweb --help
 
 Short flags: `-c` (`--config`), `-p` (`--port`). Legacy deprecated flags: `-o` (`--output`), `-n` (`--dry-run`).
 
-The `--` escape hatch after `serve` lets you override the default command, for example `herdweb serve -- bash --norc` for debugging without herdr.
+The `--` escape hatch after `serve` overrides the command only in single mode, for example
+`herdweb serve -- bash --norc` for debugging without herdr. Explicit `targets` configs must not use a
+trailing command after `--`.
 
 ### Config resolution
 
@@ -185,6 +187,39 @@ export default {
 
 All fields are optional — the CLI fills in defaults internally when it loads the config.
 
+### Targets and switching
+
+Without a `targets` override, the config is **single** mode: the default target is implicit, the picker is
+hidden, and `-- <command...>` supplies its command. With `targets`, the config is **explicit** mode and
+must also set `defaultTargetId` to one of the unique target ids. Each target declares its own command and
+image capability:
+
+```typescript
+export default {
+  defaultTargetId: 'local',
+  targets: [
+    { id: 'local', name: 'Local', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
+    { id: 'workbox', name: 'Workbox', command: ['herdr', '--remote', 'workbox'], imageDrop: 'disabled' },
+  ],
+}
+```
+
+The browser still has one `/ws` and one committed attachment. Selecting a target first closes input,
+then waits for its snapshot and buffered xterm writes; only `attach-committed` reopens input and persists
+the explicit target. An unknown or stale id shows a restore error instead of silently attaching another
+target. On reconnect, explicit mode restores only a still-valid committed target; single mode always uses
+its default target.
+
+The server keeps target commands private. `herdr --remote` proves only the local PTY/SSH thin-client
+process and its local exit facts; it is not evidence that a remote pane is healthy.
+
+### Target-scoped image insertion
+
+The target summary advertises `imageDrop: 'local-path'` or `'disabled'`. Uploads use the current committed
+attachment capability; a switch, detach, disconnect, or stale attachment invalidates the upload and cannot
+insert its path. A successful upload inserts the temporary path into the current agent input without
+sending Enter. Disabled targets fail visibly.
+
 ### Voice composer input
 
 Voice input is disabled by default. It is a browser-direct Doubao SAUC connection: microphone audio
@@ -221,6 +256,11 @@ rejected by config validation.
 
 herdweb can push Web Push notifications to your phone when agents need attention, when output
 goes quiet, or when the service restarts. Subscribe from the in-app panel — no separate app install.
+
+Notification identity follows the target mode: single mode accepts v1 events without `targetId`; explicit
+mode accepts v2 events only when `targetId` names a configured target. History, deduplication, notification
+tags, and notification-click target selection use the same identity. A click focuses the open herdweb page
+and requests that target, or opens a URL carrying the target when no page is open.
 
 **Prerequisites**
 
@@ -313,7 +353,7 @@ subscriptions, and event history do not collide.
 | `vapid.json` | VAPID keys (mode `0600`). Auto-generated on first `herdweb serve` if missing; startup logs a one-line hint. |
 | `push-subscriptions.json` | Registered device endpoints |
 | `events.jsonl` | Event history (`kind=test` events are not persisted) |
-| `last-session.json` | Per `herdr --session` key — used for restart / exit health notifications |
+| `last-session.json` | Per target identity — used for restart / exit health notifications |
 
 Rotate VAPID keys via `notify.vapid.*` in config (see skill / config reference). Old subscriptions
 become invalid after a key change — users must re-subscribe.
@@ -333,7 +373,7 @@ existing subscriptions).
 the request. External event sources (e.g. agent-config badge outbound) must run on the **same
 machine** as herdweb — cross-host posting is not supported in v1.
 
-Smoke test (with `herdweb serve` on port 7681, after subscribing on a device):
+Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on a device; **single-only**):
 
 ```bash
 curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
@@ -341,7 +381,19 @@ curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
   -d '{"v":1,"id":"smoke-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
 ```
 
-Expect HTTP `202`. If `notify.token` is set, add `-H 'authorization: Bearer <token>'`.
+Expect HTTP `202` only when the service is in single mode. If `notify.token` is set, add
+`-H 'authorization: Bearer <token>'`.
+
+For an explicit-mode service whose config contains target id `local`, use the v2 event shape instead:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
+  -H 'content-type: application/json' \
+  -d '{"v":2,"targetId":"local","id":"smoke-v2-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
+```
+
+Expect HTTP `202`; `targetId` must name a configured target. If `notify.token` is set, add the same
+Bearer header.
 
 **Restart behaviour**
 
