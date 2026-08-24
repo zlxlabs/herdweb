@@ -32,6 +32,7 @@ import type { SpawnedProcess } from './util/node-compat'
 const DEFAULT_PORT = 7681
 const DEFAULT_HOST = '127.0.0.1'
 const DEFAULT_COMMAND = ['herdr', '--session', 'default']
+const MAX_OUTBOUND_BUFFERED_BYTES = 1 * 1024 * 1024
 
 function isValidPort(value: string): boolean {
 	return /^[0-9]+$/.test(value) && Number(value) > 0 && Number(value) <= 65_535
@@ -246,6 +247,28 @@ function closeForProtocolViolation(
 
 	client?.send({ type: 'error', message })
 	raw.close(1008, 'protocol violation')
+}
+
+// This is the binding's wire boundary: real sockets cannot hold a deterministic bufferedAmount threshold for tests.
+export function createSessionClient(raw: WebSocket): SessionClient {
+	return {
+		send(message) {
+			if (raw.readyState !== 1) return
+			const payload = serialiseServerMessage(message)
+			if (raw.bufferedAmount + Buffer.byteLength(payload, 'utf8') > MAX_OUTBOUND_BUFFERED_BYTES) {
+				raw.close(1013, 'slow-client')
+				return
+			}
+			try {
+				raw.send(payload)
+			} catch {
+				// The browser may disconnect while PTY output is still being fanned out.
+			}
+		},
+		close() {
+			if (raw.readyState < 2) raw.close()
+		},
+	}
 }
 
 /** Read a PNG icon, returns undefined if not found */
@@ -584,19 +607,7 @@ export async function serve(
 					}
 					try {
 						const activeSession = await startDefaultTarget()
-						const client: SessionClient = {
-							send(message) {
-								if (raw.readyState !== 1) return
-								try {
-									raw.send(serialiseServerMessage(message))
-								} catch {
-									// The browser may disconnect while PTY output is still being fanned out.
-								}
-							},
-							close() {
-								if (raw.readyState < 2) raw.close()
-							},
-						}
+						const client = createSessionClient(raw)
 						const binding: Binding = { raw, client, session: activeSession }
 						connections.set(raw, binding)
 						bindings.add(binding)
