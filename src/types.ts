@@ -405,6 +405,8 @@ export interface XTerminal {
 	onTargetsChange?(handler: () => void): { dispose(): void }
 	/** Current attachment capability — the delayed-input generation guard token. */
 	getAttachmentId?(): string | null
+	/** Ask the server to restart an exited target's process (protocol 2). */
+	restartTarget?(targetId: string): void
 }
 
 /** ttyd sets window.term — typed globally to avoid unsafe casts */

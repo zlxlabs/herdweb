@@ -15,6 +15,7 @@ import { createMicController } from './controls/mic-controller'
 import type { MicController } from './controls/mic-controller'
 import { createNotifyPanel } from './controls/notify-panel'
 import { createScrollButtons } from './controls/scroll-buttons'
+import { createTargetPicker } from './controls/target-picker'
 import { createDrawer } from './drawer/drawer'
 import { attachDoubleTapGesture } from './gestures/double-tap'
 import { createGestureLock } from './gestures/lock'
@@ -218,7 +219,20 @@ export function init(
 				keyboard = setup.keyboard
 				const effectiveConfig = withVoiceComposerEntry(setup.effectiveConfig)
 				const keyboardController = setup.keyboard
-				let closeComposerOverlays = (): void => comboPicker.close()
+
+				// T5: explicit multi-target mode gets the badge + picker; single mode
+				// never renders them.
+				const targetPicker =
+					effectiveConfig.targetMode === 'explicit' ? createTargetPicker(term) : null
+				if (targetPicker) {
+					document.body.appendChild(targetPicker.badge)
+					document.body.appendChild(targetPicker.element)
+				}
+
+				let closeComposerOverlays = (): void => {
+					comboPicker.close()
+					targetPicker?.close()
+				}
 				micController = createMicController({
 					term,
 					config: effectiveConfig,

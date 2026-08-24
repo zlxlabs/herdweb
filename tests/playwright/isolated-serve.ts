@@ -104,8 +104,8 @@ export async function startIsolatedServe(
 			'--port',
 			String(port),
 			...(basePath ? ['--base-path', basePath] : []),
-			'--',
-			...command,
+			// Explicit-target configs reject a trailing command; pass [] to omit it.
+			...(command.length > 0 ? ['--', ...command] : []),
 		],
 		{
 			cwd: repoRoot,

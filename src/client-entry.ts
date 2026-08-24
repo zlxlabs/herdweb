@@ -1027,6 +1027,16 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 	}
 	termBridge.getAttachmentId = () => attachmentId
+	termBridge.restartTarget = (restartTargetId) => {
+		if (socket?.readyState !== WebSocket.OPEN) return
+		socket.send(
+			serialiseClientMessage({
+				type: 'restart-target',
+				requestId: crypto.randomUUID(),
+				targetId: restartTargetId,
+			}),
+		)
+	}
 	// xterm handles real keyboard/touch input locally; forward it to the shared PTY.
 	term.onData((data) => {
 		send({ type: 'input', data })
