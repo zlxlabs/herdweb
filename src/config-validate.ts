@@ -87,11 +87,12 @@ function toValidationIssues(issues: readonly v.BaseIssue<unknown>[]): Validation
 		}
 		const received = issue.input !== undefined ? issue.input : undefined
 		const path = issuePath(issue)
+		const targetCommand = path.startsWith('config.targets[') && path.includes('].command')
 		result.push({
 			path,
 			expected: issueExpected(issue),
 			received:
-				path === 'config.asr' || path.startsWith('config.asr.')
+				targetCommand || path === 'config.asr' || path.startsWith('config.asr.')
 					? 'redacted'
 					: describeReceived(received),
 		})

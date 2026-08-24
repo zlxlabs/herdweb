@@ -545,6 +545,53 @@ const notifyResolvedSchema = v.strictObject({
 	silence: notifySilenceResolvedSchema,
 })
 
+const targetInputSchema = v.strictObject({
+	id: v.pipe(v.string(), v.regex(/^[a-z0-9][a-z0-9-]{0,63}$/u, 'lowercase target id, 1-64 bytes')),
+	name: v.pipe(
+		v.string(),
+		v.minLength(1, 'target name must not be empty'),
+		v.maxLength(80, 'target name must be at most 80 characters'),
+		v.check((value) => !/\p{Cc}/u.test(value), 'target name must not contain control characters'),
+	),
+	command: v.pipe(
+		v.array(
+			v.pipe(
+				v.string(),
+				v.minLength(1, 'target command arguments must not be empty'),
+				v.check(
+					(value) => new TextEncoder().encode(value).byteLength <= 4096,
+					'target command arguments must be at most 4096 UTF-8 bytes',
+				),
+			),
+		),
+		v.minLength(1, 'target command must contain at least one argument'),
+		v.maxLength(64, 'target command must contain at most 64 arguments'),
+	),
+	imageDrop: v.optional(v.picklist(['disabled', 'local-path'])),
+})
+
+function targetConfigCheck<T extends Record<string, unknown>>(resolved: boolean) {
+	return v.rawCheck<T>(({ dataset, addIssue }) => {
+		if (!dataset.typed || !isRecord(dataset.value) || !Array.isArray(dataset.value.targets)) return
+		const { targets, defaultTargetId, targetMode } = dataset.value
+		const ids = targets.map((targetValue) => (isRecord(targetValue) ? targetValue.id : undefined))
+		const valid =
+			targets.length >= 1 &&
+			targets.length <= 8 &&
+			new Set(ids).size === ids.length &&
+			typeof defaultTargetId === 'string' &&
+			ids.includes(defaultTargetId) &&
+			(!resolved || targetMode !== 'single' || targets.length === 1) &&
+			(!resolved ||
+				targets.every(
+					(targetValue) =>
+						isRecord(targetValue) &&
+						['disabled', 'local-path'].includes(String(targetValue.imageDrop)),
+				))
+		if (!valid) addIssue({ message: 'invalid target configuration' })
+	})
+}
+
 const herdwebConfigOverridesBaseSchema = v.strictObject({
 	name: v.optional(v.string()),
 	theme: v.optional(termThemeOverridesSchema),
@@ -568,12 +615,15 @@ const herdwebConfigOverridesBaseSchema = v.strictObject({
 	reconnect: v.optional(reconnectOverridesSchema),
 	asr: v.optional(asrOverridesSchema),
 	notify: v.optional(notifyOverridesSchema),
+	targets: v.optional(v.array(targetInputSchema)),
+	defaultTargetId: v.optional(v.string()),
 })
 
 /** Schema for config overrides (all fields optional, button arrays accept array | function) */
 export const herdwebConfigOverridesSchema = v.pipe(
 	herdwebConfigOverridesBaseSchema,
 	voiceInputPlacementCheck<v.InferOutput<typeof herdwebConfigOverridesBaseSchema>>(),
+	targetConfigCheck<v.InferOutput<typeof herdwebConfigOverridesBaseSchema>>(false),
 )
 
 /** Schema for fully resolved config (all required fields, plain button arrays) */
@@ -596,9 +646,13 @@ const herdwebConfigResolvedBaseSchema = v.strictObject({
 	reconnect: reconnectResolvedSchema,
 	asr: asrResolvedSchema,
 	notify: notifyResolvedSchema,
+	targetMode: v.picklist(['single', 'explicit']),
+	targets: v.array(targetInputSchema),
+	defaultTargetId: v.string(),
 })
 
 export const herdwebConfigResolvedSchema = v.pipe(
 	herdwebConfigResolvedBaseSchema,
 	voiceInputPlacementCheck<v.InferOutput<typeof herdwebConfigResolvedBaseSchema>>(),
+	targetConfigCheck<v.InferOutput<typeof herdwebConfigResolvedBaseSchema>>(true),
 )

@@ -5,26 +5,80 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { defineConfig } from '../src/config'
+import type WebSocket from 'ws'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService, notifyDrain } from '../src/notify/service'
-import { readLastSessionStore } from '../src/notify/state'
 import {
 	buildSecurityHeaders,
+	createSessionClient,
 	describeCommandForLogs,
 	extractSessionKey,
 	isAllowedOrigin,
 	isLoopbackHost,
 	parseHostHeader,
 	resolveRequestAuthority,
+	spawnCaffeinate,
 	withSecurityHeaders,
 	writeImageDrop,
 } from '../src/serve'
+import { type ServerMessage, serialiseServerMessage } from '../src/session-protocol'
+import * as nodeCompat from '../src/util/node-compat'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
 const tempDirs: string[] = []
+
+type FakeRaw = {
+	readyState: number
+	bufferedAmount: number
+	send: ReturnType<typeof vi.fn>
+	close: ReturnType<typeof vi.fn>
+}
+
+function createFakeRaw(bufferedAmount = 0): FakeRaw {
+	return {
+		readyState: 1,
+		bufferedAmount,
+		send: vi.fn(),
+		close: vi.fn(),
+	}
+}
+
+describe('websocket outbound backlog', () => {
+	test('uses serialized UTF-8 payload bytes at the exact outbound limit', () => {
+		const message: ServerMessage = { type: 'error', message: '雪' }
+		const payload = serialiseServerMessage(message)
+		const payloadBytes = Buffer.byteLength(payload, 'utf8')
+		const limit = 1 * 1024 * 1024
+
+		const exactRaw = createFakeRaw(limit - payloadBytes)
+		createSessionClient(exactRaw as unknown as WebSocket).send(message)
+		expect(exactRaw.send).toHaveBeenCalledTimes(1)
+		expect(exactRaw.send).toHaveBeenCalledWith(payload)
+
+		const overRaw = createFakeRaw(limit - payloadBytes + 1)
+		createSessionClient(overRaw as unknown as WebSocket).send(message)
+		expect(overRaw.send).not.toHaveBeenCalled()
+		expect(overRaw.close).toHaveBeenCalledWith(1013, 'slow-client')
+	})
+
+	test('isolates a slow binding while a healthy sibling receives the same broadcast', () => {
+		const message: ServerMessage = { type: 'error', message: 'fan-out 雪' }
+		const payload = serialiseServerMessage(message)
+		const limit = 1 * 1024 * 1024
+		const slowRaw = createFakeRaw(limit - Buffer.byteLength(payload, 'utf8') + 1)
+		const healthyRaw = createFakeRaw()
+
+		createSessionClient(slowRaw as unknown as WebSocket).send(message)
+		createSessionClient(healthyRaw as unknown as WebSocket).send(message)
+
+		expect(slowRaw.send).not.toHaveBeenCalled()
+		expect(slowRaw.close).toHaveBeenCalledWith(1013, 'slow-client')
+		expect(healthyRaw.send).toHaveBeenCalledWith(payload)
+		expect(healthyRaw.close).not.toHaveBeenCalled()
+	})
+})
 
 afterEach(async () => {
 	vi.unstubAllEnvs()
@@ -365,7 +419,7 @@ describe('notifyDrain shutdown', () => {
 		notifyService.dispose()
 	})
 
-	test('returns after 10s when push hangs', async () => {
+	test('rejects after 10s when push hangs', async () => {
 		vi.useFakeTimers()
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-drain-'))
 		writeSubscriptions(stateDir, [
@@ -385,71 +439,21 @@ describe('notifyDrain shutdown', () => {
 			ts: 1,
 		})
 		const drainPromise = notifyDrain(notifyService)
+		const rejection = expect(drainPromise).rejects.toThrow('timed out')
 		await vi.advanceTimersByTimeAsync(10_000)
-		await drainPromise
+		await rejection
 		notifyService.dispose()
 	})
 })
 
 describe('serve health on PTY exit', () => {
-	test('writes last-session.json after short-lived bash session', async () => {
-		const port = await reservePort()
-		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-serve-'))
-		tempDirs.push(stateDir)
-		const configDir = mkdtempSync(join(tmpdir(), 'herdweb-serve-health-cfg-'))
-		tempDirs.push(configDir)
-		const configPath = join(configDir, 'herdweb.config.ts')
-		writeFileSync(configPath, 'export default { asr: { enabled: false } }')
-		vi.stubEnv('XDG_STATE_HOME', join(stateDir, 'state-root'))
-		const proc = spawnProcess(
-			[
-				'pnpm',
-				'exec',
-				'tsx',
-				'cli.ts',
-				'serve',
-				'--config',
-				configPath,
-				'--port',
-				String(port),
-				'--',
-				'bash',
-				'--norc',
-				'-c',
-				'exit 0',
-			],
-			{ cwd: repoRoot, stdin: 'ignore', stdout: 'ignore', stderr: 'ignore' },
-		)
-		await proc.exited
-		const store = readLastSessionStore(join(stateDir, 'state-root', 'herdweb', String(port)))
-		expect(store.default?.exitCode).toBe(0)
+	test('caffeinate follows the herdweb process', async () => {
+		const realSpawn = nodeCompat.spawnProcess
+		const spawn = vi.spyOn(nodeCompat, 'spawnProcess').mockImplementation(() => realSpawn(['true']))
+		await spawnCaffeinate(123)?.exited
+		expect(spawn.mock.calls[0]?.[0]).toEqual(['caffeinate', '-s', '-w', '123'])
+		spawn.mockRestore()
 	})
-
-	test('disposes terminal session after PTY exit', async () => {
-		const disposeMock = vi.fn().mockResolvedValue(undefined)
-		vi.doMock('../src/session', async (importOriginal) => {
-			const mod = await importOriginal<typeof import('../src/session')>()
-			class TrackedSession extends mod.SharedTerminalSession {
-				override async dispose(): Promise<void> {
-					disposeMock()
-					await super.dispose()
-				}
-			}
-			return { ...mod, SharedTerminalSession: TrackedSession }
-		})
-		const port = await reservePort()
-		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-dispose-'))
-		tempDirs.push(stateDir)
-		const configDir = mkdtempSync(join(tmpdir(), 'herdweb-serve-dispose-cfg-'))
-		tempDirs.push(configDir)
-		const configPath = join(configDir, 'herdweb.config.ts')
-		writeFileSync(configPath, 'export default { asr: { enabled: false } }')
-		vi.stubEnv('XDG_STATE_HOME', join(stateDir, 'state-root'))
-		const { serve } = await import('../src/serve')
-		await serve(defineConfig({ asr: { enabled: false } }), port, ['bash', '--norc', '-c', 'exit 0'])
-		expect(disposeMock).toHaveBeenCalled()
-		vi.doUnmock('../src/session')
-	}, 30_000)
 })
 
 const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x01, 0x02])

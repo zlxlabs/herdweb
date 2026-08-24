@@ -256,8 +256,22 @@ export interface NotifyConfig {
 	readonly channels: readonly NotifyChannel[]
 }
 
-/** Full herdweb configuration */
-export interface HerdwebConfig {
+export type TargetMode = 'single' | 'explicit'
+export type TargetImageDrop = 'disabled' | 'local-path'
+
+export interface TargetConfig {
+	readonly id: string
+	readonly name: string
+	readonly command: readonly string[]
+	readonly imageDrop: TargetImageDrop
+}
+
+export type TargetConfigInput = Omit<TargetConfig, 'imageDrop'> & {
+	readonly imageDrop?: TargetImageDrop
+}
+
+/** Configuration fields that are safe and required for the browser client. */
+export interface ClientConfigProjection {
 	readonly name: string
 	readonly theme: TermTheme
 	readonly font: FontConfig
@@ -272,10 +286,26 @@ export interface HerdwebConfig {
 	readonly mobile: MobileConfig
 	readonly floatingButtons: readonly FloatingButtonGroup[]
 	readonly scrollButtons: ScrollButtonsConfig
-	readonly pwa: PwaConfig
 	readonly reconnect: ReconnectConfig
+	readonly asr: {
+		readonly enabled: boolean
+		readonly provider: 'doubao'
+		readonly doubao: {
+			readonly apiKey: string
+			readonly resourceId: string
+		}
+		readonly autoEnter: boolean
+	}
+	readonly targetMode: TargetMode
+}
+
+/** Full herdweb configuration */
+export interface HerdwebConfig extends ClientConfigProjection {
+	readonly pwa: PwaConfig
 	readonly asr: AsrConfig
 	readonly notify: NotifyConfig
+	readonly targets: readonly TargetConfig[]
+	readonly defaultTargetId: string
 }
 
 /** Deep partial — allows overriding any nested subset of config */
@@ -299,7 +329,7 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons' | 'notify'
+	'toolbar' | 'drawer' | 'floatingButtons' | 'notify' | 'targetMode' | 'targets' | 'defaultTargetId'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -310,6 +340,8 @@ export type HerdwebConfigOverrides = Omit<
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
 	readonly notify?: NotifyConfigOverrides
+	readonly targets?: readonly TargetConfigInput[]
+	readonly defaultTargetId?: string
 }
 
 /**

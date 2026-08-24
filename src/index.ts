@@ -1,5 +1,5 @@
 import { createDefaultActionRegistry, readFontSizeFromStorage } from './actions/registry'
-import { defaultConfig, withVoiceComposerEntry } from './config'
+import { withVoiceComposerEntry } from './config'
 import { createComboPicker } from './controls/combo-picker'
 import { createDpad } from './controls/dpad'
 import { createFloatingButtons } from './controls/floating-buttons'
@@ -27,7 +27,7 @@ import { setupReconnect } from './reconnect'
 import { createStartupResizeScheduler } from './startup-resize'
 import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
-import type { HerdwebConfig, XTerminal } from './types'
+import type { ClientConfigProjection, HerdwebConfig, XTerminal } from './types'
 import { resizeTerm, sendData, waitForTerm } from './util/terminal'
 import { initHeightManager } from './viewport/height'
 
@@ -36,6 +36,7 @@ export { defineConfig } from './config'
 export { createHookRegistry }
 export type {
 	HerdwebConfig,
+	ClientConfigProjection,
 	HerdwebConfigOverrides,
 	ButtonAction,
 	ButtonArrayInput,
@@ -135,11 +136,15 @@ function attachVoiceComposerMic(controller: MicController | undefined): void {
  * Config is embedded at build time.
  */
 export function init(
-	config: HerdwebConfig = defaultConfig,
+	projectedConfig: ClientConfigProjection,
 	hooks: HookRegistry = createHookRegistry(),
 	version?: string,
 	deps?: { openImageDrop?: () => void; basePath?: string },
 ): void {
+	// Existing client consumers share the full-config shape for their UI hooks;
+	// only the allowlisted projection reaches this boundary at runtime.
+	/* oxlint-disable-next-line typescript/consistent-type-assertions -- client consumers only read projection fields */
+	const config = projectedConfig as HerdwebConfig
 	void waitForTerm()
 		// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: mobile overlay bootstrap is intentionally sequential
 		.then(async (term) => {

@@ -93,6 +93,10 @@ async function createReverseProxy(
 			socket.pipe(upstreamSocket).pipe(socket)
 		})
 
+		sockets.add(upstreamSocket)
+		upstreamSocket.on('close', () => {
+			sockets.delete(upstreamSocket)
+		})
 		upstreamSocket.on('error', () => {
 			socket.destroy()
 		})

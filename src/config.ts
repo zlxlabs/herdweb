@@ -371,6 +371,16 @@ export const defaultConfig: HerdwebConfig = {
 	reconnect: { enabled: true },
 	asr: defaultAsr,
 	notify: defaultNotify,
+	targetMode: 'single',
+	targets: [
+		{
+			id: 'default',
+			name: 'Default',
+			command: ['herdr', '--session', 'default'],
+			imageDrop: 'local-path',
+		},
+	],
+	defaultTargetId: 'default',
 }
 
 /** Deep merge two objects, with `override` taking precedence */
@@ -413,6 +423,7 @@ export function mergeConfig(base: HerdwebConfig, overrides: HerdwebConfigOverrid
 	const row1Input = overrides.toolbar?.row1
 	const row2Input = overrides.toolbar?.row2
 	const drawerInput = overrides.drawer?.buttons
+	const targetInput = overrides.targets
 
 	// Strip button array inputs from overrides before deep-merge so deepMerge
 	// doesn't try to replace them (they may be functions, not arrays)
@@ -448,11 +459,17 @@ export function mergeConfig(base: HerdwebConfig, overrides: HerdwebConfigOverrid
 	const row1 = resolveButtonArray(base.toolbar.row1, row1Input)
 	const row2 = resolveButtonArray(base.toolbar.row2, row2Input)
 	const drawerButtons = resolveButtonArray(base.drawer.buttons, drawerInput)
+	const targets =
+		targetInput?.map((target) => ({ ...target, imageDrop: target.imageDrop ?? 'disabled' })) ??
+		base.targets
 
 	return {
 		...merged,
 		toolbar: { row1, row2 },
 		drawer: { buttons: drawerButtons },
+		targetMode: targetInput === undefined ? base.targetMode : 'explicit',
+		targets,
+		defaultTargetId: overrides.defaultTargetId ?? base.defaultTargetId,
 	}
 }
 

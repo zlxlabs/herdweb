@@ -8,6 +8,8 @@ import type { ClientMessage, InputRejectedReason, ServerMessage } from './sessio
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
 const TERMINAL_ERROR = 'Terminal failed; restart herdweb.'
+const MIRROR_HIGH_WATERMARK_BYTES = 1 * 1024 * 1024
+const MIRROR_LOW_WATERMARK_BYTES = 512 * 1024
 
 const HeadlessTerminal = XtermHeadless.Terminal
 type HeadlessTerminalInstance = InstanceType<typeof HeadlessTerminal>
@@ -77,6 +79,8 @@ export class SharedTerminalSession {
 	private exitResolve: ((exit: SessionExit) => void) | null = null
 	private exited: SessionExit | null = null
 	private pendingMirrorWrite: Promise<void> = Promise.resolve()
+	private pendingMirrorBytes = 0
+	private mirrorPaused = false
 	private outputSeq = 0
 	private terminalFailed = false
 	private readonly inputActions = new Map<string, string>()
@@ -114,16 +118,7 @@ export class SharedTerminalSession {
 		this.pty.onData((data) => {
 			const seq = ++this.outputSeq
 			this.recordActivity(data)
-			this.pendingMirrorWrite = this.pendingMirrorWrite
-				.then(() => {
-					if (this.terminalFailed) return
-					return new Promise<void>((resolve) => {
-						this.mirror.write(data, resolve)
-					})
-				})
-				.catch(() => {
-					this.failTerminal()
-				})
+			this.enqueueMirrorWrite(data)
 
 			this.broadcast({ type: 'output', data, seq })
 		})
@@ -254,6 +249,10 @@ export class SharedTerminalSession {
 	}
 
 	async dispose(): Promise<void> {
+		if (this.mirrorPaused) {
+			this.pty.resume()
+			this.mirrorPaused = false
+		}
 		for (const client of this.clients) {
 			client.close()
 		}
@@ -275,6 +274,33 @@ export class SharedTerminalSession {
 				outputWatermark: this.outputSeq,
 			}
 		}
+	}
+
+	private enqueueMirrorWrite(data: string): void {
+		if (this.terminalFailed) return
+		const bytes = Buffer.byteLength(data, 'utf8')
+		this.pendingMirrorBytes += bytes
+		if (this.pendingMirrorBytes >= MIRROR_HIGH_WATERMARK_BYTES && !this.mirrorPaused) {
+			this.pty.pause()
+			this.mirrorPaused = true
+		}
+		this.pendingMirrorWrite = this.pendingMirrorWrite
+			.then(() => {
+				if (this.terminalFailed) return
+				return new Promise<void>((resolve) => {
+					this.mirror.write(data, () => {
+						this.pendingMirrorBytes -= bytes
+						if (this.mirrorPaused && this.pendingMirrorBytes < MIRROR_LOW_WATERMARK_BYTES) {
+							this.pty.resume()
+							this.mirrorPaused = false
+						}
+						resolve()
+					})
+				})
+			})
+			.catch(() => {
+				this.failTerminal()
+			})
 	}
 
 	private handleInputAction(client: SessionClient, id: string, data: string): void {
@@ -323,6 +349,10 @@ export class SharedTerminalSession {
 	private failTerminal(): void {
 		if (this.terminalFailed) return
 		this.terminalFailed = true
+		if (this.mirrorPaused) {
+			this.pty.resume()
+			this.mirrorPaused = false
+		}
 		this.broadcast({ type: 'error', message: TERMINAL_ERROR })
 		for (const client of this.clients) {
 			client.close()
