@@ -49,7 +49,7 @@ export function readEventHistory(
 	const lines = content.split('\n').filter((line) => line.length > 0)
 	if (lines.length === 0) return []
 
-	const tail = lines.slice(-clamped)
+	const tail = targetId === undefined ? lines.slice(-clamped) : lines
 	const events: NotifyEvent[] = []
 	for (const line of tail) {
 		try {
@@ -64,5 +64,5 @@ export function readEventHistory(
 			// skip corrupt lines
 		}
 	}
-	return events.reverse()
+	return (targetId === undefined ? events : events.slice(-clamped)).reverse()
 }
