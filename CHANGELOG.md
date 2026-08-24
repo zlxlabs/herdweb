@@ -1,3 +1,23 @@
+# [1.9.0](https://github.com/zlxlabs/herdweb/compare/v1.8.0...v1.9.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **client:** close stale target input paths ([8e3bc57](https://github.com/zlxlabs/herdweb/commit/8e3bc5799d37cbd1b265503b5ba869737d259504))
+* **client:** guard composer Send and Retry touch across attachment switches ([3f2c621](https://github.com/zlxlabs/herdweb/commit/3f2c6217d7c265399874eb983cf00c9de4e4e614))
+* **client:** guard touch input across target switches ([9b23b2a](https://github.com/zlxlabs/herdweb/commit/9b23b2a5a34674953433c130b408e41dcb383adc))
+* **client:** persist target choice only in explicit mode ([a175464](https://github.com/zlxlabs/herdweb/commit/a17546461c85b29fd9f96b9a5592c9ddf4532a62))
+* **client:** scope attachment tap guards per touch and fail closed ([67ede43](https://github.com/zlxlabs/herdweb/commit/67ede4373d884068f6d5c9d0759618f4cc8a1ac2))
+
+
+### Features
+
+* **client:** add explicit-mode target picker and status badge ([4d63652](https://github.com/zlxlabs/herdweb/commit/4d63652d540bc5db3356c561487ed1f1faca85d5))
+* **client:** add target selection, restore, and commit-gated persistence ([2c90e55](https://github.com/zlxlabs/herdweb/commit/2c90e5526f4a2fc6553cb1efad768ac4dda35cae))
+* **client:** bound xterm render backlog with a shared UTF-8 byte ledger ([89d6d35](https://github.com/zlxlabs/herdweb/commit/89d6d35fb41aa81a309dfd0f7a65c1ed71dcc8d1))
+* **client:** guard delayed input with the attachment generation ([4e758cb](https://github.com/zlxlabs/herdweb/commit/4e758cbbeba81cfd46447a90b4f50dcdd92c831c))
+* **client:** isolate composer drafts and mic sessions per target ([7e92db6](https://github.com/zlxlabs/herdweb/commit/7e92db6c2a52c21717a7902748d4fea3d4510392))
+
 # [1.8.0](https://github.com/zlxlabs/herdweb/compare/v1.7.0...v1.8.0) (2026-08-24)
 
 
