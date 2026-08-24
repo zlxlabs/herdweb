@@ -13,7 +13,8 @@
 
 ## 当前激活里程碑
 
-- 无——M1/M2/M3 已于 2026-08-22 全部完成，弱网体验路线图收口。
+- **M6 — 多目标控制台**（2026-08-24 激活）：按 reviewed 卡链增量实现。T0 尚缺的手机与
+  silence 证据作为最终验收前的证据债保留，不阻塞产品卡落地。
 
 ## 里程碑索引
 
@@ -22,7 +23,9 @@
 | M1 | 草稿不丢 | 已完成 | 1 | 高 | 无 | [goals/M1-draft-survives.md](goals/M1-draft-survives.md) |
 | M2 | 画面新鲜可信 | 已完成 | 2 | 高 | 无 | [goals/M2-fresh-screen.md](goals/M2-fresh-screen.md) |
 | M3 | 提交不重不漏 | 已完成 | 3 | 高 | M1、M2 | [goals/M3-atomic-submit.md](goals/M3-atomic-submit.md) |
-| M4 | 注意力层 v1（Web Push 通知） | 进行中 | 4 | 高 | 无 | [goals/M4-notify-attention.md](goals/M4-notify-attention.md) |
+| M4 | 注意力层 v1（Web Push 通知） | 已完成 | 4 | 高 | 无 | [goals/M4-notify-attention.md](goals/M4-notify-attention.md) |
+| M5 | 通知出站通道 | 验收待补 | 5 | 高 | M4 | [goals/M5-notify-outbound-channels.md](goals/M5-notify-outbound-channels.md) |
+| M6 | 多目标控制台 | 进行中 | 6 | 高 | 无 | [goals/M6-multi-target-console.md](goals/M6-multi-target-console.md) |
 
 ## 路线图审计
 
@@ -37,3 +40,13 @@
 - **新证据是否改变了工作顺序？**：无。
 - **done 的定义还成立吗？**：成立且已达成。
 - **审计结论**：弱网体验路线图完成收口，无悬空工作。
+
+### 2026-08-24 · 激活 M6
+
+- **里程碑真完成了吗？**：M4 已完成；M5 基础实现已完成但 Android IM 收件证据待补；M6 未完成。
+- **下一个目标还是对的吗？**：是。T0 已证明 SSH thin-client 路线可行，无需自建 hub。
+- **有没有漏掉的里程碑？**：没有。M6 覆盖已 reviewed 的多目标配置、生命周期、协议、切换和隔离。
+- **新证据是否改变了工作顺序？**：T0 手机入口与 silence 证据不再阻塞实现，改为最终验收前补齐；
+  产品卡从 T1a 开始按依赖链推进。
+- **done 的定义还成立吗？**：成立。最终仍须在当前手机入口验证实际输出、断链重连同一 pane 与失败态。
+- **审计结论**：激活 M6；保留 T0 未完成项，不把证据缺口误当成代码开工闸。
