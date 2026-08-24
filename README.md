@@ -373,7 +373,7 @@ existing subscriptions).
 the request. External event sources (e.g. agent-config badge outbound) must run on the **same
 machine** as herdweb — cross-host posting is not supported in v1.
 
-Smoke test (with `herdweb serve` on port 7681, after subscribing on a device):
+Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on a device; **single-only**):
 
 ```bash
 curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
@@ -381,7 +381,19 @@ curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
   -d '{"v":1,"id":"smoke-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
 ```
 
-Expect HTTP `202`. If `notify.token` is set, add `-H 'authorization: Bearer <token>'`.
+Expect HTTP `202` only when the service is in single mode. If `notify.token` is set, add
+`-H 'authorization: Bearer <token>'`.
+
+For an explicit-mode service whose config contains target id `local`, use the v2 event shape instead:
+
+```bash
+curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
+  -H 'content-type: application/json' \
+  -d '{"v":2,"targetId":"local","id":"smoke-v2-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
+```
+
+Expect HTTP `202`; `targetId` must name a configured target. If `notify.token` is set, add the same
+Bearer header.
 
 **Restart behaviour**
 

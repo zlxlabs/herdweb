@@ -24,10 +24,9 @@ attachment 状态机和逐 target capability，不建设浏览器多连接、远
 
 ## T0 与本次入口证据
 
-- T0 原始探针见 [PR #71](https://github.com/zlxlabs/herdweb/pull/71) 及
-  `docs/sessions/260824-0035-multi-target-overnight/t0-multi-target-probe.md`（原始材料）。
-  它记录了临时端口的真实 `herdr --remote` spawn、pane 重连与失败退出码，同时明确标记
-  Android/iOS 真机和 silence 条件为 partial/blocked；这些结果不能包装成多目标完成。
+- T0 原始探针见 [PR #71](https://github.com/zlxlabs/herdweb/pull/71)。其中记录了临时端口的真实
+  `herdr --remote` spawn、pane 重连与失败退出码，并明确标记 Android/iOS 真机和 silence 条件
+  为 partial/blocked；这些结果不能包装成多目标完成。
 - 2026-08-25 本机验收：systemd `herdweb.service` 为 active/running、监听 `127.0.0.1:7681`，
   生产 clone SHA 为 `a8311a7067f47968821e6d477328b7e0689b04f2`，仍是 single `-- herdr --session default`；未改生产。
   当前基准源码在临时端口验证了 single attach commit、explicit `one → two` 切换、single-v1 /

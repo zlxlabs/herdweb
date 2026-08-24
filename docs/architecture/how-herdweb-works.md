@@ -46,24 +46,27 @@ allowlisted capability summary, not target argv.
 
 ## Runtime boot path
 
-`herdweb serve` bundles the browser client, renders HTML, mounts HTTP/WS routes, then creates the registry.
-No target PTY is required at boot: the default or selected target is started when its attachment begins.
+`herdweb serve` bundles the browser client, renders HTML, creates the attachment binding and target
+registry, mounts HTTP/WS/notify routes, then listens. No target PTY is required at boot: the default or
+selected target is started lazily when its attachment begins.
 
 ```mermaid
 flowchart TD
     Start[herdweb serve]
     Bundle[Bundle browser JS + CSS]
     Html[Render HTML with client projection and CSP nonce]
-    Routes[Create HTTP, WS, PWA, image and notify routes]
-    Listen[Start HTTP server]
+    Binding[Create attachment binding]
     Registry[Create TargetRegistry]
+    Routes[Create HTTP, WS, PWA and image routes]
+    Notify[Mount notification routes and service]
+    Listen[Start HTTP server]
     Attach[Browser sends attach-target]
     Spawn[Registry lazily creates SharedTerminalSession]
     PTY[Spawn node-pty target command]
     Mirror[Mirror PTY output into xterm-headless]
     Commit[Snapshot applied; attachment committed]
 
-    Start --> Bundle --> Html --> Routes --> Listen --> Registry
+    Start --> Bundle --> Html --> Binding --> Registry --> Routes --> Notify --> Listen
     Registry --> Attach --> Spawn --> PTY --> Mirror --> Commit
 ```
 

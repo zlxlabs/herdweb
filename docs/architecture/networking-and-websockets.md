@@ -8,7 +8,14 @@ herdweb uses one same-origin WebSocket per browser. Protocol 2 routes terminal t
 - `herdweb serve` binds to `127.0.0.1` by default; there is no built-in login or ACL.
 - Put the localhost server behind Tailscale Serve, a VPN, or another trusted access layer.
 - `GET /` serves the client; `GET /ws` is the terminal control plane; `POST /api/image-drop` accepts raw image bytes.
-- `POST /api/events` and push routes apply their loopback, origin, and configured token checks.
+- `POST /api/events` is a loopback-only event ingress with an optional configured Bearer token; it does
+  not use the browser Origin check.
+- Browser push mutations (`POST /api/push/test`, `POST /api/push/subscribe`, and
+  `DELETE /api/push/subscription`) require same-origin Origin validation and rate limiting; they do not
+  use the events loopback/Bearer policy.
+- Read-only notification routes have their own rules: `GET /api/events/history` validates its target and
+  limit and is rate-limited, while `GET /api/push/vapid-key` is rate-limited and returns the public key.
+  Neither is covered by the mutation Origin or events Bearer/loopback check.
 - `--base-path /prefix` adds the same routes under `/prefix/...`.
 
 ## Protocol 2 attach flow
@@ -24,9 +31,10 @@ sequenceDiagram
     Server-->>Browser: server-ready(protocol: 2)
     Server-->>Browser: targets(target summaries + capabilities)
     Browser->>Server: attach-target(requestId, targetId, cols, rows)
+    Server->>Server: binding.beginAttach()
+    Server-->>Browser: attach-started(attachmentId)
     Server->>Registry: getOrStart(targetId)
     Registry->>Session: lazily spawn/reuse PTY session
-    Server-->>Browser: attach-started(attachmentId)
     Server-->>Browser: target-status + snapshot/output
     Browser->>Server: snapshot-applied(requestId, attachmentId)
     Server-->>Browser: attach-committed(attachmentId)
