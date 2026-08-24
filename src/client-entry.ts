@@ -290,7 +290,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 		if (message.type === 'resize') {
 			pendingResize = { cols: message.cols, rows: message.rows }
-			if (targetId !== null && socket?.readyState === WebSocket.OPEN) {
+			if (!exitReceived && targetId !== null && socket?.readyState === WebSocket.OPEN) {
 				beginAttach(currentEpoch, targetId, message.cols, message.rows)
 			}
 			return
@@ -333,9 +333,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	}
 
 	function beginAttach(myEpoch: number, nextTargetId: string, cols: number, rows: number): void {
-		if (myEpoch !== currentEpoch || socket?.readyState !== WebSocket.OPEN || exitReceived) return
-		exitReceived = false
-		if (statusOverlay) statusOverlay.element.style.display = 'none'
+		if (myEpoch !== currentEpoch || socket?.readyState !== WebSocket.OPEN) return
 		const requestId = crypto.randomUUID()
 		targetId = nextTargetId
 		attachRequestId = requestId
@@ -495,6 +493,28 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pendingOutputBytes = 0
 	}
 
+	function enterTargetEnded(): void {
+		const newlyEnded = !exitReceived
+		exitReceived = true
+		clearConnectionTimers()
+		stopHeartbeat()
+		snapshotLoaded = false
+		snapshotApplying = false
+		sessionId = null
+		attachRequestId = null
+		attachmentId = null
+		clearPendingOutput()
+		pendingResize = null
+		notSentNoticeShown = true
+		setConnectionStatus('disconnected')
+		if (!newlyEnded) return
+		const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
+		window.dispatchEvent(
+			new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
+		)
+		showSessionStatus(sessionEndedNotice)
+	}
+
 	function recordPreSyncFailure(reason: ConnectionFailureReason): void {
 		connectionStatus = {
 			state: 'disconnected',
@@ -544,23 +564,20 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	function failConnection(myEpoch: number, reason: ConnectionFailureReason, notice?: string): void {
 		if (myEpoch !== currentEpoch) return
 		const sessionEnded = exitReceived
+		const endedTargetId = targetId
 		const failedSocket = socket
 		invalidateConnection()
 		socket = null
 		if (notice) {
 			window.dispatchEvent(new CustomEvent('herdweb-connection-notice', { detail: notice }))
 		}
-		if (connectionStatus.state !== 'synced' || reason === 'protocol-error') {
+		if (sessionEnded) {
+			targetId = endedTargetId
+			enterTargetEnded()
+		} else if (connectionStatus.state !== 'synced' || reason === 'protocol-error') {
 			recordPreSyncFailure(reason)
 		} else {
 			setConnectionStatus('disconnected', reason)
-		}
-		if (sessionEnded) {
-			const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
-			window.dispatchEvent(
-				new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
-			)
-			showSessionStatus(sessionEndedNotice)
 		}
 		failedSocket?.close()
 		if (!sessionEnded) scheduleReconnect()
@@ -670,12 +687,24 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		}
 
 		switch (message.type) {
-			case 'server-ready':
 			case 'target-status':
+				if (
+					message.target.processState !== 'process-exited' ||
+					(targetId !== null && targetId !== message.target.id)
+				)
+					return
+				targetId = message.target.id
+				enterTargetEnded()
 				return
 			case 'targets': {
 				const target = message.targets[0]
-				if (target) beginAttach(myEpoch, target.id, term.cols, term.rows)
+				if (!target) return
+				targetId = target.id
+				if (exitReceived || target.processState === 'process-exited') {
+					enterTargetEnded()
+					return
+				}
+				beginAttach(myEpoch, target.id, term.cols, term.rows)
 				return
 			}
 			case 'attach-started':
@@ -702,23 +731,25 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				}
 				notSentNoticeShown = false
 				lastProvenFreshAt = Date.now()
+				if (exitReceived) {
+					exitReceived = false
+					if (statusOverlay) statusOverlay.element.style.display = 'none'
+				}
 				for (const handler of connectionStatusListeners) handler(connectionStatus)
 				notifyConnectionChange()
 				startHeartbeat(myEpoch)
 				if (pendingResize && socket?.readyState === WebSocket.OPEN) {
 					const resize = pendingResize
 					pendingResize = null
-					socket.send(
-						serialiseClientMessage({
-							...resize,
-							type: 'resize',
-							attachmentId: message.attachmentId,
-						}),
-					)
+					send({ type: 'resize', ...resize })
 				}
 				return
 			case 'attach-rejected':
 				if (attachRequestId !== message.requestId || targetId !== message.targetId) return
+				if (message.reason === 'target-process-exited') {
+					enterTargetEnded()
+					return
+				}
 				clearTimer(snapshotDeadlineTimer)
 				snapshotDeadlineTimer = undefined
 				attachmentId = null
@@ -729,10 +760,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					failConnection(myEpoch, 'snapshot-timeout')
 				return
 			case 'target-restarted':
-				if (targetId === message.targetId) {
-					exitReceived = false
-					beginAttach(myEpoch, targetId, term.cols, term.rows)
-				}
+				if (targetId === message.targetId) beginAttach(myEpoch, targetId, term.cols, term.rows)
 				return
 			case 'snapshot':
 				applySnapshot(
@@ -746,30 +774,11 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			case 'output':
 				handleOutput(myEpoch, message.attachmentId, message.seq, message.data)
 				return
-			case 'exit': {
-				if (attachmentId !== message.attachmentId) return
-				exitReceived = true
-				clearConnectionTimers()
-				stopHeartbeat()
-				snapshotLoaded = false
-				snapshotApplying = false
-				sessionId = null
-				attachRequestId = null
-				attachmentId = null
-				clearPendingOutput()
-				pendingResize = null
-				notSentNoticeShown = true
-				setConnectionStatus('disconnected')
-				const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
-				window.dispatchEvent(
-					new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
-				)
-				showSessionStatus(sessionEndedNotice)
+			case 'exit':
+				if (attachmentId === message.attachmentId) enterTargetEnded()
 				return
-			}
 			case 'error':
-				if (attachmentId !== message.attachmentId) return
-				console.error(`herdweb: ${message.message}`)
+				if (attachmentId === message.attachmentId) console.error(`herdweb: ${message.message}`)
 				return
 			case 'pong':
 				handlePong(myEpoch, message.nonce)
@@ -835,7 +844,6 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		snapshotApplying = false
 		sessionId = null
 		clearPendingOutput()
-		exitReceived = false
 		setConnectionStatus('reconnecting')
 
 		const nextSocket = new WebSocket(createSocketUrl())

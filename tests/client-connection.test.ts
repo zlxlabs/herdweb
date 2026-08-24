@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
 import type { ConnectionStatus } from '../src/types'
 
 const harness = vi.hoisted(() => ({
@@ -123,21 +123,38 @@ function startAttachment(
 	return started
 }
 
-function openWithAttach(socket: FakeSocket): Started {
+function openWithTargets(
+	socket: FakeSocket,
+	processState: 'process-running' | 'process-exited',
+): void {
 	socket.open()
 	receive(socket, { type: 'server-ready', protocol: 2 })
 	receive(socket, {
 		type: 'targets',
 		targets: [
-			{
-				id: 'default',
-				name: 'Default',
-				processState: 'process-running',
-				capabilities: { imageDrop: 'disabled' },
-			},
+			{ id: 'default', name: 'Default', processState, capabilities: { imageDrop: 'disabled' } },
 		],
 	})
+}
+
+function openWithAttach(socket: FakeSocket): Started {
+	openWithTargets(socket, 'process-running')
 	return startAttachment(socket)
+}
+
+function expectSessionOverlay(display: 'flex' | 'none', text?: string): void {
+	const overlay = document.querySelector<HTMLDivElement>('#herdweb-session-status')
+	expect(overlay?.style.display).toBe(display)
+	if (text) expect(overlay?.textContent).toContain(text)
+}
+
+function expectEnded(): void {
+	expect(getStatus().state).toBe('disconnected')
+	expectSessionOverlay('flex', 'Session ended')
+}
+
+function expectNoAttachment(socket: FakeSocket): void {
+	expect(socket.sent.some((payload) => JSON.parse(payload).type === 'attach-target')).toBe(false)
 }
 
 function getStatus(): ConnectionStatus {
@@ -228,6 +245,27 @@ describe('client connection state machine', () => {
 		vi.setSystemTime(0)
 	})
 
+	afterEach(async () => {
+		// exitReceived lives in the module under test, so an ended test must be
+		// recovered through the real restart path to avoid leaking into the next test.
+		const overlay = document.querySelector<HTMLDivElement>('#herdweb-session-status')
+		if (overlay?.style.display !== 'flex') return
+		if (currentSocket().readyState !== FakeSocket.OPEN) {
+			window.term?.requestReconnect()
+			await vi.advanceTimersByTimeAsync(0)
+			openWithTargets(currentSocket(), 'process-exited')
+		}
+		const socket = currentSocket()
+		receive(socket, { type: 'target-restarted', targetId: 'default', sessionId: 'cleanup' })
+		startAttachment(socket)
+		receive(socket, {
+			type: 'snapshot',
+			data: 'cleanup',
+			sessionId: 'cleanup',
+			outputWatermark: 0,
+		})
+	})
+
 	afterAll(async () => {
 		setVisibility('hidden')
 		document.dispatchEvent(new Event('visibilitychange'))
@@ -276,6 +314,13 @@ describe('client connection state machine', () => {
 		expect(window.term?.isConnected()).toBe(true)
 		expect(socket.sent.map((payload) => JSON.parse(payload)).at(-1)).toMatchObject({ type: 'ping' })
 		expect(terminal.writes).toEqual(['<reset>', 'snapshot', 'four', 'five'])
+	})
+
+	test('a fresh connection to an exited target stays ended without attaching', async () => {
+		const socket = await freshAttempt()
+		openWithTargets(socket, 'process-exited')
+		expectEnded()
+		expectNoAttachment(socket)
 	})
 
 	test('snapshot freshness permits immediate ordinary input', async () => {
@@ -608,6 +653,34 @@ describe('client connection state machine', () => {
 		expect(harness.sockets).toHaveLength(socketCount)
 	})
 
+	test.each([
+		['online', 'online'],
+		['offline→online', 'offline-online'],
+		['hidden→visible', 'visibility'],
+		['pagehide→pageshow', 'page'],
+	] as const)('ended target survives %s', async (_, event) => {
+		const socket = await freshSynced()
+		receive(socket, { type: 'exit', exitCode: 0, signal: null })
+		const socketCount = harness.sockets.length
+		if (event === 'visibility') {
+			setVisibility('hidden')
+			document.dispatchEvent(new Event('visibilitychange'))
+			setVisibility('visible')
+			document.dispatchEvent(new Event('visibilitychange'))
+		} else if (event === 'page') {
+			window.dispatchEvent(pagehideEvent(false))
+			window.dispatchEvent(pageshowEvent(true))
+		} else {
+			for (const type of event.split('-')) window.dispatchEvent(new Event(type))
+		}
+		await vi.advanceTimersByTimeAsync(0)
+		expect(harness.sockets).toHaveLength(socketCount + 1)
+		const nextSocket = currentSocket()
+		openWithTargets(nextSocket, 'process-exited')
+		expectEnded()
+		expectNoAttachment(nextSocket)
+	})
+
 	test('a CONNECTING socket failure follows the existing backoff path', async () => {
 		const connectingSocket = await freshAttempt()
 		const socketCount = harness.sockets.length
@@ -874,7 +947,7 @@ describe('client connection state machine', () => {
 		)
 	})
 
-	test('retrying an ended session and receiving exit again stops again', async () => {
+	test('retrying an ended session stays ended for an exited target', async () => {
 		const socket = await freshSynced()
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
 		const socketCount = harness.sockets.length
@@ -882,31 +955,34 @@ describe('client connection state machine', () => {
 		await vi.advanceTimersByTimeAsync(0)
 		expect(harness.sockets).toHaveLength(socketCount + 1)
 		const retrySocket = currentSocket()
-		openWithAttach(retrySocket)
-		receive(retrySocket, { type: 'exit', exitCode: 0, signal: null })
+		openWithTargets(retrySocket, 'process-exited')
+		expectEnded()
+		expectNoAttachment(retrySocket)
+		retrySocket.close()
 		await vi.advanceTimersByTimeAsync(20_000)
 		expect(harness.sockets).toHaveLength(socketCount + 1)
 		expect(getStatus().state).toBe('disconnected')
 	})
 
-	test('retrying an ended session can recover after a new snapshot', async () => {
+	test('target-process-exited attach rejection keeps the ended state', async () => {
 		const socket = await freshSynced()
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
+		socket.close()
 		window.term?.requestReconnect()
 		await vi.advanceTimersByTimeAsync(0)
 		const retrySocket = currentSocket()
-		openWithAttach(retrySocket)
+		openWithTargets(retrySocket, 'process-exited')
+		receive(retrySocket, { type: 'target-restarted', targetId: 'default', sessionId: 'restarted' })
+		const started = startAttachment(retrySocket, 'rejected-attachment')
 		receive(retrySocket, {
-			type: 'snapshot',
-			data: 'new session',
-			sessionId: 'new-session-after-exit',
-			outputWatermark: 0,
+			type: 'attach-rejected',
+			requestId: started.requestId,
+			targetId: started.targetId,
+			reason: 'target-process-exited',
 		})
-		expect(getStatus()).toEqual({
-			state: 'synced',
-			consecutivePreSyncFailures: 0,
-			lastFailureReason: null,
-		})
+		expectEnded()
+		await vi.advanceTimersByTimeAsync(20_000)
+		expect(currentSocket()).toBe(retrySocket)
 	})
 
 	test('target-restarted reuses the open control socket after exit', async () => {
@@ -915,6 +991,12 @@ describe('client connection state machine', () => {
 		receive(socket, { type: 'target-restarted', targetId: 'default', sessionId: 'new-session' })
 		expect(currentSocket()).toBe(socket)
 		const started = startAttachment(socket)
+		expect(getStatus().state).toBe('syncing')
+		expectSessionOverlay('flex', 'Session ended')
+		const sentBefore = socket.sent.length
+		window.term?.input('blocked-before-commit', true)
+		expect(window.term?.sendInputAction('blocked-action', 'blocked')).toBe(false)
+		expect(socket.sent).toHaveLength(sentBefore)
 		receive(socket, {
 			type: 'snapshot',
 			attachmentId: started.attachmentId,
@@ -923,6 +1005,13 @@ describe('client connection state machine', () => {
 			outputWatermark: 0,
 		})
 		expect(getStatus().state).toBe('synced')
+		expectSessionOverlay('none')
+		window.term?.input('live-after-commit', true)
+		expect(JSON.parse(socket.sent.at(-1) as string)).toEqual({
+			type: 'input',
+			attachmentId: started.attachmentId,
+			data: 'live-after-commit',
+		})
 	})
 
 	test('a fresh epoch emits only the final resize after syncing', async () => {
