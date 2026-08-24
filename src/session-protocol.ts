@@ -189,6 +189,91 @@ const targetIdPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/u
 const isTargetId = (value: unknown): value is string =>
 	typeof value === 'string' && targetIdPattern.test(value)
 
+function isTargetName(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.length > 0 &&
+		[...value].length <= 80 &&
+		!/\p{Cc}/u.test(value)
+	)
+}
+
+const isTargetProcessState = (value: unknown): value is TargetProcessState =>
+	value === 'not-started' ||
+	value === 'starting' ||
+	value === 'process-running' ||
+	value === 'process-exited'
+
+const isTargetFailure = (value: unknown): value is TargetFailure =>
+	value === 'target-start-failed' || value === 'target-process-exited'
+
+const isImageDrop = (value: unknown): value is TargetSummary['capabilities']['imageDrop'] =>
+	value === 'local-path' || value === 'disabled'
+
+function isInteger(value: unknown): value is number {
+	return typeof value === 'number' && Number.isInteger(value)
+}
+
+function parseTargetSummary(value: unknown): TargetSummary | null {
+	if (!isRecord(value)) return null
+	const { id, name, processState, lastActivityAt, exit, failure, capabilities } = value
+	if (
+		!isTargetId(id) ||
+		!isTargetName(name) ||
+		!isTargetProcessState(processState) ||
+		!isRecord(capabilities) ||
+		!isImageDrop(capabilities.imageDrop) ||
+		(lastActivityAt !== undefined && (!isInteger(lastActivityAt) || lastActivityAt < 0)) ||
+		(failure !== undefined && !isTargetFailure(failure))
+	) {
+		return null
+	}
+	const parsedExit =
+		exit === undefined
+			? undefined
+			: isRecord(exit) && isInteger(exit.code) && (exit.signal === null || isInteger(exit.signal))
+				? { code: exit.code, signal: exit.signal }
+				: null
+	if (parsedExit === null) return null
+	return {
+		id,
+		name,
+		processState,
+		...(lastActivityAt === undefined ? {} : { lastActivityAt }),
+		...(parsedExit === undefined ? {} : { exit: parsedExit }),
+		...(failure === undefined ? {} : { failure }),
+		capabilities: { imageDrop: capabilities.imageDrop },
+	}
+}
+
+function parseProtocol2TargetMessage(
+	parsed: Record<string, unknown>,
+): ServerReadyMessage | TargetsMessage | TargetStatusMessage | null {
+	switch (parsed.type) {
+		case 'server-ready':
+			return parsed.protocol === 2 ? { type: 'server-ready', protocol: 2 } : null
+		case 'targets': {
+			if (!Array.isArray(parsed.targets) || parsed.targets.length < 1 || parsed.targets.length > 8)
+				return null
+			const ids = new Set<string>()
+			const targets: TargetSummary[] = []
+			for (const item of parsed.targets) {
+				const target = parseTargetSummary(item)
+				if (target === null || ids.has(target.id)) return null
+				ids.add(target.id)
+				targets.push(target)
+			}
+			return { type: 'targets', targets }
+		}
+		case 'target-status': {
+			const target = parseTargetSummary(parsed.target)
+			return target === null ? null : { type: 'target-status', target }
+		}
+		default:
+			return null
+	}
+}
+
 export function serialiseClientMessage(message: ClientMessage): string {
 	return JSON.stringify(message)
 }
@@ -203,7 +288,6 @@ export function parseClientMessage(payload: string): ClientMessage | null {
 		if (!isRecord(parsed) || typeof parsed.type !== 'string') {
 			return null
 		}
-
 		switch (parsed.type) {
 			case 'input':
 				return typeof parsed.data === 'string' && isInputWithinLimit(parsed.data)
@@ -272,6 +356,8 @@ export function parseServerMessage(payload: string): ServerMessage | null {
 		if (!isRecord(parsed) || typeof parsed.type !== 'string') {
 			return null
 		}
+		const protocol2TargetMessage = parseProtocol2TargetMessage(parsed)
+		if (protocol2TargetMessage !== null) return protocol2TargetMessage
 
 		switch (parsed.type) {
 			case 'snapshot':
