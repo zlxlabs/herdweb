@@ -69,6 +69,15 @@ export class WsAttachmentBinding {
 		}, DEFAULT_TIMEOUT_MS)
 		return { ok: true, capability: provisional }
 	}
+	cancelAttach(clientId: string, binding: Attachment): AttachmentResult {
+		const state = this.clients.get(clientId)
+		const provisional = state?.provisional
+		if (!state || !provisional || !this.isCurrentAttempt(clientId, binding))
+			return { ok: false, reason: 'protocol-violation' }
+		this.clear(state, 'provisional')
+		state.acceptsInput = false
+		return { ok: true, capability: provisional }
+	}
 	snapshotApplied(clientId: string, binding: Attachment): AttachmentResult {
 		if (!this.isCurrentAttempt(clientId, binding))
 			return { ok: false, reason: 'protocol-violation' }
@@ -98,6 +107,7 @@ export class WsAttachmentBinding {
 		if (!state) return
 		for (const key of ['provisional', 'committed'] as const) this.clear(state, key)
 		state.acceptsInput = false
+		this.clients.delete(clientId)
 	}
 	dispose(clientId: string): void {
 		this.disconnect(clientId)
