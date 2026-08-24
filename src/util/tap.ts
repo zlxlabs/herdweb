@@ -55,20 +55,44 @@ export function onTap(element: HTMLElement, handler: (e: Event) => void): void {
 	})
 }
 
+const forEachChangedTouch = (touches: TouchList, fn: (touch: Touch) => void): void => {
+	for (let i = 0; i < touches.length; i++) {
+		const touch = touches[i]
+		if (touch) fn(touch)
+	}
+}
+
 export function onAttachmentTap(
 	term: XTerminal,
 	element: HTMLElement,
 	handler: (e: Event) => void,
 ): void {
-	let touchGuard: (() => boolean) | null = null
-	element.addEventListener('touchstart', () => {
-		touchGuard = createAttachmentGuard(term)
+	const touchGuards = new Map<number, () => boolean>()
+	// Fail-closed: a touchend is only honoured for touches whose touchstart
+	// was captured on this element. Empty changedTouches (synthetic/residual
+	// sequences) and unknown identifiers find no guard and stay rejected.
+	const touchendAllowed = (event: TouchEvent): boolean => {
+		let allowed = false
+		forEachChangedTouch(event.changedTouches, (touch) => {
+			const guard = touchGuards.get(touch.identifier)
+			touchGuards.delete(touch.identifier)
+			if (guard?.()) allowed = true
+		})
+		return allowed
+	}
+	element.addEventListener('touchstart', (e: TouchEvent) => {
+		forEachChangedTouch(e.changedTouches, (touch) => {
+			touchGuards.set(touch.identifier, createAttachmentGuard(term))
+		})
+	})
+	element.addEventListener('touchcancel', (e: TouchEvent) => {
+		forEachChangedTouch(e.changedTouches, (touch) => {
+			touchGuards.delete(touch.identifier)
+		})
 	})
 	onTap(element, (event) => {
-		if (event.type === 'touchend' && touchGuard !== null) {
-			const guard = touchGuard
-			touchGuard = null
-			if (!guard()) return
+		if (event.type === 'touchend' && event instanceof TouchEvent) {
+			if (!touchendAllowed(event)) return
 		}
 		handler(event)
 	})

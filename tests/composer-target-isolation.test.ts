@@ -168,6 +168,10 @@ interface MicHarness {
 	setAttachment(id: string | null): void
 }
 
+function touch(id: number, target: EventTarget): Touch {
+	return { identifier: id, target, clientX: 0, clientY: 0 } as unknown as Touch
+}
+
 function createMicHarness(hooks = createHookRegistry()): MicHarness {
 	const engine = new FakeEngine()
 	const baseTerm = mockTerminalWithSent()
@@ -266,7 +270,6 @@ describe('mic controller target isolation (T6a)', () => {
 		{
 			label: 'Send',
 			selector: '.wt-composer-send',
-			switchTarget: true,
 			prepare(controller: MicHarness['controller']) {
 				controller.setTarget('one')
 				typeDraft(controller.preview, 'A draft')
@@ -279,7 +282,6 @@ describe('mic controller target isolation (T6a)', () => {
 		{
 			label: 'Retry',
 			selector: '.wt-composer-retry',
-			switchTarget: false,
 			prepare(controller: MicHarness['controller']) {
 				controller.setTarget('one')
 				expect(
@@ -297,16 +299,20 @@ describe('mic controller target isolation (T6a)', () => {
 			},
 		},
 	])(
-		'composer $label touch captured on A sends 0 input-action frames to B after A→B commit before touchend',
-		async ({ label, selector, switchTarget, prepare }) => {
+		'composer $label F1 on A then F2 on B: F1 end sends 0 att-two input-action frames',
+		async ({ label, selector, prepare }) => {
 			const harness = createMicHarness()
 			prepare(harness.controller)
 			const button = harness.controller.preview.element.querySelector(selector)
 			if (!(button instanceof HTMLButtonElement)) throw new Error(`no ${label} button`)
-			button.dispatchEvent(new TouchEvent('touchstart'))
+			const f1 = touch(1, button)
+			const f2 = touch(2, button)
+			button.dispatchEvent(new TouchEvent('touchstart', { touches: [f1], changedTouches: [f1] }))
 			harness.setAttachment('att-two')
-			if (switchTarget) harness.controller.setTarget('two')
-			button.dispatchEvent(new TouchEvent('touchend'))
+			button.dispatchEvent(
+				new TouchEvent('touchstart', { touches: [f1, f2], changedTouches: [f2] }),
+			)
+			button.dispatchEvent(new TouchEvent('touchend', { touches: [f2], changedTouches: [f1] }))
 			for (let index = 0; index < 8; index++) await Promise.resolve()
 			const toB = harness.wsFrames
 				.map((payload) => JSON.parse(payload) as Record<string, unknown>)

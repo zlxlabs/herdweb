@@ -175,15 +175,17 @@ describe('T4b delayed-input attachment guard', () => {
 		const { element } = createDpad(term)
 		const button = element.querySelector('button')
 		if (!button) throw new Error('no d-pad button')
+		const t = (id: number) =>
+			({ identifier: id, target: button, clientX: 0, clientY: 0 }) as unknown as Touch
 
-		button.dispatchEvent(new TouchEvent('touchstart'))
+		button.dispatchEvent(new TouchEvent('touchstart', { changedTouches: [t(1)] }))
 		term.setAttachment('att-b')
-		button.dispatchEvent(new TouchEvent('touchend'))
+		button.dispatchEvent(new TouchEvent('touchend', { changedTouches: [t(1)] }))
 		expect(term.sent).toEqual([])
 
 		term.setAttachment('att-a')
-		button.dispatchEvent(new TouchEvent('touchstart'))
-		button.dispatchEvent(new TouchEvent('touchend'))
+		button.dispatchEvent(new TouchEvent('touchstart', { changedTouches: [t(2)] }))
+		button.dispatchEvent(new TouchEvent('touchend', { changedTouches: [t(2)] }))
 		button.dispatchEvent(new Event('click'))
 		expect(term.sent).toEqual(['\x7f'])
 	})
@@ -198,9 +200,11 @@ describe('T4b delayed-input attachment guard', () => {
 		)
 		const button = findButtonByLabel(toolbar, 'X')
 
-		button.dispatchEvent(new TouchEvent('touchstart'))
+		const t = (id: number) =>
+			({ identifier: id, target: button, clientX: 0, clientY: 0 }) as unknown as Touch
+		button.dispatchEvent(new TouchEvent('touchstart', { changedTouches: [t(1)] }))
 		term.setAttachment('att-b')
-		button.dispatchEvent(new TouchEvent('touchend'))
+		button.dispatchEvent(new TouchEvent('touchend', { changedTouches: [t(1)] }))
 		await flushMicrotasks()
 		expect(term.sent).toEqual([])
 

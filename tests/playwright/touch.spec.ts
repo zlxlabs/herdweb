@@ -32,20 +32,20 @@ test('drawer toggle responds to touchend-only (no click)', async ({ page }) => {
 	await expect(drawer).toHaveClass(/open/)
 })
 
-test('drawer button responds to touchend-only', async ({ page }) => {
+test('drawer input button responds to touchstart + touchend', async ({ page }) => {
 	// Open drawer via tap() (known working method) to set up state
 	const toggle = page.locator('#wt-toolbar button', { hasText: '☰' })
 	await toggle.tap()
 	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
 
-	// Dispatch touchend on a drawer button — should close drawer
+	// Drawer input buttons go through onAttachmentTap, which only honours a
+	// touchend whose touchstart was captured on the same identifier — residual
+	// touchend-only sequences stay rejected. tap() dispatches a real touch pair
+	// (non-empty changedTouches, one identifier); the synthesised click after
+	// it must not double-fire through the module-level touch guard.
 	const drawerButton = page.locator('#wt-drawer-grid button').first()
 	await expect(drawerButton).toBeVisible()
-	await drawerButton.dispatchEvent('touchend', {
-		touches: [],
-		changedTouches: [],
-		targetTouches: [],
-	})
+	await drawerButton.tap()
 
 	await expect(page.locator('#wt-drawer')).not.toHaveClass(/open/)
 })
