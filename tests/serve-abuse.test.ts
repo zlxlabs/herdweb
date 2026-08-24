@@ -205,6 +205,10 @@ function waitForJsonMessage(
 const isType = (type: string) => (message: ReturnType<typeof parseServerMessage>) =>
 	message?.type === type
 
+function sendJson(ws: WebSocket, message: Record<string, unknown>): void {
+	ws.send(JSON.stringify(message))
+}
+
 function waitForClose(ws: WebSocket, timeoutMs = 10_000): Promise<number> {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
@@ -296,20 +300,18 @@ describe('serve websocket hardening', () => {
 				10_000,
 				(message) => message?.type === 'pong' && message.nonce === 'health-ping',
 			)
-			client.send(JSON.stringify({ type: 'ping', nonce: 'health-ping' }))
+			sendJson(client, { type: 'ping', nonce: 'health-ping' })
 			expect(await pong).toEqual({ type: 'pong', nonce: 'health-ping' })
 			const targetId = targets.targets[0].id
 			const status = (processState: string) => (message: ReturnType<typeof parseServerMessage>) =>
 				message?.type === 'target-status' && message.target.processState === processState
-			client.send(
-				JSON.stringify({
-					type: 'attach-target',
-					requestId: 'attach-1',
-					targetId,
-					cols: 80,
-					rows: 24,
-				}),
-			)
+			sendJson(client, {
+				type: 'attach-target',
+				requestId: 'attach-1',
+				targetId,
+				cols: 80,
+				rows: 24,
+			})
 			const started = await waitForJsonMessage(client, 10_000, isType('attach-started'))
 			if (started?.type !== 'attach-started') throw new Error('attach-started frame missing')
 			expect(await waitForJsonMessage(client, 10_000, status('starting'))).toMatchObject({
@@ -323,83 +325,68 @@ describe('serve websocket hardening', () => {
 			const snapshot = await waitForJsonMessage(client, 10_000, isType('snapshot'))
 			if (snapshot?.type !== 'snapshot') throw new Error('snapshot frame missing')
 			expect(snapshot.attachmentId).toBe(started.attachmentId)
-			client.send(
-				JSON.stringify({
-					type: 'snapshot-applied',
-					requestId: started.requestId,
-					attachmentId: started.attachmentId,
-				}),
-			)
+			sendJson(client, {
+				type: 'snapshot-applied',
+				requestId: started.requestId,
+				attachmentId: started.attachmentId,
+			})
 			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toEqual({
 				type: 'attach-committed',
 				requestId: started.requestId,
 				targetId: started.targetId,
 				attachmentId: started.attachmentId,
 			})
-			client.send(
-				JSON.stringify({
-					type: 'attach-target',
-					requestId: 'attach-2',
-					targetId,
-					cols: 80,
-					rows: 24,
-				}),
-			)
+			sendJson(client, {
+				type: 'attach-target',
+				requestId: 'attach-2',
+				targetId,
+				cols: 80,
+				rows: 24,
+			})
 			const replacement = await waitForJsonMessage(client, 10_000, isType('attach-started'))
 			if (replacement?.type !== 'attach-started')
 				throw new Error('replacement attach-started missing')
 			await waitForJsonMessage(client, 10_000, isType('snapshot'))
 
-			client.send(
-				JSON.stringify({ type: 'input', attachmentId: started.attachmentId, data: 'stale\n' }),
-			)
-			client.send(
-				JSON.stringify({ type: 'resize', attachmentId: started.attachmentId, cols: 123, rows: 45 }),
-			)
-			client.send(
-				JSON.stringify({
+			const staleFrames = [
+				{ type: 'input', attachmentId: started.attachmentId, data: 'stale\n' },
+				{ type: 'resize', attachmentId: started.attachmentId, cols: 123, rows: 45 },
+				{
 					type: 'input-action',
 					attachmentId: started.attachmentId,
 					id: 'stale-action',
 					data: 'size\n',
-				}),
-			)
-			await sleep(100)
-			expect(
-				takeQueued(client, (payload) => parseServerMessage(payload)?.type === 'output'),
-			).toBeUndefined()
-			expect(
-				takeQueued(client, (payload) => {
-					const message = parseServerMessage(payload)
-					return message?.type === 'input-accepted' && message.id === 'stale-action'
-				}),
-			).toBeUndefined()
+				},
+			] as const
+			for (const frame of staleFrames) {
+				const error = waitForJsonMessage(client, 10_000, isType('error'))
+				sendJson(client, frame)
+				expect(await error).toEqual({
+					type: 'error',
+					attachmentId: started.attachmentId,
+					message: 'attachment is not committed',
+				})
+			}
 
-			client.send(
-				JSON.stringify({
-					type: 'snapshot-applied',
-					requestId: replacement.requestId,
-					attachmentId: replacement.attachmentId,
-				}),
-			)
+			sendJson(client, {
+				type: 'snapshot-applied',
+				requestId: replacement.requestId,
+				attachmentId: replacement.attachmentId,
+			})
 			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toMatchObject({
 				type: 'attach-committed',
 				attachmentId: replacement.attachmentId,
 			})
-			client.send(
-				JSON.stringify({ type: 'input', attachmentId: replacement.attachmentId, data: 'size\n' }),
-			)
+			sendJson(client, { type: 'input', attachmentId: replacement.attachmentId, data: 'size\n' })
 			const replacementOutput = await waitForJsonMessage(client, 10_000, isType('output'))
 			if (replacementOutput?.type !== 'output') throw new Error('replacement PTY output missing')
 			expect(replacementOutput.data).toContain('24 80')
-			client.send(
-				JSON.stringify({
-					type: 'input-action',
-					attachmentId: replacement.attachmentId,
-					id: 'live-action',
-					data: 'size\n',
-				}),
-			)
+			sendJson(client, {
+				type: 'input-action',
+				attachmentId: replacement.attachmentId,
+				id: 'live-action',
+				data: 'size\n',
+			})
 			expect(await waitForJsonMessage(client, 10_000, isType('input-accepted'))).toMatchObject({
 				type: 'input-accepted',
 				id: 'live-action',
