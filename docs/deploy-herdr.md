@@ -114,8 +114,8 @@ scripts/install-prod.sh
 
 ## Tailscale 调试
 
-调试 unit 直接从本仓源码启动，允许在非 `main` 分支或 worktree 中调试，不使用
-`serve-prod.sh`。安装只复制 unit 并 daemon-reload，不 enable、不 start：
+调试 unit 不使用 `serve-prod.sh`；现有 unit 的 `WorkingDirectory`、`pnpm exec tsx cli.ts` 入口和 config 均固定到主仓
+`/home/zlx/projects/oss/herdweb`，从 worktree 运行 installer 也不会切换到该 worktree。安装只复制 unit 并 daemon-reload，不 enable、不 start：
 
 ```bash
 cd /home/zlx/projects/oss/herdweb
@@ -152,8 +152,8 @@ systemctl --user stop herdweb-debug.service
 
 - PTY 退出：健康车道推送会话结束通知，任意退出码或信号都应可见。
 - 服务重启：只有新 session id 与上次不同且上次 `exitedAt` 距今超过 **120 秒**，才额外推送
-  服务重启通知；120 秒内的 crash-loop 只应收到一条退出类通知。
-- 停机顺序：PTY exit → 写 `last-session.json` → await 在途推送 → `server.close()`。
+  服务重启通知；120 秒只抑制额外的服务重启通知，不抑制每次 target/PTy exit event，包括 crash-loop。
+- 停机顺序：先停止接入、关闭 listener/连接，再 dispose target sessions；所有 target exit facts 完成后 drain notify。
 
 重启后可按端口检查状态目录：
 

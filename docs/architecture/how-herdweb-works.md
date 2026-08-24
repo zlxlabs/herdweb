@@ -67,7 +67,7 @@ flowchart TD
     Commit[Snapshot applied; attachment committed]
 
     Start --> Bundle --> Html --> Binding --> Registry --> Routes --> Notify --> Listen
-    Registry --> Attach --> Spawn --> PTY --> Mirror --> Commit
+    Listen --> Attach --> Registry/getOrStart --> Spawn --> PTY --> Mirror --> Commit
 ```
 
 ## Shared vs per-browser state
