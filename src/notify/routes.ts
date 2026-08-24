@@ -1,7 +1,7 @@
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context, Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
-import { NotifyEventError, isRecord, parseNotifyEvent } from './events'
+import { NotifyEventError, isRecord, parseNotifyEvent, validateNotifyEventForMode } from './events'
 import { parseHistoryLimitParam, readEventHistory } from './history'
 import {
 	type PushSubscriptionRecord,
@@ -28,6 +28,8 @@ interface NotifyRouteDeps {
 	readonly basePath: string
 	readonly notifyService: NotifyService
 	readonly stateDir: string
+	readonly targetMode?: 'single' | 'explicit'
+	readonly targetIds?: readonly string[]
 	readonly token?: string
 	readonly vapidOverride?: Parameters<typeof ensureVapidKeys>[1]
 	readonly securityHeadersForRequest: (hostHeader: string | undefined) => Record<string, string>
@@ -109,6 +111,8 @@ function parseSubscriptionBody(body: PushSubscribeBody): PushSubscriptionRecord 
 
 /** Register notify HTTP routes on every base-path variant. */
 export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
+	const targetMode = deps.targetMode ?? 'single'
+	const targetIds = deps.targetIds ?? ['default']
 	const eventsLimiter = new SlidingWindowRateLimiter(EVENTS_RATE_LIMIT, EVENTS_WINDOW_MS)
 	const pushLimiter = new SlidingWindowRateLimiter(EVENTS_RATE_LIMIT, EVENTS_WINDOW_MS)
 
@@ -129,6 +133,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 			let event: ReturnType<typeof parseNotifyEvent>
 			try {
 				event = parseNotifyEvent(raw)
+				validateNotifyEventForMode(event, targetMode, targetIds)
 			} catch (error) {
 				if (error instanceof NotifyEventError) {
 					return deny(c, deps, securityHeaders, error.message, error.statusCode)
@@ -147,8 +152,14 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 			if (!pushLimiter.allow()) {
 				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
 			}
+			const requestedTargetId = c.req.query('targetId')
+			const targetId =
+				targetMode === 'single' ? (requestedTargetId ?? 'default') : requestedTargetId
+			if (targetId === undefined || !targetIds.includes(targetId)) {
+				return deny(c, deps, securityHeaders, 'unknown targetId', 400)
+			}
 			const limit = parseHistoryLimitParam(c.req.query('limit'))
-			const events = readEventHistory(deps.stateDir, limit)
+			const events = readEventHistory(deps.stateDir, limit, targetId)
 			return deps.withSecurityHeaders(c.json({ events }), securityHeaders)
 		})
 	}
@@ -175,7 +186,8 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 
 			const event = parseNotifyEvent(
 				JSON.stringify({
-					v: 1,
+					v: targetMode === 'explicit' ? 2 : 1,
+					...(targetMode === 'explicit' ? { targetId: targetIds[0] } : {}),
 					kind: 'test',
 					title: 'herdweb test',
 					body: 'Test notification from panel',

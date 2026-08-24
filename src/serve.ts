@@ -438,6 +438,8 @@ function mountNotifyStack(
 	const notifyService = createNotifyService({
 		stateDir,
 		historyLimit: config.notify.history.limit,
+		targetMode: config.targetMode,
+		targetIds: config.targets.map((target) => target.id),
 		vapidOverride: config.notify.vapid,
 		channels: config.notify.channels,
 	})
@@ -445,6 +447,8 @@ function mountNotifyStack(
 		basePath,
 		notifyService,
 		stateDir,
+		targetMode: config.targetMode,
+		targetIds: config.targets.map((target) => target.id),
 		token: config.notify.token,
 		vapidOverride: config.notify.vapid,
 		securityHeadersForRequest,
@@ -563,6 +567,8 @@ export async function serve(
 				notifyService.dispatchEvent(
 					buildRestartEvent({
 						sessionKey: target.id,
+						targetMode: config.targetMode,
+						targetId: target.id,
 						startTime: session.startTime,
 						ts: Date.now(),
 					}),
@@ -570,11 +576,13 @@ export async function serve(
 			}
 			const detector = createSilenceDetector({
 				sessionKey: target.id,
+				targetMode: config.targetMode,
+				targetId: target.id,
 				config: config.notify.silence,
 				bytesInWindow: (windowMs) => session.bytesInWindow(windowMs),
 				lastOutputAt: () => session.lastOutputAt(),
 				dispatch: (event) => notifyService.dispatchEvent(event),
-				lastEventAt: (key) => notifyService.lastEventAt(key),
+				lastEventAt: (targetId, sessionKey) => notifyService.lastEventAt(targetId, sessionKey),
 			})
 			silenceDetectors.set(session.id, detector)
 			sessionLifecycles.set(
@@ -587,6 +595,8 @@ export async function serve(
 						notifyService.dispatchEvent(
 							buildSessionEndEvent({
 								sessionKey: target.id,
+								targetMode: config.targetMode,
+								targetId: target.id,
 								startTime: session.startTime,
 								exitCode: exit.exitCode,
 								signal: exit.signal,

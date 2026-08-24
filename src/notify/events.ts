@@ -1,8 +1,7 @@
 export const NOTIFY_KINDS = ['asking', 'done', 'ci-red', 'silence', 'health', 'test'] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
 
-export interface NotifyEvent {
-	readonly v: 1
+interface NotifyEventFields {
 	readonly id: string
 	readonly kind: NotifyKind
 	readonly session?: string
@@ -12,7 +11,28 @@ export interface NotifyEvent {
 	readonly ts: number
 }
 
-const ALLOWED_FIELDS = new Set(['v', 'id', 'kind', 'session', 'title', 'body', 'reason', 'ts'])
+export interface NotifyEventV1 extends NotifyEventFields {
+	readonly v: 1
+}
+
+export interface NotifyEventV2 extends NotifyEventFields {
+	readonly v: 2
+	readonly targetId: string
+}
+
+export type NotifyEvent = NotifyEventV1 | NotifyEventV2
+
+const ALLOWED_FIELDS = new Set([
+	'v',
+	'targetId',
+	'id',
+	'kind',
+	'session',
+	'title',
+	'body',
+	'reason',
+	'ts',
+])
 const MAX_RAW_BYTES = 4 * 1024
 const TITLE_MAX = 120
 const BODY_MAX = 200
@@ -67,8 +87,14 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		}
 	}
 
-	if (obj.v !== 1) {
+	if (obj.v !== 1 && obj.v !== 2) {
 		throw new NotifyEventError('unsupported event version', 400)
+	}
+	if (obj.v === 2 && (typeof obj.targetId !== 'string' || obj.targetId.length === 0)) {
+		throw new NotifyEventError('targetId is required for v2', 400)
+	}
+	if (obj.v === 1 && obj.targetId !== undefined) {
+		throw new NotifyEventError('targetId requires v2', 400)
 	}
 
 	if (!isNotifyKind(obj.kind)) {
@@ -104,26 +130,40 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('id is required', 400)
 	}
 
-	const event: NotifyEvent = {
-		v: 1,
+	const fields = {
 		id: id ?? '',
 		kind: obj.kind,
 		title: truncate(obj.title, TITLE_MAX),
 		ts: obj.ts,
 	}
 
-	if (obj.session !== undefined) {
-		return {
-			...event,
-			session: obj.session,
-			...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
-			...(obj.reason !== undefined ? { reason: truncate(obj.reason, REASON_MAX) } : {}),
-		}
-	}
-
-	return {
-		...event,
+	const optional = {
+		...(obj.session !== undefined ? { session: obj.session } : {}),
 		...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
 		...(obj.reason !== undefined ? { reason: truncate(obj.reason, REASON_MAX) } : {}),
+	}
+
+	return obj.v === 2
+		? { v: 2, targetId: obj.targetId as string, ...fields, ...optional }
+		: { v: 1, ...fields, ...optional }
+}
+
+export function targetIdForNotifyEvent(event: NotifyEvent): string {
+	return event.v === 2 ? event.targetId : 'default'
+}
+
+export function validateNotifyEventForMode(
+	event: NotifyEvent,
+	targetMode: 'single' | 'explicit',
+	targetIds: readonly string[],
+): void {
+	if (targetMode === 'single' && event.v !== 1) {
+		throw new NotifyEventError('single mode requires v1', 400)
+	}
+	if (targetMode === 'explicit' && event.v !== 2) {
+		throw new NotifyEventError('explicit mode requires v2', 400)
+	}
+	if (event.v === 2 && !targetIds.includes(event.targetId)) {
+		throw new NotifyEventError('unknown targetId', 400)
 	}
 }

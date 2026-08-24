@@ -1,7 +1,12 @@
 import webpush from 'web-push'
 import type { NotifyChannel } from '../types'
 import { sendNotifyChannels } from './channels'
-import { type NotifyEvent, isRecord } from './events'
+import {
+	type NotifyEvent,
+	isRecord,
+	targetIdForNotifyEvent,
+	validateNotifyEventForMode,
+} from './events'
 import {
 	type PushSubscriptionRecord,
 	STALE_SUBSCRIPTION_MS,
@@ -36,6 +41,8 @@ function formatEndpointForLog(endpoint: string): string {
 interface NotifyServiceDeps {
 	readonly stateDir: string
 	readonly historyLimit: number
+	readonly targetMode?: 'single' | 'explicit'
+	readonly targetIds?: readonly string[]
 	readonly vapidOverride?: VapidConfig
 	readonly sendPush?: typeof webpush.sendNotification
 	readonly channels?: readonly NotifyChannel[]
@@ -82,7 +89,7 @@ function mergeSubscriptionDeltas(
 export interface NotifyService {
 	dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate'
 	awaitInFlight(timeoutMs: number): Promise<void>
-	lastEventAt(session?: string): number | undefined
+	lastEventAt(targetId: string, session?: string): number | undefined
 	dispose(): void
 }
 
@@ -112,11 +119,12 @@ class DedupStore {
 
 export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 	const now = deps.now ?? Date.now
+	const targetMode = deps.targetMode ?? 'single'
+	const targetIds = deps.targetIds ?? ['default']
 	let testCounter = 0
 	const dedup = new DedupStore(1000)
 	const inFlight = new Set<Promise<void>>()
-	const lastBySession = new Map<string, number>()
-	let globalLastEventAt: number | undefined
+	const lastByIdentity = new Map<string, number>()
 	let vapid: VapidKeys | undefined
 	let staleScanTimer: ReturnType<typeof setInterval> | undefined
 
@@ -193,10 +201,8 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 	}
 
 	function recordLastEvent(event: NotifyEvent): void {
-		globalLastEventAt = event.ts
-		if (event.session !== undefined) {
-			lastBySession.set(event.session, event.ts)
-		}
+		const targetId = targetIdForNotifyEvent(event)
+		lastByIdentity.set(`${targetId}\u0000${event.session ?? ''}`, event.ts)
 	}
 
 	function pruneStaleSubscriptions(): void {
@@ -219,13 +225,15 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 
 	return {
 		dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate' {
+			validateNotifyEventForMode(event, targetMode, targetIds)
 			const normalized = normalizeEvent(event)
+			const dedupKey = `${targetIdForNotifyEvent(normalized)}\u0000${normalized.id}`
 
 			if (normalized.kind !== 'test') {
-				if (dedup.has(normalized.id)) {
+				if (dedup.has(dedupKey)) {
 					return 'duplicate'
 				}
-				dedup.add(normalized.id)
+				dedup.add(dedupKey)
 				appendEventLine(deps.stateDir, normalized, deps.historyLimit)
 			}
 
@@ -267,11 +275,8 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 		},
 
-		lastEventAt(session?: string): number | undefined {
-			if (session !== undefined) {
-				return lastBySession.get(session)
-			}
-			return globalLastEventAt
+		lastEventAt(targetId: string, session?: string): number | undefined {
+			return lastByIdentity.get(`${targetId}\u0000${session ?? ''}`)
 		},
 
 		dispose(): void {
