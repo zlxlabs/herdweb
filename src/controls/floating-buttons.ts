@@ -4,7 +4,7 @@ import type { ControlButton, FloatingButtonGroup, HerdwebConfig, XTerminal } fro
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
-import { onTap } from '../util/tap'
+import { onAttachmentTap, onTap } from '../util/tap'
 import { createAttachmentGuard, sendData } from '../util/terminal'
 import { decorateKeyboardToggleButton } from './keyboard-controller'
 
@@ -29,7 +29,7 @@ function createGroupButton(
 		decorateKeyboardToggleButton(button)
 	}
 
-	onTap(button, () => {
+	const handleTap = () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
 		const isGenerationCurrent = createAttachmentGuard(term)
@@ -72,7 +72,12 @@ function createGroupButton(
 				button.classList.add('wt-action-error')
 				conditionalFocus(term, kbWasOpen)
 			})
-	})
+	}
+	if (def.action.type === 'send' || def.action.type === 'prefix' || def.action.type === 'paste') {
+		onAttachmentTap(term, button, handleTap)
+	} else {
+		onTap(button, handleTap)
+	}
 
 	return button
 }

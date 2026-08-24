@@ -7,7 +7,7 @@ import type { ControlButton, HerdwebConfig, XTerminal } from '../types'
 import { el, svg } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { conditionalFocus, isKeyboardOpen } from '../util/keyboard'
-import { onTap } from '../util/tap'
+import { onAttachmentTap, onTap } from '../util/tap'
 import { createAttachmentGuard, sendData } from '../util/terminal'
 
 /** Ctrl sticky modifier state */
@@ -101,7 +101,7 @@ function wireButton(
 		return
 	}
 
-	onTap(button, () => {
+	const handleTap = () => {
 		const kbWasOpen = isKeyboardOpen()
 		haptic()
 		const isGenerationCurrent = createAttachmentGuard(term)
@@ -186,7 +186,12 @@ function wireButton(
 				button.classList.add('wt-action-error')
 				conditionalFocus(term, kbWasOpen)
 			})
-	})
+	}
+	if (def.action.type === 'send' || def.action.type === 'prefix' || def.action.type === 'paste') {
+		onAttachmentTap(term, button, handleTap)
+	} else {
+		onTap(button, handleTap)
+	}
 }
 
 /** Build a row of buttons */

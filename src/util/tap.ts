@@ -1,3 +1,6 @@
+import type { XTerminal } from '../types'
+import { createAttachmentGuard } from './terminal'
+
 /**
  * Register a tap handler that works on both touch and non-touch devices.
  *
@@ -49,6 +52,25 @@ export function onTap(element: HTMLElement, handler: (e: Event) => void): void {
 	element.addEventListener('click', (e: Event) => {
 		if (touchFired) return
 		handler(e)
+	})
+}
+
+export function onAttachmentTap(
+	term: XTerminal,
+	element: HTMLElement,
+	handler: (e: Event) => void,
+): void {
+	let touchGuard: (() => boolean) | null = null
+	element.addEventListener('touchstart', () => {
+		touchGuard = createAttachmentGuard(term)
+	})
+	onTap(element, (event) => {
+		if (event.type === 'touchend' && touchGuard !== null) {
+			const guard = touchGuard
+			touchGuard = null
+			if (!guard()) return
+		}
+		handler(event)
 	})
 }
 

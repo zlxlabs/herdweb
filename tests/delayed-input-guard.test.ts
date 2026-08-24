@@ -2,13 +2,16 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createDefaultActionRegistry } from '../src/actions/registry'
 import { defineConfig } from '../src/config'
+import { createDpad } from '../src/controls/dpad'
 import { createScrollButtons } from '../src/controls/scroll-buttons'
 import { createDrawer } from '../src/drawer/drawer'
 import { createGestureLock } from '../src/gestures/lock'
 import { attachScrollGesture, scrollSeq } from '../src/gestures/scroll'
+import { attachSwipeGestures } from '../src/gestures/swipe'
 import { createHookRegistry } from '../src/hooks/registry'
 import { createToolbar } from '../src/toolbar/toolbar'
 import type { ConnectionState, ConnectionStatus, XTerminal } from '../src/types'
+import { _resetTouchGuard } from '../src/util/tap'
 import { mockTerminal } from './fixtures'
 
 interface GuardedMockTerm extends XTerminal {
@@ -135,6 +138,79 @@ afterEach(() => {
 })
 
 describe('T4b delayed-input attachment guard', () => {
+	test('horizontal swipe captured on A sends 0 after A→B before touchend', () => {
+		const term = mockGuardedTerm('att-a')
+		const screen = document.createElement('div')
+		screen.className = 'xterm-screen'
+		document.body.appendChild(screen)
+		attachSwipeGestures(
+			term,
+			{
+				enabled: true,
+				left: 'L',
+				right: 'R',
+				leftLabel: 'L',
+				rightLabel: 'R',
+				threshold: 30,
+				maxDuration: 500,
+			},
+			() => false,
+		)
+		const touch = (clientX: number): Touch => ({ clientX, clientY: 100 }) as unknown as Touch
+
+		screen.dispatchEvent(new TouchEvent('touchstart', { touches: [touch(100)] }))
+		term.setAttachment('att-b')
+		screen.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch(0)] }))
+		expect(term.sent).toEqual([])
+
+		term.setAttachment('att-a')
+		screen.dispatchEvent(new TouchEvent('touchstart', { touches: [touch(100)] }))
+		screen.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch(0)] }))
+		expect(term.sent).toEqual(['L'])
+		document.body.removeChild(screen)
+	})
+
+	test('d-pad touch captured on A sends 0 after A→B before touchend', () => {
+		const term = mockGuardedTerm('att-a')
+		const { element } = createDpad(term)
+		const button = element.querySelector('button')
+		if (!button) throw new Error('no d-pad button')
+
+		button.dispatchEvent(new TouchEvent('touchstart'))
+		term.setAttachment('att-b')
+		button.dispatchEvent(new TouchEvent('touchend'))
+		expect(term.sent).toEqual([])
+
+		term.setAttachment('att-a')
+		button.dispatchEvent(new TouchEvent('touchstart'))
+		button.dispatchEvent(new TouchEvent('touchend'))
+		button.dispatchEvent(new Event('click'))
+		expect(term.sent).toEqual(['\x7f'])
+	})
+
+	test('toolbar touch action captured on A sends 0 after A→B before touchend', async () => {
+		const term = mockGuardedTerm('att-a')
+		const { element: toolbar } = createToolbar(
+			term,
+			sendToolbarConfig(),
+			() => {},
+			createHookRegistry(),
+		)
+		const button = findButtonByLabel(toolbar, 'X')
+
+		button.dispatchEvent(new TouchEvent('touchstart'))
+		term.setAttachment('att-b')
+		button.dispatchEvent(new TouchEvent('touchend'))
+		await flushMicrotasks()
+		expect(term.sent).toEqual([])
+
+		term.setAttachment('att-a')
+		_resetTouchGuard()
+		button.dispatchEvent(new Event('click'))
+		await flushMicrotasks()
+		expect(term.sent).toEqual(['x'])
+	})
+
 	test('toolbar send started on A delivers nothing after switching to B mid-hook', async () => {
 		const term = mockGuardedTerm('att-a')
 		const hooks = createHookRegistry()

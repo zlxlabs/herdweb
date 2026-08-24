@@ -1,7 +1,7 @@
 import type { SwipeConfig, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 
 /** Result of swipe validity check — pure logic, no side effects */
 export function isValidSwipe(
@@ -46,17 +46,23 @@ export function attachSwipeGestures(
 	let startX = 0
 	let startY = 0
 	let startTime = 0
+	let touchGuard: (() => boolean) | null = null
 
 	function onTouchStart(e: TouchEvent): void {
+		touchGuard = null
 		if (isDrawerOpen() || e.touches.length !== 1) return
 		const touch = e.touches[0]
 		if (!touch) return
 		startX = touch.clientX
 		startY = touch.clientY
 		startTime = Date.now()
+		touchGuard = createAttachmentGuard(term)
 	}
 
 	function onTouchEnd(e: TouchEvent): void {
+		const guard = touchGuard
+		touchGuard = null
+		if (!guard || !guard()) return
 		if (isDrawerOpen() || e.changedTouches.length !== 1) return
 		const touch = e.changedTouches[0]
 		if (!touch) return
