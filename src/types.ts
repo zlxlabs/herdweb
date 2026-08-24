@@ -256,6 +256,23 @@ export interface NotifyConfig {
 	readonly channels: readonly NotifyChannel[]
 }
 
+export type TargetMode = 'single' | 'explicit'
+export type TargetImageDrop = 'disabled' | 'local-path'
+
+export interface TargetConfig {
+	readonly id: string
+	readonly name: string
+	readonly command: readonly string[]
+	readonly imageDrop: TargetImageDrop
+}
+
+export interface TargetConfigInput {
+	readonly id: string
+	readonly name: string
+	readonly command: readonly string[]
+	readonly imageDrop?: TargetImageDrop
+}
+
 /** Full herdweb configuration */
 export interface HerdwebConfig {
 	readonly name: string
@@ -276,6 +293,9 @@ export interface HerdwebConfig {
 	readonly reconnect: ReconnectConfig
 	readonly asr: AsrConfig
 	readonly notify: NotifyConfig
+	readonly targetMode: TargetMode
+	readonly targets: readonly TargetConfig[]
+	readonly defaultTargetId: string
 }
 
 /** Deep partial — allows overriding any nested subset of config */
@@ -299,7 +319,7 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons' | 'notify'
+	'toolbar' | 'drawer' | 'floatingButtons' | 'notify' | 'targetMode' | 'targets' | 'defaultTargetId'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -310,6 +330,8 @@ export type HerdwebConfigOverrides = Omit<
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
 	readonly notify?: NotifyConfigOverrides
+	readonly targets?: readonly TargetConfigInput[]
+	readonly defaultTargetId?: string
 }
 
 /**
