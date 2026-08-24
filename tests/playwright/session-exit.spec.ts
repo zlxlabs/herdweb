@@ -1,9 +1,15 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
 import noReconnectConfig from './session-exit.config'
 
 const noReconnectConfigPath = join(import.meta.dirname, 'session-exit.config.ts')
 void noReconnectConfig
+const reconnectConfigDir = mkdtempSync(join(tmpdir(), 'herdweb-session-exit-config-'))
+const reconnectConfigPath = join(reconnectConfigDir, 'herdweb.config.ts')
+writeFileSync(reconnectConfigPath, 'export default { reconnect: { enabled: true } }\n')
+test.afterAll(() => rmSync(reconnectConfigDir, { recursive: true, force: true }))
 const naturalExitServeOptions = { detached: false, killWithParent: false }
 
 const endingCommand = (marker: string): string[] => [
@@ -16,7 +22,11 @@ const endingCommand = (marker: string): string[] => [
 
 test.describe('session exit with reconnect', () => {
 	test.use({
-		serveOptions: { ...naturalExitServeOptions, command: endingCommand('session-exit-e2e') },
+		serveOptions: {
+			...naturalExitServeOptions,
+			command: endingCommand('session-exit-e2e'),
+			configPath: reconnectConfigPath,
+		},
 	})
 
 	test('ended command closes the session and shows reconnect overlay', async ({ page, serve }) => {
@@ -27,7 +37,8 @@ test.describe('session exit with reconnect', () => {
 		await expect(page.locator('#herdweb-reconnect-overlay')).toContainText(
 			'Session ended — restart herdweb to start a new one.',
 		)
-		await expect.poll(() => serve.exited).toBe(0)
+		expect((await fetch(serve.url)).ok).toBe(true)
+		await serve.close()
 	})
 })
 
@@ -50,6 +61,7 @@ test.describe('session exit without reconnect', () => {
 		await expect(page.locator('#herdweb-session-status')).toBeVisible({ timeout: 10_000 })
 		await expect(page.locator('#herdweb-session-status')).toContainText('Session ended')
 		await expect(page.locator('#herdweb-reconnect-overlay')).toHaveCount(0)
-		await expect.poll(() => serve.exited).toBe(0)
+		expect((await fetch(serve.url)).ok).toBe(true)
+		await serve.close()
 	})
 })

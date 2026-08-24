@@ -3,7 +3,8 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
-import { collectStream, sleep, spawnProcess } from '../src/util/node-compat'
+import WebSocket from 'ws'
+import { type SpawnedProcess, collectStream, sleep, spawnProcess } from '../src/util/node-compat'
 
 interface CliResult {
 	readonly exitCode: number
@@ -37,7 +38,11 @@ function createIsolatedEnv(): NodeJS.ProcessEnv {
 	return { ...process.env, XDG_CONFIG_HOME: createTempDir() }
 }
 
-async function runCli(args: readonly string[], cwd: string = repoRoot): Promise<CliResult> {
+async function runCli(
+	args: readonly string[],
+	cwd: string = repoRoot,
+	onSpawn?: (proc: SpawnedProcess) => Promise<void>,
+): Promise<CliResult> {
 	const proc = spawnProcess(['tsx', join(repoRoot, 'cli.ts'), ...args], {
 		cwd,
 		env: createIsolatedEnv(),
@@ -45,6 +50,7 @@ async function runCli(args: readonly string[], cwd: string = repoRoot): Promise<
 		stdout: 'pipe',
 		stderr: 'pipe',
 	})
+	if (onSpawn) await onSpawn(proc)
 
 	const [exitCode, stdout, stderr] = await Promise.all([
 		proc.exited,
@@ -53,6 +59,19 @@ async function runCli(args: readonly string[], cwd: string = repoRoot): Promise<
 	])
 
 	return { exitCode, stdout, stderr }
+}
+
+function openSession(port: number): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+			origin: `http://127.0.0.1:${port}`,
+		})
+		ws.once('error', reject)
+		ws.once('message', () => {
+			ws.close()
+			resolve()
+		})
+	})
 }
 
 function writeConfig(dir: string, source: string): string {
@@ -168,21 +187,28 @@ describe('CLI command validation', () => {
 		const configPath = writeConfig(dir, 'export default {}')
 		const argvPath = join(dir, 'argv.json')
 		const port = await reservePort()
-		const result = await runCli([
-			'serve',
-			'--config',
-			configPath,
-			'--port',
-			String(port),
-			'--',
-			'node',
-			'-e',
-			"require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2)))",
-			argvPath,
-			'sp ace',
-			'值',
-			'--literal',
-		])
+		const result = await runCli(
+			[
+				'serve',
+				'--config',
+				configPath,
+				'--port',
+				String(port),
+				'--',
+				'node',
+				'-e',
+				"require('node:fs').writeFileSync(process.argv[1], JSON.stringify(process.argv.slice(2))); process.kill(process.ppid, 'SIGTERM')",
+				argvPath,
+				'sp ace',
+				'值',
+				'--literal',
+			],
+			repoRoot,
+			async () => {
+				await waitForHttp(`http://127.0.0.1:${port}`)
+				await openSession(port)
+			},
+		)
 		expect(result.exitCode).toBe(0)
 		expect(JSON.parse(readFileSync(argvPath, 'utf8'))).toEqual(['sp ace', '值', '--literal'])
 	})

@@ -1,9 +1,13 @@
 // @vitest-environment node
 
 import { execFileSync } from 'node:child_process'
-import { createConnection } from 'node:net'
+import { mkdtempSync, rmSync, watch } from 'node:fs'
+import { createConnection, createServer } from 'node:net'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
+import WebSocket from 'ws'
+import { readLastSessionStore } from '../src/notify/state'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
@@ -32,6 +36,26 @@ async function waitForPort(port: number, listening: boolean, timeoutMs: number):
 		await sleep(100)
 	}
 	throw new Error(`timed out waiting for port ${port} to be ${listening ? 'open' : 'closed'}`)
+}
+
+async function waitForExitFact(stateDir: string): Promise<{ exitCode: number }> {
+	for (;;) {
+		const value = readLastSessionStore(stateDir).default
+		if (value && typeof value.exitCode === 'number') return value
+		await new Promise<void>((resolve, reject) => {
+			const watcher = watch(stateDir, (_event, filename) => {
+				if (filename !== 'last-session.json') return
+				watcher.close()
+				resolve()
+			})
+			const current = readLastSessionStore(stateDir).default
+			if (current && typeof current.exitCode === 'number') {
+				watcher.close()
+				resolve()
+			}
+			watcher.once('error', reject)
+		})
+	}
 }
 
 function orphanedServePids(port: number): number[] {
@@ -67,6 +91,7 @@ async function readPort(proc: ReturnType<typeof spawnProcess>): Promise<number> 
 }
 
 test('isolated serve dies with the caller process', async () => {
+	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))
 	const caller = spawnProcess(
 		[
 			process.execPath,
@@ -74,11 +99,12 @@ test('isolated serve dies with the caller process', async () => {
 			tsxLoader,
 			'--eval',
 			[
-				"void (async () => { const { startIsolatedServe } = await import('./tests/playwright/isolated-serve.ts'); const server = await startIsolatedServe(); console.log(server.port); setInterval(() => {}, 1000) })()",
+				"void (async () => { const { startIsolatedServe } = await import('./tests/playwright/isolated-serve.ts'); const server = await startIsolatedServe({ configPath: 'tests/playwright/session-exit.config.ts' }); console.log(server.port); setInterval(() => {}, 1000) })()",
 			].join('\n'),
 		],
 		{
 			cwd: repoRoot,
+			env: { ...process.env, XDG_CONFIG_HOME: configHome },
 			stdin: 'ignore',
 			stdout: 'pipe',
 			stderr: 'pipe',
@@ -102,5 +128,83 @@ test('isolated serve dies with the caller process', async () => {
 				if (Number.isInteger(pid) && pid > 0) process.kill(pid, 'SIGKILL')
 			}
 		}
+		rmSync(configHome, { recursive: true, force: true })
+	}
+})
+
+test('target exit retains the server until SIGTERM and writes its exit fact', async () => {
+	const port = Number(
+		await new Promise<string>((resolve, reject) => {
+			const server = createServer()
+			server.listen(0, '127.0.0.1', () => {
+				const address = server.address()
+				if (!address || typeof address === 'string') {
+					reject(new Error('failed to reserve test port'))
+					return
+				}
+				const value = String(address.port)
+				server.close(() => resolve(value))
+			})
+		}),
+	)
+	const stateRoot = mkdtempSync(join(tmpdir(), 'herdweb-process-lifecycle-'))
+	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))
+	const proc = spawnProcess(
+		[
+			join(repoRoot, 'node_modules/.bin/tsx'),
+			'cli.ts',
+			'serve',
+			'--port',
+			String(port),
+			'--',
+			'bash',
+			'--norc',
+			'--noprofile',
+			'-c',
+			'test "$XDG_CONFIG_HOME" = "$EXPECTED_CONFIG_HOME"',
+		],
+		{
+			cwd: repoRoot,
+			env: {
+				...process.env,
+				EXPECTED_CONFIG_HOME: configHome,
+				XDG_CONFIG_HOME: configHome,
+				XDG_STATE_HOME: stateRoot,
+			},
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	)
+	let exited = false
+	void proc.exited.then(() => {
+		exited = true
+	})
+	try {
+		await waitForPort(port, true, 10_000)
+		await new Promise<void>((resolve, reject) => {
+			const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+				origin: `http://127.0.0.1:${port}`,
+			})
+			ws.once('error', reject)
+			ws.on('message', (data) => {
+				if (JSON.parse(data.toString()).type !== 'exit') return
+				ws.close()
+				resolve()
+			})
+		})
+		expect(exited).toBe(false)
+		expect(await isPortListening(port)).toBe(true)
+		expect((await fetch(`http://127.0.0.1:${port}`)).status).toBe(200)
+		const stateDir = join(stateRoot, 'herdweb', String(port))
+		expect(await waitForExitFact(stateDir)).toMatchObject({ exitCode: 0 })
+
+		proc.kill('SIGTERM')
+		expect(await proc.exited).toBe(0)
+		await waitForPort(port, false, 10_000)
+	} finally {
+		proc.kill('SIGTERM')
+		await proc.exited.catch(() => 1)
+		rmSync(stateRoot, { recursive: true, force: true })
+		rmSync(configHome, { recursive: true, force: true })
 	}
 })
