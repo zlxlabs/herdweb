@@ -1,3 +1,22 @@
+# [1.7.0](https://github.com/zlxlabs/herdweb/compare/v1.6.1...v1.7.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **client:** project browser configuration ([d5cd124](https://github.com/zlxlabs/herdweb/commit/d5cd124bd446d1cb60fe6287b777b99e013f974e))
+* **server:** bound terminal mirror backlog ([96d7a6e](https://github.com/zlxlabs/herdweb/commit/96d7a6e29dcfb20de754013ec8960cfc695af580))
+* **server:** isolate slow websocket clients ([99a02da](https://github.com/zlxlabs/herdweb/commit/99a02da07d42bbc09a92de0174a73ab7d1f6c87e))
+* **server:** retain service on exit fact write failure ([6daf048](https://github.com/zlxlabs/herdweb/commit/6daf048e73c6039666e4a833831fc082aa87890c))
+
+
+### Features
+
+* **cli:** enforce target command modes ([715f77a](https://github.com/zlxlabs/herdweb/commit/715f77a2573708e5e4e1a39a03bcba73b15d1b4c))
+* **config:** validate target configuration ([928cd75](https://github.com/zlxlabs/herdweb/commit/928cd75a3cdeb0b6de962921b1cf0428c1175b9d))
+* **server:** add lazy target registry ([0eaa802](https://github.com/zlxlabs/herdweb/commit/0eaa802cdbaac8ae8fe0449ef5575b4b14303e44))
+* **server:** keep serving after target exit ([a64b0c0](https://github.com/zlxlabs/herdweb/commit/a64b0c076a4f0a83f6c45fba1c9d5efb4f4eea24))
+* **target:** add target config contract ([f403ae8](https://github.com/zlxlabs/herdweb/commit/f403ae870ea979ae05a88687f1b77ff6008a31bc))
+
 ## [1.6.1](https://github.com/zlxlabs/herdweb/compare/v1.6.0...v1.6.1) (2026-08-23)
 
 
