@@ -80,9 +80,12 @@ export interface PongMessage {
 	readonly id: string
 }
 
+/** @public */
 export type TargetProcessState = 'not-started' | 'starting' | 'process-running' | 'process-exited'
+/** @public */
 export type TargetFailure = 'target-start-failed' | 'target-process-exited'
 
+/** @public */
 export interface TargetSummary {
 	readonly id: string
 	readonly name: string
@@ -93,6 +96,7 @@ export interface TargetSummary {
 	readonly capabilities: { readonly imageDrop: 'local-path' | 'disabled' }
 }
 
+/** @public */
 export type AttachError =
 	| 'unknown-target'
 	| 'target-start-failed'
@@ -123,7 +127,7 @@ export type SnapshotFailedMessage = ProtocolMessage<
 
 export type TargetRestartedMessage = ProtocolMessage<
 	'target-restarted',
-	Record<'targetId' | 'sessionId', string>
+	Readonly<Record<'targetId' | 'sessionId', string>>
 >
 
 /**
@@ -210,6 +214,14 @@ const isTargetFailure = (value: unknown): value is TargetFailure =>
 const isImageDrop = (value: unknown): value is TargetSummary['capabilities']['imageDrop'] =>
 	value === 'local-path' || value === 'disabled'
 
+const isAttachError = (value: unknown): value is AttachError =>
+	value === 'unknown-target' ||
+	value === 'target-start-failed' ||
+	value === 'target-process-exited' ||
+	value === 'attach-superseded' ||
+	value === 'snapshot-failed' ||
+	value === 'protocol-violation'
+
 function isInteger(value: unknown): value is number {
 	return typeof value === 'number' && Number.isInteger(value)
 }
@@ -246,9 +258,20 @@ function parseTargetSummary(value: unknown): TargetSummary | null {
 	}
 }
 
-function parseProtocol2TargetMessage(
-	parsed: Record<string, unknown>,
-): ServerReadyMessage | TargetsMessage | TargetStatusMessage | null {
+function parseTargetRequestFields(value: Record<string, unknown>): TargetRequestFields | null {
+	return isProtocolId(value.requestId) && isTargetId(value.targetId)
+		? { requestId: value.requestId, targetId: value.targetId }
+		: null
+}
+
+function parseAttachmentFields(value: Record<string, unknown>): AttachmentFields | null {
+	const fields = parseTargetRequestFields(value)
+	return fields !== null && isProtocolId(value.attachmentId)
+		? { ...fields, attachmentId: value.attachmentId }
+		: null
+}
+
+function parseProtocol2TargetMessage(parsed: Record<string, unknown>): ServerMessage | null {
 	switch (parsed.type) {
 		case 'server-ready':
 			return parsed.protocol === 2 ? { type: 'server-ready', protocol: 2 } : null
@@ -269,6 +292,39 @@ function parseProtocol2TargetMessage(
 			const target = parseTargetSummary(parsed.target)
 			return target === null ? null : { type: 'target-status', target }
 		}
+		case 'attach-started':
+		case 'attach-committed': {
+			const fields = parseAttachmentFields(parsed)
+			if (fields === null) return null
+			return {
+				type: parsed.type,
+				...fields,
+			}
+		}
+		case 'attach-rejected': {
+			const fields = parseTargetRequestFields(parsed)
+			return fields !== null && isAttachError(parsed.reason)
+				? {
+						type: 'attach-rejected',
+						...fields,
+						reason: parsed.reason,
+					}
+				: null
+		}
+		case 'snapshot-failed': {
+			const fields = parseAttachmentFields(parsed)
+			return fields !== null && parsed.reason === 'timeout'
+				? {
+						type: 'snapshot-failed',
+						...fields,
+						reason: 'timeout',
+					}
+				: null
+		}
+		case 'target-restarted':
+			return isTargetId(parsed.targetId) && isProtocolId(parsed.sessionId)
+				? { type: 'target-restarted', targetId: parsed.targetId, sessionId: parsed.sessionId }
+				: null
 		default:
 			return null
 	}
