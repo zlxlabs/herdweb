@@ -1,4 +1,5 @@
 import { SharedTerminalSession } from './session'
+import type { TargetSummary } from './session-protocol'
 import type { TargetConfig } from './types'
 export type TargetSession = Pick<SharedTerminalSession, 'id' | 'onExit' | 'dispose'>
 export type TargetSessionFactory = (command: readonly string[]) => TargetSession
@@ -43,6 +44,31 @@ export class TargetRegistry {
 	}
 	getStatus(id: string): TargetStatus {
 		return this.entry(id).status
+	}
+	getSummaries(): TargetSummary[] {
+		const summaries: TargetSummary[] = []
+		for (const { target, status } of this.entries.values()) {
+			const summary = {
+				id: target.id,
+				name: target.name,
+				processState: status.state,
+				capabilities: { imageDrop: target.imageDrop },
+			} satisfies Omit<TargetSummary, 'exit' | 'failure'>
+			if (status.state !== 'process-exited') {
+				summaries.push(summary)
+				continue
+			}
+			if (status.error !== undefined || status.exitCode === null) {
+				summaries.push({ ...summary, failure: 'target-start-failed' as const })
+				continue
+			}
+			summaries.push({
+				...summary,
+				exit: { code: status.exitCode, signal: status.signal },
+				failure: 'target-process-exited' as const,
+			})
+		}
+		return summaries
 	}
 	getOrStart(id: string): Promise<TargetSession> {
 		this.assertOpen()
