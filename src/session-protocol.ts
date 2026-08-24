@@ -20,11 +20,34 @@ export interface InputActionMessage {
 	readonly data: string
 }
 
-export type ClientMessage = InputMessage | ResizeMessage | PingMessage | InputActionMessage
+type TargetRequestFields = Readonly<Record<'requestId' | 'targetId', string>>
+type AttachmentFields = TargetRequestFields & Readonly<Record<'attachmentId', string>>
+type ProtocolMessage<Type extends string, Fields> = { readonly type: Type } & Fields
+
+export type AttachTargetMessage = ProtocolMessage<
+	'attach-target',
+	TargetRequestFields & Readonly<Record<'cols' | 'rows', number>>
+>
+
+export type RestartTargetMessage = ProtocolMessage<'restart-target', TargetRequestFields>
+
+export type SnapshotAppliedMessage = ProtocolMessage<
+	'snapshot-applied',
+	Readonly<Record<'requestId' | 'attachmentId', string>>
+>
+
+export type ClientMessage =
+	| InputMessage
+	| ResizeMessage
+	| PingMessage
+	| InputActionMessage
+	| AttachTargetMessage
+	| RestartTargetMessage
+	| SnapshotAppliedMessage
 
 export const MAX_CLIENT_MESSAGE_BYTES = 256 * 1024
 export const MAX_CLIENT_INPUT_BYTES = 256 * 1024
-export const MAX_ACTION_ID_BYTES = 128
+export const MAX_PROTOCOL_ID_BYTES = 64
 export const MAX_RESIZE_COLS = 500
 export const MAX_RESIZE_ROWS = 200
 
@@ -57,6 +80,52 @@ export interface PongMessage {
 	readonly id: string
 }
 
+export type TargetProcessState = 'not-started' | 'starting' | 'process-running' | 'process-exited'
+export type TargetFailure = 'target-start-failed' | 'target-process-exited'
+
+export interface TargetSummary {
+	readonly id: string
+	readonly name: string
+	readonly processState: TargetProcessState
+	readonly lastActivityAt?: number
+	readonly exit?: { readonly code: number; readonly signal: number | null }
+	readonly failure?: TargetFailure
+	readonly capabilities: { readonly imageDrop: 'local-path' | 'disabled' }
+}
+
+export type AttachError =
+	| 'unknown-target'
+	| 'target-start-failed'
+	| 'target-process-exited'
+	| 'attach-superseded'
+	| 'snapshot-failed'
+	| 'protocol-violation'
+
+export type ServerReadyMessage = ProtocolMessage<'server-ready', { readonly protocol: 2 }>
+export type TargetsMessage = ProtocolMessage<'targets', { readonly targets: TargetSummary[] }>
+export type TargetStatusMessage = ProtocolMessage<
+	'target-status',
+	{ readonly target: TargetSummary }
+>
+
+export type AttachStartedMessage = AttachmentFields & { readonly type: 'attach-started' }
+export type AttachCommittedMessage = AttachmentFields & { readonly type: 'attach-committed' }
+
+export type AttachRejectedMessage = ProtocolMessage<
+	'attach-rejected',
+	TargetRequestFields & Readonly<Record<'reason', AttachError>>
+>
+
+export type SnapshotFailedMessage = ProtocolMessage<
+	'snapshot-failed',
+	AttachmentFields & Readonly<Record<'reason', 'timeout'>>
+>
+
+export type TargetRestartedMessage = ProtocolMessage<
+	'target-restarted',
+	Record<'targetId' | 'sessionId', string>
+>
+
 /**
  * herdweb 已把 data 交给当前 PTY 的写入队列，并已记入 session 内去重账本。
  *
@@ -85,6 +154,14 @@ export type ServerMessage =
 	| PongMessage
 	| InputAcceptedMessage
 	| InputRejectedMessage
+	| ServerReadyMessage
+	| TargetsMessage
+	| TargetStatusMessage
+	| AttachStartedMessage
+	| AttachCommittedMessage
+	| AttachRejectedMessage
+	| SnapshotFailedMessage
+	| TargetRestartedMessage
 
 function isRecord(value: unknown): value is Record<string, unknown> {
 	return typeof value === 'object' && value !== null && !Array.isArray(value)
@@ -100,13 +177,17 @@ function isInputWithinLimit(value: string): boolean {
 	return utf8Encoder.encode(value).byteLength <= MAX_CLIENT_INPUT_BYTES
 }
 
-function isActionId(value: unknown): value is string {
+function isProtocolId(value: unknown): value is string {
 	return (
 		typeof value === 'string' &&
 		value.length > 0 &&
-		utf8Encoder.encode(value).byteLength <= MAX_ACTION_ID_BYTES
+		utf8Encoder.encode(value).byteLength <= MAX_PROTOCOL_ID_BYTES
 	)
 }
+
+const targetIdPattern = /^[a-z0-9][a-z0-9._-]{0,63}$/u
+const isTargetId = (value: unknown): value is string =>
+	typeof value === 'string' && targetIdPattern.test(value)
 
 export function serialiseClientMessage(message: ClientMessage): string {
 	return JSON.stringify(message)
@@ -138,13 +219,43 @@ export function parseClientMessage(payload: string): ClientMessage | null {
 					: null
 
 			case 'ping':
-				return isActionId(parsed.id) ? { type: 'ping', id: parsed.id } : null
+				return isProtocolId(parsed.id) ? { type: 'ping', id: parsed.id } : null
 
 			case 'input-action':
-				return isActionId(parsed.id) &&
+				return isProtocolId(parsed.id) &&
 					typeof parsed.data === 'string' &&
 					isInputWithinLimit(parsed.data)
 					? { type: 'input-action', id: parsed.id, data: parsed.data }
+					: null
+
+			case 'attach-target':
+				return isProtocolId(parsed.requestId) &&
+					isTargetId(parsed.targetId) &&
+					isFinitePositiveInteger(parsed.cols) &&
+					parsed.cols <= MAX_RESIZE_COLS &&
+					isFinitePositiveInteger(parsed.rows) &&
+					parsed.rows <= MAX_RESIZE_ROWS
+					? {
+							type: 'attach-target',
+							requestId: parsed.requestId,
+							targetId: parsed.targetId,
+							cols: parsed.cols,
+							rows: parsed.rows,
+						}
+					: null
+
+			case 'restart-target':
+				return isProtocolId(parsed.requestId) && isTargetId(parsed.targetId)
+					? { type: 'restart-target', requestId: parsed.requestId, targetId: parsed.targetId }
+					: null
+
+			case 'snapshot-applied':
+				return isProtocolId(parsed.requestId) && isProtocolId(parsed.attachmentId)
+					? {
+							type: 'snapshot-applied',
+							requestId: parsed.requestId,
+							attachmentId: parsed.attachmentId,
+						}
 					: null
 
 			default:
@@ -165,8 +276,7 @@ export function parseServerMessage(payload: string): ServerMessage | null {
 		switch (parsed.type) {
 			case 'snapshot':
 				return typeof parsed.data === 'string' &&
-					typeof parsed.sessionId === 'string' &&
-					parsed.sessionId.length > 0 &&
+					isProtocolId(parsed.sessionId) &&
 					Number.isInteger(parsed.outputWatermark) &&
 					typeof parsed.outputWatermark === 'number' &&
 					parsed.outputWatermark >= 0
@@ -202,13 +312,13 @@ export function parseServerMessage(payload: string): ServerMessage | null {
 					: null
 
 			case 'pong':
-				return isActionId(parsed.id) ? { type: 'pong', id: parsed.id } : null
+				return isProtocolId(parsed.id) ? { type: 'pong', id: parsed.id } : null
 
 			case 'input-accepted':
-				return isActionId(parsed.id) ? { type: 'input-accepted', id: parsed.id } : null
+				return isProtocolId(parsed.id) ? { type: 'input-accepted', id: parsed.id } : null
 
 			case 'input-rejected':
-				return isActionId(parsed.id) &&
+				return isProtocolId(parsed.id) &&
 					(parsed.reason === 'id-conflict' || parsed.reason === 'session-unavailable')
 					? { type: 'input-rejected', id: parsed.id, reason: parsed.reason }
 					: null
