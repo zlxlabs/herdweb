@@ -848,27 +848,35 @@ describe('client connection state machine', () => {
 		expect(getStatus().consecutivePreSyncFailures).toBe(1)
 	})
 
-	test('exit stops automatic reconnect and reports the session-ended action', async () => {
+	test('exit immediately ends the target without closing the control socket', async () => {
 		const socket = await freshSynced()
 		const socketCount = harness.sockets.length
+		const pingCount = socket.sent.filter((payload) => JSON.parse(payload).type === 'ping').length
 		let notice = ''
 		const onNotice = (event: Event): void => {
 			if (event instanceof CustomEvent && typeof event.detail === 'string') notice = event.detail
 		}
 		window.addEventListener('herdweb-connection-notice', onNotice)
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
-		socket.close()
+		expect(getStatus().state).toBe('disconnected')
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(
+			document.querySelector<HTMLDivElement>('#herdweb-session-status')?.textContent,
+		).toContain('Session ended')
+		window.term?.input('must-not-be-sent', true)
 		await vi.advanceTimersByTimeAsync(20_000)
 		window.removeEventListener('herdweb-connection-notice', onNotice)
-		expect(getStatus().state).toBe('disconnected')
 		expect(notice).toBe('Session ended — restart herdweb to start a new one.')
 		expect(harness.sockets).toHaveLength(socketCount)
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(socket.sent.filter((payload) => JSON.parse(payload).type === 'ping')).toHaveLength(
+			pingCount,
+		)
 	})
 
 	test('retrying an ended session and receiving exit again stops again', async () => {
 		const socket = await freshSynced()
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
-		socket.close()
 		const socketCount = harness.sockets.length
 		window.term?.requestReconnect()
 		await vi.advanceTimersByTimeAsync(0)
@@ -876,7 +884,6 @@ describe('client connection state machine', () => {
 		const retrySocket = currentSocket()
 		openWithAttach(retrySocket)
 		receive(retrySocket, { type: 'exit', exitCode: 0, signal: null })
-		retrySocket.close()
 		await vi.advanceTimersByTimeAsync(20_000)
 		expect(harness.sockets).toHaveLength(socketCount + 1)
 		expect(getStatus().state).toBe('disconnected')
@@ -885,7 +892,6 @@ describe('client connection state machine', () => {
 	test('retrying an ended session can recover after a new snapshot', async () => {
 		const socket = await freshSynced()
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
-		socket.close()
 		window.term?.requestReconnect()
 		await vi.advanceTimersByTimeAsync(0)
 		const retrySocket = currentSocket()
@@ -901,6 +907,22 @@ describe('client connection state machine', () => {
 			consecutivePreSyncFailures: 0,
 			lastFailureReason: null,
 		})
+	})
+
+	test('target-restarted reuses the open control socket after exit', async () => {
+		const socket = await freshSynced()
+		receive(socket, { type: 'exit', exitCode: 0, signal: null })
+		receive(socket, { type: 'target-restarted', targetId: 'default', sessionId: 'new-session' })
+		expect(currentSocket()).toBe(socket)
+		const started = startAttachment(socket)
+		receive(socket, {
+			type: 'snapshot',
+			attachmentId: started.attachmentId,
+			data: 'restarted session',
+			sessionId: 'new-session',
+			outputWatermark: 0,
+		})
+		expect(getStatus().state).toBe('synced')
 	})
 
 	test('a fresh epoch emits only the final resize after syncing', async () => {

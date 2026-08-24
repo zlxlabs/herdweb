@@ -333,7 +333,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	}
 
 	function beginAttach(myEpoch: number, nextTargetId: string, cols: number, rows: number): void {
-		if (myEpoch !== currentEpoch || socket?.readyState !== WebSocket.OPEN) return
+		if (myEpoch !== currentEpoch || socket?.readyState !== WebSocket.OPEN || exitReceived) return
+		exitReceived = false
+		if (statusOverlay) statusOverlay.element.style.display = 'none'
 		const requestId = crypto.randomUUID()
 		targetId = nextTargetId
 		attachRequestId = requestId
@@ -727,7 +729,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 					failConnection(myEpoch, 'snapshot-timeout')
 				return
 			case 'target-restarted':
-				if (targetId === message.targetId) beginAttach(myEpoch, targetId, term.cols, term.rows)
+				if (targetId === message.targetId) {
+					exitReceived = false
+					beginAttach(myEpoch, targetId, term.cols, term.rows)
+				}
 				return
 			case 'snapshot':
 				applySnapshot(
@@ -741,10 +746,27 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			case 'output':
 				handleOutput(myEpoch, message.attachmentId, message.seq, message.data)
 				return
-			case 'exit':
+			case 'exit': {
 				if (attachmentId !== message.attachmentId) return
 				exitReceived = true
+				clearConnectionTimers()
+				stopHeartbeat()
+				snapshotLoaded = false
+				snapshotApplying = false
+				sessionId = null
+				attachRequestId = null
+				attachmentId = null
+				clearPendingOutput()
+				pendingResize = null
+				notSentNoticeShown = true
+				setConnectionStatus('disconnected')
+				const sessionEndedNotice = 'Session ended — restart herdweb to start a new one.'
+				window.dispatchEvent(
+					new CustomEvent('herdweb-connection-notice', { detail: sessionEndedNotice }),
+				)
+				showSessionStatus(sessionEndedNotice)
 				return
+			}
 			case 'error':
 				if (attachmentId !== message.attachmentId) return
 				console.error(`herdweb: ${message.message}`)

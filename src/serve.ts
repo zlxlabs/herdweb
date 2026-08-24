@@ -834,7 +834,7 @@ export async function serve(
 							return
 						}
 						const record = connection.attachments.get(message.attachmentId)
-						if (!record || !capability.committed) {
+						if (!record || !capability.committed || !binding.acceptsInput(connection.id)) {
 							connection.transport.send({
 								type: 'error',
 								attachmentId: message.attachmentId,
