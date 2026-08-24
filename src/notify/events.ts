@@ -144,7 +144,7 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 	}
 
 	return obj.v === 2
-		? { v: 2, targetId: obj.targetId as string, ...fields, ...optional }
+		? { v: 2, targetId: String(obj.targetId), ...fields, ...optional }
 		: { v: 1, ...fields, ...optional }
 }
 
