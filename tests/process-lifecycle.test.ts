@@ -1,13 +1,12 @@
 // @vitest-environment node
 
 import { execFileSync } from 'node:child_process'
-import { mkdtempSync, rmSync, watch } from 'node:fs'
+import { chmodSync, mkdtempSync, rmSync } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { expect, test } from 'vitest'
 import WebSocket from 'ws'
-import { readLastSessionStore } from '../src/notify/state'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
@@ -38,24 +37,48 @@ async function waitForPort(port: number, listening: boolean, timeoutMs: number):
 	throw new Error(`timed out waiting for port ${port} to be ${listening ? 'open' : 'closed'}`)
 }
 
-async function waitForExitFact(stateDir: string): Promise<{ exitCode: number }> {
-	for (;;) {
-		const value = readLastSessionStore(stateDir).default
-		if (value && typeof value.exitCode === 'number') return value
-		await new Promise<void>((resolve, reject) => {
-			const watcher = watch(stateDir, (_event, filename) => {
-				if (filename !== 'last-session.json') return
-				watcher.close()
-				resolve()
-			})
-			const current = readLastSessionStore(stateDir).default
-			if (current && typeof current.exitCode === 'number') {
-				watcher.close()
-				resolve()
-			}
-			watcher.once('error', reject)
-		})
-	}
+async function reservePort(): Promise<number> {
+	const server = createServer()
+	await new Promise<void>((resolve, reject) => {
+		server.once('error', reject)
+		server.listen(0, '127.0.0.1', () => resolve())
+	})
+	const address = server.address()
+	if (!address || typeof address === 'string') throw new Error('failed to reserve test port')
+	const port = address.port
+	await new Promise<void>((resolve, reject) => {
+		server.close((error) => (error ? reject(error) : resolve()))
+	})
+	return port
+}
+
+async function waitForStderr(proc: ReturnType<typeof spawnProcess>, marker: string): Promise<void> {
+	const stderr = proc.stderr
+	if (!stderr) throw new Error('caller stderr is not piped')
+	await new Promise<void>((resolve, reject) => {
+		let output = ''
+		const timer = setTimeout(() => {
+			cleanup()
+			reject(new Error(`timed out waiting for stderr marker ${marker}: ${output}`))
+		}, 10_000)
+		const onData = (chunk: Buffer): void => {
+			output += chunk.toString('utf8')
+			if (!output.includes(marker)) return
+			cleanup()
+			resolve()
+		}
+		const onExit = (code: number): void => {
+			cleanup()
+			reject(new Error(`caller exited with ${code} before stderr marker ${marker}: ${output}`))
+		}
+		const cleanup = (): void => {
+			clearTimeout(timer)
+			stderr.off('data', onData)
+			void proc.exited.then(() => undefined)
+		}
+		stderr.on('data', onData)
+		void proc.exited.then(onExit)
+	})
 }
 
 function orphanedServePids(port: number): number[] {
@@ -132,21 +155,8 @@ test('isolated serve dies with the caller process', async () => {
 	}
 })
 
-test('target exit retains the server until SIGTERM and writes its exit fact', async () => {
-	const port = Number(
-		await new Promise<string>((resolve, reject) => {
-			const server = createServer()
-			server.listen(0, '127.0.0.1', () => {
-				const address = server.address()
-				if (!address || typeof address === 'string') {
-					reject(new Error('failed to reserve test port'))
-					return
-				}
-				const value = String(address.port)
-				server.close(() => resolve(value))
-			})
-		}),
-	)
+test('target exit retains the server when exit fact writing fails', async () => {
+	const port = await reservePort()
 	const stateRoot = mkdtempSync(join(tmpdir(), 'herdweb-process-lifecycle-'))
 	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))
 	const proc = spawnProcess(
@@ -161,7 +171,7 @@ test('target exit retains the server until SIGTERM and writes its exit fact', as
 			'--norc',
 			'--noprofile',
 			'-c',
-			'test "$XDG_CONFIG_HOME" = "$EXPECTED_CONFIG_HOME"',
+			'read -r; test "$XDG_CONFIG_HOME" = "$EXPECTED_CONFIG_HOME"',
 		],
 		{
 			cwd: repoRoot,
@@ -181,23 +191,51 @@ test('target exit retains the server until SIGTERM and writes its exit fact', as
 	})
 	try {
 		await waitForPort(port, true, 10_000)
+		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+			origin: `http://127.0.0.1:${port}`,
+		})
 		await new Promise<void>((resolve, reject) => {
-			const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
-				origin: `http://127.0.0.1:${port}`,
-			})
 			ws.once('error', reject)
 			ws.on('message', (data) => {
-				if (JSON.parse(data.toString()).type !== 'exit') return
-				ws.close()
+				if (JSON.parse(data.toString()).type !== 'snapshot') return
 				resolve()
 			})
 		})
+		const stateDir = join(stateRoot, 'herdweb', String(port))
+		chmodSync(stateDir, 0o500)
+		ws.send(JSON.stringify({ type: 'input', data: '\r' }))
+		await waitForStderr(proc, 'herdweb: target exit fact write failed')
 		expect(exited).toBe(false)
 		expect(await isPortListening(port)).toBe(true)
 		expect((await fetch(`http://127.0.0.1:${port}`)).status).toBe(200)
-		const stateDir = join(stateRoot, 'herdweb', String(port))
-		expect(await waitForExitFact(stateDir)).toMatchObject({ exitCode: 0 })
 
+		proc.kill('SIGTERM')
+		expect(await proc.exited).toBe(1)
+		await waitForPort(port, false, 10_000)
+	} finally {
+		proc.kill('SIGTERM')
+		await proc.exited.catch(() => 1)
+		chmodSync(join(stateRoot, 'herdweb', String(port)), 0o700)
+		rmSync(stateRoot, { recursive: true, force: true })
+		rmSync(configHome, { recursive: true, force: true })
+	}
+})
+
+test('healthy serve shutdown exits cleanly', async () => {
+	const port = await reservePort()
+	const stateRoot = mkdtempSync(join(tmpdir(), 'herdweb-process-lifecycle-'))
+	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))
+	const proc = spawnProcess(
+		[join(repoRoot, 'node_modules/.bin/tsx'), 'cli.ts', 'serve', '--port', String(port)],
+		{
+			cwd: repoRoot,
+			env: { ...process.env, XDG_CONFIG_HOME: configHome, XDG_STATE_HOME: stateRoot },
+			stdout: 'pipe',
+			stderr: 'pipe',
+		},
+	)
+	try {
+		await waitForPort(port, true, 10_000)
 		proc.kill('SIGTERM')
 		expect(await proc.exited).toBe(0)
 		await waitForPort(port, false, 10_000)

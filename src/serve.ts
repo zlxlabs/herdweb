@@ -532,6 +532,7 @@ export async function serve(
 	const targetStarts = new Map<string, Promise<SharedTerminalSession>>()
 	const silenceDetectors = new Map<string, SilenceDetector>()
 	const exitHandlers = new Set<Promise<void>>()
+	let firstExitError: unknown
 
 	function securityHeadersForRequest(hostHeader: string | undefined): Record<string, string> {
 		return buildSecurityHeaders(hostHeader, host, port, scriptNonce, config.asr.enabled)
@@ -780,8 +781,8 @@ export async function serve(
 				lastEventAt: (key) => notifyService.lastEventAt(key),
 			})
 			silenceDetectors.set(target.id, silence)
-			exitHandlers.add(
-				session.onExit.then(async (exit) => {
+			const exitHandler = session.onExit
+				.then(async (exit) => {
 					silence.dispose()
 					await handleSessionExit({
 						notifyService,
@@ -792,8 +793,12 @@ export async function serve(
 						exitCode: exit.exitCode,
 						signal: exit.signal,
 					})
-				}),
-			)
+				})
+				.catch((error: unknown) => {
+					console.error('herdweb: target exit fact write failed', error)
+					firstExitError ??= error
+				})
+			exitHandlers.add(exitHandler)
 			return session
 		})()
 		targetStarts.set(config.defaultTargetId, started)
@@ -824,10 +829,14 @@ export async function serve(
 		await Promise.all(exitHandlers)
 		try {
 			await notifyDrain(notifyService)
+		} catch (error: unknown) {
+			if (firstExitError !== undefined) throw firstExitError
+			throw error
 		} finally {
 			notifyService.dispose()
 			caffeinateProc?.kill()
 		}
+		if (firstExitError !== undefined) throw firstExitError
 	}
 
 	let shutdownPromise: Promise<void> | undefined
