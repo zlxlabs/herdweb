@@ -177,6 +177,7 @@ export type ConnectionFailureReason =
 	| 'snapshot-timeout'
 	| 'heartbeat-timeout'
 	| 'output-overflow'
+	| 'client-render-backlog'
 	| 'protocol-error'
 
 export interface ConnectionStatus {

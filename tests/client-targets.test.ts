@@ -434,3 +434,117 @@ describe('client target selection and restore', () => {
 		expect(window.location.search).toBe('?target=workbox')
 	})
 })
+
+describe('client render backlog (T4c)', () => {
+	beforeEach(() => {
+		vi.useFakeTimers()
+		vi.setSystemTime(0)
+		localStorage.clear()
+		harness.sockets.length = 0
+		harness.terminals.length = 0
+		let uuid = 0
+		vi.stubGlobal('crypto', { randomUUID: () => `uuid-${uuid++}` })
+		vi.stubGlobal('WebSocket', FakeSocket)
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+		vi.unstubAllGlobals()
+	})
+
+	const MIB = 1024 * 1024
+	// '🙂' is 4 UTF-8 bytes in 2 UTF-16 units — locks byte (not string length) accounting.
+	const halfMiB = (): string => '🙂'.repeat(MIB / 8)
+
+	test('stuck xterm callbacks with bufferedAmount=0 fail loud at 1 MiB and close this socket', async () => {
+		const socket = await boot()
+		const term = harness.terminals.at(-1)
+		if (!term) throw new Error('no terminal')
+		openWithTargets(socket, [target('default')])
+		const attachmentId = commitAttach(socket, 'default')
+		term.holdCallbacks = true
+		expect(socket.bufferedAmount).toBe(0)
+
+		let notice = ''
+		const onNotice = (event: Event): void => {
+			if (event instanceof CustomEvent && typeof event.detail === 'string') notice = event.detail
+		}
+		window.addEventListener('herdweb-connection-notice', onNotice)
+		send(socket, { type: 'output', attachmentId, data: halfMiB(), seq: 1 })
+		send(socket, { type: 'output', attachmentId, data: halfMiB(), seq: 2 })
+		// Exactly 1 MiB pending is still accepted; one more byte trips the hard limit.
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		const writesBefore = term.writes.length
+		send(socket, { type: 'output', attachmentId, data: 'x', seq: 3 })
+		window.removeEventListener('herdweb-connection-notice', onNotice)
+
+		expect(term.writes).toHaveLength(writesBefore)
+		expect(socket.readyState).toBe(FakeSocket.CLOSED)
+		expect(window.term?.getConnectionStatus().lastFailureReason).toBe('client-render-backlog')
+		expect(notice).toContain('render')
+	})
+
+	test('late callbacks from a dead epoch release their own token once and never touch the new ledger', async () => {
+		const socket = await boot()
+		const term = harness.terminals.at(-1)
+		if (!term) throw new Error('no terminal')
+		openWithTargets(socket, [target('default')])
+		const attachmentId = commitAttach(socket, 'default')
+		term.holdCallbacks = true
+		send(socket, { type: 'output', attachmentId, data: 'A'.repeat(1024), seq: 1 })
+		const staleCallback = term.heldCallbacks.at(-1)
+		if (!staleCallback) throw new Error('no held callback')
+
+		// Reconnect: new epoch, fresh ledger. Old callback fires late (twice).
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+		document.dispatchEvent(new Event('visibilitychange'))
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+		document.dispatchEvent(new Event('visibilitychange'))
+		await vi.advanceTimersByTimeAsync(0)
+		const nextSocket = harness.sockets.at(-1)
+		if (!nextSocket || nextSocket === socket) throw new Error('no new socket')
+		term.holdCallbacks = false
+		openWithTargets(nextSocket, [target('default')])
+		const nextAttachment = commitAttach(nextSocket, 'default')
+
+		term.holdCallbacks = true
+		send(nextSocket, { type: 'output', attachmentId: nextAttachment, data: halfMiB(), seq: 1 })
+		send(nextSocket, { type: 'output', attachmentId: nextAttachment, data: halfMiB(), seq: 2 })
+		staleCallback()
+		staleCallback()
+		// The new ledger must still be exactly full: one more byte overflows.
+		send(nextSocket, { type: 'output', attachmentId: nextAttachment, data: 'x', seq: 3 })
+		expect(nextSocket.readyState).toBe(FakeSocket.CLOSED)
+		expect(window.term?.getConnectionStatus().lastFailureReason).toBe('client-render-backlog')
+	})
+
+	test('overflow during snapshot sync never sends snapshot-applied nor opens input', async () => {
+		const socket = await boot()
+		const term = harness.terminals.at(-1)
+		if (!term) throw new Error('no terminal')
+		term.holdCallbacks = true
+		openWithTargets(socket, [target('default')])
+		const attach = lastAttach(socket)
+		send(socket, {
+			type: 'attach-started',
+			requestId: attach.requestId,
+			targetId: 'default',
+			attachmentId: 'att-big',
+		})
+		send(socket, { type: 'output', attachmentId: 'att-big', data: halfMiB(), seq: 1 })
+		send(socket, { type: 'output', attachmentId: 'att-big', data: 'B'.repeat(1024), seq: 2 })
+		send(socket, {
+			type: 'snapshot',
+			attachmentId: 'att-big',
+			data: halfMiB(),
+			sessionId: 's',
+			outputWatermark: 0,
+		})
+
+		expect(socket.readyState).toBe(FakeSocket.CLOSED)
+		expect(window.term?.getConnectionStatus().lastFailureReason).toBe('client-render-backlog')
+		expect(sentFrames(socket).some((frame) => frame.type === 'snapshot-applied')).toBe(false)
+		window.term?.input('blocked', true)
+		expect(sentFrames(socket).some((frame) => frame.type === 'input')).toBe(false)
+	})
+})

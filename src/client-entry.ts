@@ -57,6 +57,7 @@ const HEARTBEAT_DEADLINE_MS = 15_000
 const RECONNECT_BACKOFF_MS = [1_000, 2_000, 4_000, 8_000, 15_000] as const
 const PRE_SYNC_FAILURES_BEFORE_AUTH_HINT = 3
 const MAX_PRE_SNAPSHOT_OUTPUT_BYTES = 1024 * 1024
+const MAX_RENDER_BACKLOG_BYTES = 1024 * 1024
 const BUFFERED_AMOUNT_SETTLE_MS = 100
 // Heartbeats refresh this proof every 10s; 25s leaves margin while remaining ahead of the 15s deadline.
 const FRESHNESS_WINDOW_MS = 25_000
@@ -271,6 +272,11 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let lastProvenFreshAt = 0
 	const pendingOutput = new Map<number, string>()
 	let pendingOutputBytes = 0
+	// T4c render backlog ledger: counts UTF-8 bytes queued into xterm but not yet
+	// drained by its write callbacks. Snapshot, sync-buffered and live output writes
+	// all share this one ledger.
+	let renderBacklogBytes = 0
+	let renderLedgerId = 0
 	let pendingResize: { cols: number; rows: number } | null = null
 	let notSentNoticeShown = false
 	let exitReceived = false
@@ -360,6 +366,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		sessionId = null
 		clearPendingOutput()
 		pendingResize = null
+		resetRenderLedger()
 		setConnectionStatus('syncing')
 		socket.send(
 			serialiseClientMessage({
@@ -561,6 +568,35 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pendingOutputBytes = 0
 	}
 
+	function resetRenderLedger(): void {
+		renderLedgerId += 1
+		renderBacklogBytes = 0
+	}
+
+	function writeTerm(data: string, onDrained?: () => void): void {
+		const bytes = utf8Encoder.encode(data).byteLength
+		if (renderBacklogBytes + bytes > MAX_RENDER_BACKLOG_BYTES) {
+			failConnection(
+				currentEpoch,
+				'client-render-backlog',
+				'Client render backlog overflow — resyncing.',
+			)
+			return
+		}
+		const ledgerId = renderLedgerId
+		renderBacklogBytes += bytes
+		let released = false
+		term.write(data, () => {
+			// A callback arriving after a ledger reset (reconnect/target switch) belongs to
+			// the dead epoch: release its own token once, never touch the new ledger.
+			if (!released) {
+				released = true
+				if (ledgerId === renderLedgerId) renderBacklogBytes -= bytes
+			}
+			onDrained?.()
+		})
+	}
+
 	function enterTargetEnded(): void {
 		const newlyEnded = !exitReceived
 		exitReceived = true
@@ -627,6 +663,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		attachRequestId = null
 		attachmentId = null
 		clearPendingOutput()
+		resetRenderLedger()
 	}
 
 	function failConnection(myEpoch: number, reason: ConnectionFailureReason, notice?: string): void {
@@ -715,14 +752,14 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				)
 			}
 		}
-		term.write(data, onSyncWriteDrained)
-		for (const [, output] of buffered) term.write(output, onSyncWriteDrained)
+		writeTerm(data, onSyncWriteDrained)
+		for (const [, output] of buffered) writeTerm(output, onSyncWriteDrained)
 	}
 
 	function handleOutput(myEpoch: number, myAttachmentId: string, seq: number, data: string): void {
 		if (attachmentId !== myAttachmentId) return
 		if (snapshotLoaded) {
-			term.write(data)
+			writeTerm(data)
 			return
 		}
 		const previous = pendingOutput.get(seq)
