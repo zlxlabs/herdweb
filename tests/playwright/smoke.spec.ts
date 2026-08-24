@@ -91,6 +91,9 @@ test('help overlay shows version', async ({ page }) => {
 test('late client receives terminal snapshot', async ({ browser, page }) => {
 	await page.goto('/')
 	await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+	await expect
+		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+		.toBe(true)
 
 	await page.evaluate(() => {
 		window.term?.input('printf "snapshot-smoke\\n"\r', true)
@@ -101,5 +104,8 @@ test('late client receives terminal snapshot', async ({ browser, page }) => {
 	const secondPage = await browser.newPage()
 	await secondPage.goto('/')
 	await secondPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+	await expect
+		.poll(() => secondPage.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+		.toBe(true)
 	await expect(secondPage.locator('body')).toContainText('snapshot-smoke')
 })

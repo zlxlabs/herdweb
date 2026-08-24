@@ -159,6 +159,9 @@ test('reverse-proxied subpath access uses request-scoped CSP and a live websocke
 
 		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 		await expect.poll(() => page.evaluate(() => window.__herdwebSockets?.[0]?.readyState)).toBe(1)
+		await expect
+			.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+			.toBe(true)
 
 		await page.evaluate(() => {
 			window.term?.input('printf "proxy-smoke\\n"\r', true)
