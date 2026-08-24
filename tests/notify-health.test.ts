@@ -91,7 +91,7 @@ describe('health event builders', () => {
 		expect(event.id).toBe('health:dev:500')
 	})
 
-	test('explicit restart and exit producers preserve targetId in push bytes', async () => {
+	test('explicit restart and exit same-id producers preserve targetId in push bytes', async () => {
 		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-push-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -118,7 +118,7 @@ describe('health event builders', () => {
 			}),
 			buildSessionEndEvent({
 				sessionKey: 'dev',
-				startTime: 2,
+				startTime: 1,
 				exitCode: 0,
 				signal: null,
 				ts: 3,
