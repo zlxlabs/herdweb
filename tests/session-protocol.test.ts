@@ -1,7 +1,7 @@
-import { describe, expect, test } from 'vitest'
+import { describe, expect, expectTypeOf, test } from 'vitest'
 import {
-	MAX_ACTION_ID_BYTES,
 	MAX_CLIENT_INPUT_BYTES,
+	MAX_PROTOCOL_ID_BYTES,
 	MAX_RESIZE_COLS,
 	MAX_RESIZE_ROWS,
 	parseClientMessage,
@@ -9,6 +9,10 @@ import {
 	serialiseClientMessage,
 	serialiseServerMessage,
 } from '../src/session-protocol'
+import type { AttachError, TargetFailure } from '../src/session-protocol'
+import type { TargetProcessState, TargetSummary } from '../src/session-protocol'
+
+type Protocol2TypeExports = [TargetProcessState, TargetFailure, TargetSummary, AttachError]
 
 describe('session protocol', () => {
 	test('round-trips input messages', () => {
@@ -20,7 +24,7 @@ describe('session protocol', () => {
 		const message = { type: 'input-action' as const, id: 'action-1', data: 'echo hello\r' }
 		expect(parseClientMessage(serialiseClientMessage(message))).toEqual(message)
 
-		const maxSizedId = '😀'.repeat(MAX_ACTION_ID_BYTES / 4)
+		const maxSizedId = '😀'.repeat(MAX_PROTOCOL_ID_BYTES / 4)
 		expect(parseClientMessage(JSON.stringify({ type: 'ping', id: maxSizedId }))).toEqual({
 			type: 'ping',
 			id: maxSizedId,
@@ -96,5 +100,64 @@ describe('session protocol', () => {
 
 	test('rejects unknown server message types', () => {
 		expect(parseServerMessage('{"type":"mystery"}')).toBeNull()
+	})
+
+	test('round-trips protocol 2 client controls and preserves exact attach JSON', () => {
+		expectTypeOf<Protocol2TypeExports>().toEqualTypeOf<Protocol2TypeExports>()
+		const messages = [
+			{
+				type: 'attach-target' as const,
+				requestId: 'request-1',
+				targetId: 'local',
+				cols: 80,
+				rows: 24,
+			},
+			{ type: 'restart-target' as const, requestId: 'request-2', targetId: 'local' },
+			{ type: 'snapshot-applied' as const, requestId: 'request-1', attachmentId: 'attach-1' },
+		] as const
+
+		for (const message of messages) {
+			expect(parseClientMessage(serialiseClientMessage(message))).toEqual(message)
+		}
+		expect(serialiseClientMessage(messages[0])).toBe(
+			'{"type":"attach-target","requestId":"request-1","targetId":"local","cols":80,"rows":24}',
+		)
+		expect(parseClientMessage(JSON.stringify({ ...messages[0], ignored: true }))).toEqual(
+			messages[0],
+		)
+	})
+
+	test('validates protocol 2 client control boundaries', () => {
+		const id = 'a'.repeat(MAX_PROTOCOL_ID_BYTES)
+		const emojiId = '😀'.repeat(MAX_PROTOCOL_ID_BYTES / 4)
+		const attach = {
+			type: 'attach-target',
+			requestId: id,
+			targetId: `a${'b'.repeat(63)}`,
+			cols: 500,
+			rows: 200,
+		}
+		expect(parseClientMessage(JSON.stringify(attach))).toEqual(attach)
+		expect(
+			parseClientMessage(
+				JSON.stringify({ type: 'snapshot-applied', requestId: emojiId, attachmentId: emojiId }),
+			),
+		).not.toBeNull()
+
+		const invalid = [
+			'not json',
+			JSON.stringify({ ...attach, requestId: '' }),
+			JSON.stringify({ ...attach, requestId: `${id}a` }),
+			JSON.stringify({ ...attach, targetId: 'Local' }),
+			JSON.stringify({ ...attach, targetId: `a${'b'.repeat(64)}` }),
+			JSON.stringify({ ...attach, cols: 0 }),
+			JSON.stringify({ ...attach, rows: 1.5 }),
+			JSON.stringify({
+				type: 'snapshot-applied',
+				requestId: 'request-1',
+				attachmentId: '😀'.repeat(17),
+			}),
+		]
+		for (const payload of invalid) expect(parseClientMessage(payload)).toBeNull()
 	})
 })
