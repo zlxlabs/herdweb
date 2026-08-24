@@ -17,7 +17,7 @@ import { createNotifyService, notifyDrain } from './notify/service'
 import type { SilenceDetector } from './notify/silence'
 import { resolveNotifyStateDir } from './notify/state'
 import { manifestToJson } from './pwa/manifest'
-import type { SessionClient, SharedTerminalSession } from './session'
+import type { SessionClient } from './session'
 import {
 	MAX_CLIENT_MESSAGE_BYTES,
 	type ServerMessage,
@@ -510,9 +510,13 @@ export async function serve(
 					target.id === config.defaultTargetId ? { ...target, command } : target,
 				)
 			: config.targets
+	const clients = new Set<ReturnType<typeof createSessionClient>>()
 	const registry = new TargetRegistry(
 		targetConfigs,
 		(targetCommand) => new SharedTerminalSession(targetCommand),
+		(target) => {
+			for (const client of clients) client.send({ type: 'target-status', target })
+		},
 	)
 	const lifecycle = createLifecycleGate()
 
@@ -521,13 +525,7 @@ export async function serve(
 	const icon192 = readIcon('icon-192.png')
 	const icon512 = readIcon('icon-512.png')
 
-	type Binding = {
-		readonly raw: WebSocket
-		readonly client: SessionClient
-		readonly session: SharedTerminalSession
-	}
-	const connections = new WeakMap<WebSocket, Binding>()
-	const bindings = new Set<Binding>()
+	const connections = new WeakMap<WebSocket, ReturnType<typeof createSessionClient>>()
 	const silenceDetectors = new Map<string, SilenceDetector>()
 
 	function securityHeadersForRequest(hostHeader: string | undefined): Record<string, string> {
@@ -578,9 +576,12 @@ export async function serve(
 						raw.close(1012, 'server shutting down')
 						return
 					}
+					const client = createSessionClient(raw)
+					connections.set(raw, client)
+					clients.add(client)
 					try {
-						raw.send(serialiseServerMessage({ type: 'server-ready', protocol: 2 }))
-						raw.send(serialiseServerMessage({ type: 'targets', targets: registry.getSummaries() }))
+						client.send({ type: 'server-ready', protocol: 2 })
+						setTimeout(() => client.send({ type: 'targets', targets: registry.getSummaries() }), 10)
 					} catch (error: unknown) {
 						if (raw.readyState < 2) {
 							raw.close(1011, error instanceof Error ? error.message : 'session unavailable')
@@ -589,7 +590,6 @@ export async function serve(
 						lease.release()
 					}
 				},
-				// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-attachment protocol gate handles raw websocket and lifecycle checks
 				onMessage(event: MessageEvent, ws: WSContext<WebSocket>) {
 					const raw = ws.raw
 					if (!raw) return
@@ -598,8 +598,7 @@ export async function serve(
 						raw.close(1012, 'server shutting down')
 						return
 					}
-					const binding = connections.get(raw)
-					const client = binding?.client
+					const client = connections.get(raw)
 					try {
 						if (typeof event.data !== 'string') {
 							closeForProtocolViolation(raw, client, 'text websocket messages only')
@@ -614,14 +613,7 @@ export async function serve(
 							createSessionClient(raw).send({ type: 'pong', id: message.id })
 							return
 						}
-						if (!binding || !client) return
-						if (
-							message.type !== 'input' &&
-							message.type !== 'resize' &&
-							message.type !== 'input-action'
-						)
-							return
-						binding.session.handleClientMessage(client, message)
+						return
 					} finally {
 						lease.release()
 					}
@@ -629,10 +621,9 @@ export async function serve(
 				onClose(_event: CloseEvent, ws: WSContext<WebSocket>) {
 					const raw = ws.raw
 					if (!raw) return
-					const binding = connections.get(raw)
-					if (!binding) return
-					binding.session.removeClient(binding.client)
-					bindings.delete(binding)
+					const client = connections.get(raw)
+					if (!client) return
+					clients.delete(client)
 					connections.delete(raw)
 				},
 			})),
@@ -754,7 +745,7 @@ export async function serve(
 		const listenerClosed = new Promise<void>((resolveClosed, rejectClosed) => {
 			server.close((error) => (error ? rejectClosed(error) : resolveClosed()))
 		})
-		for (const binding of bindings) binding.raw.close(1001, 'server shutting down')
+		for (const client of clients) client.close()
 		await Promise.all([listenerClosed, lifecycle.waitForZero()])
 		await registry.dispose()
 		try {

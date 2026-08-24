@@ -27,13 +27,16 @@ function required<T>(value: T | undefined): T {
 export class TargetRegistry {
 	private readonly entries = new Map<string, Entry>()
 	private readonly createSession: TargetSessionFactory
+	private readonly onStatusChange?: (summary: TargetSummary) => void
 	private closing = false
 	private disposePromise: Promise<void> | undefined
 	constructor(
 		targets: readonly TargetConfig[],
 		createSession: TargetSessionFactory = (command) => new SharedTerminalSession(command),
+		onStatusChange?: (summary: TargetSummary) => void,
 	) {
 		this.createSession = createSession
+		this.onStatusChange = onStatusChange
 		for (const target of targets) {
 			this.entries.set(target.id, {
 				target,
@@ -127,10 +130,16 @@ export class TargetRegistry {
 		} catch (error) {
 			entry.status = { state: 'process-exited', exitCode: null, signal: null, error }
 			entry.restartInFlight = false
+			this.onStatusChange?.(
+				required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
+			)
 			throw error
 		}
 		entry.session = session
 		entry.status = { state: 'process-running', sessionId: session.id }
+		this.onStatusChange?.(
+			required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
+		)
 		const promise = Promise.resolve(session)
 		entry.startPromise = promise
 		promise.then(() => {
@@ -139,6 +148,9 @@ export class TargetRegistry {
 		})
 		session.onExit.then((exit) => {
 			entry.status = { state: 'process-exited', ...exit }
+			this.onStatusChange?.(
+				required(this.getSummaries().find((summary) => summary.id === entry.target.id)),
+			)
 		})
 		return promise
 	}
