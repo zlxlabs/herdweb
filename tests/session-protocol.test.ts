@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, test } from 'vitest'
+import { describe, expect, test } from 'vitest'
 import {
 	MAX_CLIENT_INPUT_BYTES,
 	MAX_PROTOCOL_ID_BYTES,
@@ -9,11 +9,6 @@ import {
 	serialiseClientMessage,
 	serialiseServerMessage,
 } from '../src/session-protocol'
-import type { AttachError, TargetFailure } from '../src/session-protocol'
-import type { TargetProcessState, TargetSummary } from '../src/session-protocol'
-
-type Protocol2TypeExports = [TargetProcessState, TargetFailure, TargetSummary, AttachError]
-
 const target = {
 	id: 'local',
 	name: 'Local 😀',
@@ -22,7 +17,9 @@ const target = {
 	exit: { code: 0, signal: null },
 	failure: 'target-process-exited' as const,
 	capabilities: { imageDrop: 'local-path' as const },
-} satisfies TargetSummary
+}
+const request = { requestId: 'request-1', targetId: 'local' }
+const attachment = { ...request, attachmentId: 'attachment-1' }
 const parseJson = (value: object) => parseServerMessage(JSON.stringify(value))
 const expectParsed = (value: object, expected: object = value) =>
 	expect(parseJson(value)).toEqual(expected)
@@ -117,7 +114,6 @@ describe('session protocol', () => {
 	})
 
 	test('round-trips protocol 2 client controls and preserves exact attach JSON', () => {
-		expectTypeOf<Protocol2TypeExports>().toEqualTypeOf<Protocol2TypeExports>()
 		const messages = [
 			{
 				type: 'attach-target' as const,
@@ -154,6 +150,45 @@ describe('session protocol', () => {
 		expect(serialiseServerMessage(targets)).toBe(
 			'{"type":"targets","targets":[{"id":"local","name":"Local 😀","processState":"process-exited","lastActivityAt":123,"exit":{"code":0,"signal":null},"failure":"target-process-exited","capabilities":{"imageDrop":"local-path"}}]}',
 		)
+	})
+
+	test('round-trips protocol 2 attach controls and drops unknown fields', () => {
+		const messages = [
+			{ type: 'attach-started' as const, ...attachment },
+			{ type: 'attach-committed' as const, ...attachment },
+			{ type: 'snapshot-failed' as const, ...attachment, reason: 'timeout' as const },
+			{ type: 'target-restarted' as const, targetId: 'local', sessionId: 'session-1' },
+		] as const
+		for (const message of messages)
+			expect(parseServerMessage(serialiseServerMessage(message))).toEqual(message)
+		expectParsed({ ...messages[0], ignored: true }, messages[0])
+
+		for (const reason of [
+			'unknown-target',
+			'target-start-failed',
+			'target-process-exited',
+			'attach-superseded',
+			'snapshot-failed',
+			'protocol-violation',
+		] as const)
+			expectParsed({ type: 'attach-rejected', ...request, reason })
+	})
+
+	test('rejects malformed protocol 2 attach controls', () => {
+		const invalid = [
+			{ type: 'attach-started', ...request },
+			{ type: 'attach-started', ...attachment, requestId: '' },
+			{
+				type: 'attach-started',
+				...attachment,
+				attachmentId: 'a'.repeat(MAX_PROTOCOL_ID_BYTES + 1),
+			},
+			{ type: 'target-restarted', targetId: 'local', sessionId: '😀'.repeat(17) },
+			{ type: 'attach-rejected', ...request, targetId: 'Local', reason: 'unknown-target' },
+			{ type: 'attach-rejected', ...request, reason: 'other' },
+			{ type: 'snapshot-failed', ...attachment, reason: 'not-timeout' },
+		]
+		for (const message of invalid) expectInvalid(message)
 	})
 
 	test('rejects malformed protocol 2 server controls and summaries', () => {
@@ -202,6 +237,7 @@ describe('session protocol', () => {
 			JSON.stringify({ ...attach, targetId: `a${'b'.repeat(64)}` }),
 			JSON.stringify({ ...attach, cols: 0 }),
 			JSON.stringify({ ...attach, rows: 1.5 }),
+			JSON.stringify({ ...attach, cols: '80', rows: '24' }),
 			JSON.stringify({
 				type: 'snapshot-applied',
 				requestId: 'request-1',
