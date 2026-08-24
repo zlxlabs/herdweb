@@ -270,8 +270,8 @@ export type TargetConfigInput = Omit<TargetConfig, 'imageDrop'> & {
 	readonly imageDrop?: TargetImageDrop
 }
 
-/** Full herdweb configuration */
-export interface HerdwebConfig {
+/** Configuration fields that are safe and required for the browser client. */
+export interface ClientConfigProjection {
 	readonly name: string
 	readonly theme: TermTheme
 	readonly font: FontConfig
@@ -286,11 +286,24 @@ export interface HerdwebConfig {
 	readonly mobile: MobileConfig
 	readonly floatingButtons: readonly FloatingButtonGroup[]
 	readonly scrollButtons: ScrollButtonsConfig
-	readonly pwa: PwaConfig
 	readonly reconnect: ReconnectConfig
+	readonly asr: {
+		readonly enabled: boolean
+		readonly provider: 'doubao'
+		readonly doubao: {
+			readonly apiKey: string
+			readonly resourceId: string
+		}
+		readonly autoEnter: boolean
+	}
+	readonly targetMode: TargetMode
+}
+
+/** Full herdweb configuration */
+export interface HerdwebConfig extends ClientConfigProjection {
+	readonly pwa: PwaConfig
 	readonly asr: AsrConfig
 	readonly notify: NotifyConfig
-	readonly targetMode: TargetMode
 	readonly targets: readonly TargetConfig[]
 	readonly defaultTargetId: string
 }

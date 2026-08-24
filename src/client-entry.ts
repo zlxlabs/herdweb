@@ -10,17 +10,17 @@ import { createHookRegistry, init } from './index'
 import { parseServerMessage, serialiseClientMessage } from './session-protocol'
 import type { ClientMessage } from './session-protocol'
 import type {
+	ClientConfigProjection,
 	ConnectionFailureReason,
 	ConnectionState,
 	ConnectionStatus,
-	HerdwebConfig,
 	InputActionResult,
 	XTerminal,
 } from './types'
 import { el } from './util/dom'
 import { onTap } from './util/tap'
 
-declare const __herdwebConfig: HerdwebConfig
+declare const __herdwebConfig: ClientConfigProjection
 declare const __herdwebVersion: string | undefined
 declare const __herdwebBasePath: string | undefined
 
@@ -75,7 +75,7 @@ function createTermBridge(
 		get theme() {
 			return term.options.theme
 		},
-		set theme(value: Partial<HerdwebConfig['theme']> | undefined) {
+		set theme(value: Partial<ClientConfigProjection['theme']> | undefined) {
 			term.options.theme = value
 		},
 		get fontFamily() {
@@ -212,7 +212,7 @@ function createSessionStatusOverlay(onReload: () => void): SessionStatusOverlay 
 	return { element: overlay, message, button }
 }
 
-function main(config: HerdwebConfig, version: string | undefined): void {
+function main(config: ClientConfigProjection, version: string | undefined): void {
 	const container = document.getElementById('terminal')
 	if (!(container instanceof HTMLElement)) {
 		throw new Error('herdweb: missing #terminal container')
