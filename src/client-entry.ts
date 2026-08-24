@@ -862,15 +862,18 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				}
 				// The commit is the only point where a choice becomes durable:
 				// snapshot-applied alone never persists lastTargetId or the URL.
+				// Single mode persists nothing — there is no choice to restore.
 				selectedTargetId = message.targetId
-				if (!persistLastTargetId(basePath, message.targetId)) {
-					window.dispatchEvent(
-						new CustomEvent('herdweb-connection-notice', {
-							detail: 'Could not save the selected target on this device.',
-						}),
-					)
+				if (config.targetMode === 'explicit') {
+					if (!persistLastTargetId(basePath, message.targetId)) {
+						window.dispatchEvent(
+							new CustomEvent('herdweb-connection-notice', {
+								detail: 'Could not save the selected target on this device.',
+							}),
+						)
+					}
+					persistUrlTargetId(message.targetId)
 				}
-				persistUrlTargetId(message.targetId)
 				notifyTargetsChange()
 				for (const handler of connectionStatusListeners) handler(connectionStatus)
 				notifyConnectionChange()

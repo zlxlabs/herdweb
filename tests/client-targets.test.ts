@@ -192,8 +192,9 @@ describe('client target selection and restore', () => {
 		openWithTargets(socket, [target('default')])
 		expect(lastAttach(socket)).toMatchObject({ targetId: 'default', cols: 80, rows: 24 })
 		commitAttach(socket, 'default')
-		expect(localStorage.getItem('herdweb:lastTargetId:/')).toBe('default')
-		expect(window.location.search).toBe('?target=default')
+		// Single mode has no choice to restore: nothing is persisted.
+		expect(localStorage.getItem('herdweb:lastTargetId:/')).toBe('workbox')
+		expect(window.location.search).toBe('')
 		expect(restoreOverlay()?.style.display ?? 'none').toBe('none')
 		window.term?.input('hello', true)
 		expect(sentFrames(socket).at(-1)).toMatchObject({ type: 'input', data: 'hello' })
@@ -208,7 +209,7 @@ describe('client target selection and restore', () => {
 		overlayButton('Continue with default').click()
 		expect(lastAttach(socket)).toMatchObject({ targetId: 'default' })
 		commitAttach(socket, 'default')
-		expect(window.location.search).toBe('?target=default')
+		expect(window.location.search).toBe('?target=nope')
 	})
 
 	test('explicit mode blocks on an invalid URL target and attaches the chosen target', async () => {
