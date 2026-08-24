@@ -5,10 +5,12 @@ import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import type WebSocket from 'ws'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService, notifyDrain } from '../src/notify/service'
 import {
 	buildSecurityHeaders,
+	createSessionClient,
 	describeCommandForLogs,
 	extractSessionKey,
 	isAllowedOrigin,
@@ -19,12 +21,64 @@ import {
 	withSecurityHeaders,
 	writeImageDrop,
 } from '../src/serve'
+import { type ServerMessage, serialiseServerMessage } from '../src/session-protocol'
 import * as nodeCompat from '../src/util/node-compat'
 import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
 const tempDirs: string[] = []
+
+type FakeRaw = {
+	readyState: number
+	bufferedAmount: number
+	send: ReturnType<typeof vi.fn>
+	close: ReturnType<typeof vi.fn>
+}
+
+function createFakeRaw(bufferedAmount = 0): FakeRaw {
+	return {
+		readyState: 1,
+		bufferedAmount,
+		send: vi.fn(),
+		close: vi.fn(),
+	}
+}
+
+describe('websocket outbound backlog', () => {
+	test('uses serialized UTF-8 payload bytes at the exact outbound limit', () => {
+		const message: ServerMessage = { type: 'error', message: '雪' }
+		const payload = serialiseServerMessage(message)
+		const payloadBytes = Buffer.byteLength(payload, 'utf8')
+		const limit = 1 * 1024 * 1024
+
+		const exactRaw = createFakeRaw(limit - payloadBytes)
+		createSessionClient(exactRaw as unknown as WebSocket).send(message)
+		expect(exactRaw.send).toHaveBeenCalledTimes(1)
+		expect(exactRaw.send).toHaveBeenCalledWith(payload)
+
+		const overRaw = createFakeRaw(limit - payloadBytes + 1)
+		createSessionClient(overRaw as unknown as WebSocket).send(message)
+		expect(overRaw.send).not.toHaveBeenCalled()
+		expect(overRaw.close).toHaveBeenCalledWith(1013, 'slow-client')
+	})
+
+	test('isolates a slow binding while a healthy sibling receives the same broadcast', () => {
+		const message: ServerMessage = { type: 'error', message: 'fan-out 雪' }
+		const payload = serialiseServerMessage(message)
+		const limit = 1 * 1024 * 1024
+		const slowRaw = createFakeRaw(limit - Buffer.byteLength(payload, 'utf8') + 1)
+		const healthyRaw = createFakeRaw()
+
+		createSessionClient(slowRaw as unknown as WebSocket).send(message)
+		createSessionClient(healthyRaw as unknown as WebSocket).send(message)
+
+		expect(slowRaw.send).not.toHaveBeenCalled()
+		expect(slowRaw.close).toHaveBeenCalledWith(1013, 'slow-client')
+		expect(healthyRaw.send).toHaveBeenCalledWith(payload)
+		expect(healthyRaw.close).not.toHaveBeenCalled()
+	})
+})
 
 afterEach(async () => {
 	vi.unstubAllEnvs()
