@@ -1,3 +1,24 @@
+# [1.8.0](https://github.com/zlxlabs/herdweb/compare/v1.7.0...v1.8.0) (2026-08-24)
+
+
+### Bug Fixes
+
+* **client:** preserve ended targets across reconnects ([9fa7f0d](https://github.com/zlxlabs/herdweb/commit/9fa7f0d930fefebf15834e3354cedcc08bea0944))
+* **protocol:** fail loud on target exit and stale attachments ([0a94050](https://github.com/zlxlabs/herdweb/commit/0a9405067c96d76e63c9e797b8e24522c57b054f))
+* **protocol:** release stale attachment attempts ([0d5a719](https://github.com/zlxlabs/herdweb/commit/0d5a7190f54946f75ebfd2dfe7a49be8e13d45bc))
+
+
+### Features
+
+* **protocol:** add attachment binding state ([3e1c601](https://github.com/zlxlabs/herdweb/commit/3e1c60107316c6bb5d1b1ef1588650c64c741b7f))
+* **protocol:** broadcast target status updates ([35e1d05](https://github.com/zlxlabs/herdweb/commit/35e1d051aab885ad03387faa19087e43e7155e05))
+* **protocol:** cut over browser sessions to target attachment handshake ([1b647a3](https://github.com/zlxlabs/herdweb/commit/1b647a32881a40d57640ca5e8282df608b958bf8))
+* **protocol:** define protocol 2 control types ([499c62a](https://github.com/zlxlabs/herdweb/commit/499c62a04ea75cc3d2ca59241259473692694081))
+* **protocol:** own attachment selection lifecycle ([4223c5d](https://github.com/zlxlabs/herdweb/commit/4223c5dd9f55009e37a5d9b6d428002339010cb4))
+* **protocol:** parse attach control messages ([3e62c43](https://github.com/zlxlabs/herdweb/commit/3e62c433d3b1d61e86ebd1206e064de0140aaabe))
+* **protocol:** parse target control messages ([7adb178](https://github.com/zlxlabs/herdweb/commit/7adb1781fdfcf0bb2a0cb4f80d4ada1f5030e639))
+* **targets:** announce available terminal targets ([0db1320](https://github.com/zlxlabs/herdweb/commit/0db13205e39b6e8ffd43f7bb1af26f052e6240f9))
+
 # [1.7.0](https://github.com/zlxlabs/herdweb/compare/v1.6.1...v1.7.0) (2026-08-24)
 
 
