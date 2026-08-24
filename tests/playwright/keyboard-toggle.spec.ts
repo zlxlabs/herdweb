@@ -100,11 +100,7 @@ test('send button produces a WS input payload while the keyboard is suppressed',
 
 	// Tap the toolbar Esc button — button sends bypass the textarea entirely
 	const escButton = page.locator('#wt-toolbar button', { hasText: /^Esc$/ })
-	await escButton.dispatchEvent('touchend', {
-		touches: [],
-		changedTouches: [],
-		targetTouches: [],
-	})
+	await escButton.tap()
 
 	await expect
 		.poll(() =>
