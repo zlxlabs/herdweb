@@ -3,7 +3,18 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import XtermHeadless from '@xterm/headless'
 import { type IPty, spawnPty } from './pty'
-import type { ClientMessage, InputRejectedReason, ServerMessage } from './session-protocol'
+import type {
+	ErrorMessage,
+	ExitMessage,
+	InputAcceptedMessage,
+	InputActionMessage,
+	InputMessage,
+	InputRejectedMessage,
+	InputRejectedReason,
+	OutputMessage,
+	ResizeMessage,
+	SnapshotMessage,
+} from './session-protocol'
 
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
@@ -13,6 +24,15 @@ const MIRROR_LOW_WATERMARK_BYTES = 512 * 1024
 
 const HeadlessTerminal = XtermHeadless.Terminal
 type HeadlessTerminalInstance = InstanceType<typeof HeadlessTerminal>
+
+type SessionInputMessage = InputMessage | ResizeMessage | InputActionMessage
+export type SessionServerMessage =
+	| SnapshotMessage
+	| OutputMessage
+	| ExitMessage
+	| ErrorMessage
+	| InputAcceptedMessage
+	| InputRejectedMessage
 
 // Typed view of the xterm internal the snapshot relies on: the serialize
 // addon replays mouse *tracking* modes but the public IModes exposes no
@@ -27,7 +47,7 @@ declare module '@xterm/headless' {
 }
 
 export interface SessionClient {
-	send(message: ServerMessage): void
+	send(message: SessionServerMessage): void
 	close(): void
 }
 
@@ -225,7 +245,7 @@ export class SharedTerminalSession {
 		this.clients.delete(client)
 	}
 
-	handleClientMessage(client: SessionClient, message: ClientMessage): void {
+	handleClientMessage(client: SessionClient, message: SessionInputMessage): void {
 		switch (message.type) {
 			case 'input':
 				if (this.exited || this.terminalFailed) return
@@ -236,10 +256,6 @@ export class SharedTerminalSession {
 				if (this.exited) return
 				this.pty.resize(message.cols, message.rows)
 				this.mirror.resize(message.cols, message.rows)
-				return
-
-			case 'ping':
-				client.send({ type: 'pong', id: message.id })
 				return
 
 			case 'input-action':
@@ -375,7 +391,7 @@ export class SharedTerminalSession {
 		}
 	}
 
-	private broadcast(message: ServerMessage): void {
+	private broadcast(message: SessionServerMessage): void {
 		for (const client of this.clients) {
 			client.send(message)
 		}
