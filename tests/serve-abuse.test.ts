@@ -1,9 +1,9 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { request as httpRequest } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test } from 'vitest'
 import WebSocket from 'ws'
 import { MAX_CLIENT_MESSAGE_BYTES, parseServerMessage } from '../src/session-protocol'
 import { sleep, spawnProcess } from '../src/util/node-compat'
@@ -234,68 +234,41 @@ describe('serve websocket hardening', () => {
 		}
 	})
 
-	test('real websocket snapshot frame carries a session identity and output watermark', async () => {
+	test('real websocket sends ready then target summaries without starting a PTY', async () => {
 		const port = await reservePort()
-		const proc = startServe(port)
+		const markerDir = mkdtempSync(join(tmpdir(), 'herdweb-no-spawn-'))
+		const marker = join(markerDir, 'started')
+		const proc = startServe(port, ['bash', '-c', `touch ${marker}; sleep 60`])
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const client = await openSocket(port)
-			const raw = await waitForRawMessage(client)
-			const message = parseServerMessage(raw)
-			if (message?.type !== 'snapshot') throw new Error(`unexpected frame: ${raw}`)
-			expect(raw).toContain('"type":"snapshot"')
-			expect(message.sessionId).toMatch(
-				/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+			expect(await waitForRawMessage(client)).toBe('{"type":"server-ready","protocol":2}')
+			expect(await waitForRawMessage(client)).toBe(
+				'{"type":"targets","targets":[{"id":"default","name":"Default","processState":"not-started","capabilities":{"imageDrop":"local-path"}}]}',
 			)
-			expect(typeof message.outputWatermark).toBe('number')
+			expect(existsSync(marker)).toBe(false)
 			client.close()
 		} finally {
 			await stopServe(proc)
+			rmSync(markerDir, { recursive: true, force: true })
 		}
 	})
 
-	test('real websocket input-action retries are accepted once without duplicate output', async () => {
+	test('real websocket responds to ping before a target is attached', async () => {
 		const port = await reservePort()
 		const proc = startServe(port, ['cat'])
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const client = await openSocket(port)
-			await waitForRawMessage(client)
-			const rawFrames: string[] = []
-			const collectFrame = (data: WebSocket.RawData) => rawFrames.push(rawPayload(data))
-			client.on('message', collectFrame)
-			const action = JSON.stringify({ type: 'input-action', id: 'ws-action-1', data: 'ws-marker' })
-			const firstAccepted = waitForJsonMessage(
+			expect(await waitForJsonMessage(client)).toEqual({ type: 'server-ready', protocol: 2 })
+			expect(await waitForJsonMessage(client)).toMatchObject({ type: 'targets' })
+			const responsePromise = waitForJsonMessage(
 				client,
 				10_000,
-				(message) => message?.type === 'input-accepted' && message.id === 'ws-action-1',
+				(message) => message?.type === 'pong' && message.id === 'health-ping',
 			)
-			client.send(action)
-			expect(await firstAccepted).toEqual({ type: 'input-accepted', id: 'ws-action-1' })
-			const secondAccepted = waitForJsonMessage(
-				client,
-				10_000,
-				(message) => message?.type === 'input-accepted' && message.id === 'ws-action-1',
-			)
-			client.send(action)
-			expect(await secondAccepted).toEqual({ type: 'input-accepted', id: 'ws-action-1' })
-
-			await vi.waitFor(() => {
-				const output = rawFrames
-					.map((frame) => parseServerMessage(frame))
-					.filter(
-						(
-							message,
-						): message is Extract<ReturnType<typeof parseServerMessage>, { type: 'output' }> =>
-							message?.type === 'output',
-					)
-				const occurrences =
-					output
-						.map((message) => message.data)
-						.join('')
-						.split('ws-marker').length - 1
-				expect(occurrences).toBe(1)
-			})
+			client.send(JSON.stringify({ type: 'ping', id: 'health-ping' }))
+			expect(await responsePromise).toEqual({ type: 'pong', id: 'health-ping' })
 			client.close()
 		} finally {
 			await stopServe(proc)

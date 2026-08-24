@@ -11,12 +11,11 @@ import type WebSocket from 'ws'
 import { bundleClientAssets, bundleSwAsset, bundleWorkletAsset, renderClientHtml } from '../build'
 import { bareDocumentRoute, documentRoute, joinBasePath } from './base-path'
 import { createLifecycleGate } from './lifecycle-gate'
-import { buildRestartEvent, buildSessionEndEvent, shouldAnnounceRestart } from './notify/health'
 import { ensureVapidKeys } from './notify/push'
 import { registerNotifyRoutes } from './notify/routes'
-import { type NotifyService, createNotifyService, notifyDrain } from './notify/service'
-import { type SilenceDetector, createSilenceDetector } from './notify/silence'
-import { readLastSessionStore, resolveNotifyStateDir, updateLastSessionEntry } from './notify/state'
+import { createNotifyService, notifyDrain } from './notify/service'
+import type { SilenceDetector } from './notify/silence'
+import { resolveNotifyStateDir } from './notify/state'
 import { manifestToJson } from './pwa/manifest'
 import type { SessionClient, SharedTerminalSession } from './session'
 import {
@@ -479,33 +478,6 @@ function mountNotifyStack(
 
 export { extractSessionKey } from './notify/health'
 
-async function handleSessionExit(deps: {
-	readonly notifyService: NotifyService
-	readonly stateDir: string
-	readonly sessionKey: string
-	readonly sessionId: string
-	readonly startTime: number
-	readonly exitCode: number
-	readonly signal: number | null
-}): Promise<void> {
-	const ts = Date.now()
-	deps.notifyService.dispatchEvent(
-		buildSessionEndEvent({
-			sessionKey: deps.sessionKey,
-			startTime: deps.startTime,
-			exitCode: deps.exitCode,
-			signal: deps.signal,
-			ts,
-		}),
-	)
-	updateLastSessionEntry(deps.stateDir, deps.sessionKey, {
-		sessionId: deps.sessionId,
-		exitedAt: ts,
-		exitCode: deps.exitCode,
-		signal: deps.signal,
-	})
-}
-
 /** Start herdweb serve: build client assets, spawn the PTY, and serve HTTP + WS */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: serve bootstraps HTTP, WS, notify, and PTY lifecycle
 export async function serve(
@@ -552,10 +524,7 @@ export async function serve(
 	}
 	const connections = new WeakMap<WebSocket, Binding>()
 	const bindings = new Set<Binding>()
-	const targetStarts = new Map<string, Promise<SharedTerminalSession>>()
 	const silenceDetectors = new Map<string, SilenceDetector>()
-	const exitHandlers = new Set<Promise<void>>()
-	let firstExitError: unknown
 
 	function securityHeadersForRequest(hostHeader: string | undefined): Record<string, string> {
 		return buildSecurityHeaders(hostHeader, host, port, scriptNonce, config.asr.enabled)
@@ -606,12 +575,8 @@ export async function serve(
 						return
 					}
 					try {
-						const activeSession = await startDefaultTarget()
-						const client = createSessionClient(raw)
-						const binding: Binding = { raw, client, session: activeSession }
-						connections.set(raw, binding)
-						bindings.add(binding)
-						await activeSession.addClient(client)
+						raw.send(serialiseServerMessage({ type: 'server-ready', protocol: 2 }))
+						raw.send(serialiseServerMessage({ type: 'targets', targets: registry.getSummaries() }))
 					} catch (error: unknown) {
 						if (raw.readyState < 2) {
 							raw.close(1011, error instanceof Error ? error.message : 'session unavailable')
@@ -620,6 +585,7 @@ export async function serve(
 						lease.release()
 					}
 				},
+				// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: pre-attachment protocol gate handles raw websocket and lifecycle checks
 				onMessage(event: MessageEvent, ws: WSContext<WebSocket>) {
 					const raw = ws.raw
 					if (!raw) return
@@ -635,12 +601,16 @@ export async function serve(
 							closeForProtocolViolation(raw, client, 'text websocket messages only')
 							return
 						}
-						if (!binding || !client) return
 						const message = parseClientMessage(event.data)
 						if (!message) {
 							closeForProtocolViolation(raw, client, 'invalid client message')
 							return
 						}
+						if (message.type === 'ping') {
+							createSessionClient(raw).send({ type: 'pong', id: message.id })
+							return
+						}
+						if (!binding || !client) return
 						binding.session.handleClientMessage(client, message)
 					} finally {
 						lease.release()
@@ -756,66 +726,6 @@ export async function serve(
 		swJs,
 		securityHeadersForRequest,
 	)
-	const notifyStateDir = resolveNotifyStateDir(port)
-	const previousSessions = readLastSessionStore(notifyStateDir)
-
-	const startDefaultTarget = (): Promise<SharedTerminalSession> => {
-		const existing = targetStarts.get(config.defaultTargetId)
-		if (existing !== undefined) return existing
-		const started = (async () => {
-			const target = targetConfigs.find(({ id }) => id === config.defaultTargetId)
-			if (target === undefined) throw new Error(`Unknown target "${config.defaultTargetId}"`)
-			console.log(
-				`herdweb: starting target ${target.id} (${describeCommandForLogs(target.command)})...`,
-			)
-			/* oxlint-disable typescript/consistent-type-assertions -- registry exposes lifecycle fields; serve owns the concrete session factory */
-			const session = (await registry.getOrStart(
-				config.defaultTargetId,
-			)) as unknown as SharedTerminalSession
-			/* oxlint-enable typescript/consistent-type-assertions */
-			const previous = previousSessions[target.id]
-			if (shouldAnnounceRestart(previous, session.id, Date.now())) {
-				notifyService.dispatchEvent(
-					buildRestartEvent({
-						sessionKey: target.id,
-						startTime: session.startTime,
-						ts: Date.now(),
-					}),
-				)
-			}
-			const silence = createSilenceDetector({
-				sessionKey: target.id,
-				config: config.notify.silence,
-				bytesInWindow: (windowMs) => session.bytesInWindow(windowMs),
-				lastOutputAt: () => session.lastOutputAt(),
-				dispatch: (event) => notifyService.dispatchEvent(event),
-				lastEventAt: (key) => notifyService.lastEventAt(key),
-			})
-			silenceDetectors.set(target.id, silence)
-			const exitHandler = session.onExit
-				.then(async (exit) => {
-					silence.dispose()
-					await handleSessionExit({
-						notifyService,
-						stateDir: notifyStateDir,
-						sessionKey: target.id,
-						sessionId: session.id,
-						startTime: session.startTime,
-						exitCode: exit.exitCode,
-						signal: exit.signal,
-					})
-				})
-				.catch((error: unknown) => {
-					console.error('herdweb: target exit fact write failed', error)
-					firstExitError ??= error
-				})
-			exitHandlers.add(exitHandler)
-			return session
-		})()
-		targetStarts.set(config.defaultTargetId, started)
-		return started
-	}
-
 	const server = honoServe({ fetch: app.fetch, port, hostname: host })
 	injectWebSocket(server)
 	await waitForServerListening(server, port, host)
@@ -837,17 +747,12 @@ export async function serve(
 		for (const binding of bindings) binding.raw.close(1001, 'server shutting down')
 		await Promise.all([listenerClosed, lifecycle.waitForZero()])
 		await registry.dispose()
-		await Promise.all(exitHandlers)
 		try {
 			await notifyDrain(notifyService)
-		} catch (error: unknown) {
-			if (firstExitError !== undefined) throw firstExitError
-			throw error
 		} finally {
 			notifyService.dispose()
 			caffeinateProc?.kill()
 		}
-		if (firstExitError !== undefined) throw firstExitError
 	}
 
 	let shutdownPromise: Promise<void> | undefined
