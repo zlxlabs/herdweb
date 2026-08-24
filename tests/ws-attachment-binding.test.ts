@@ -52,6 +52,7 @@ describe('WsAttachmentBinding', () => {
 		expect(owner.isCurrentAttempt('client', b)).toBe(false)
 		expect(sent(owner, b)).toEqual(violation)
 		expectViolation(owner, b)
+		expect(owner.cancelAttach('client', b)).toEqual(violation)
 		sent(owner, c)
 		expect(commit(owner, c).ok).toBe(true)
 		expect(owner.getCapability('client', a.attachmentId)).toBeNull()
@@ -71,6 +72,7 @@ describe('WsAttachmentBinding', () => {
 		owner.disconnect('client')
 		expect(owner.getCapability('client', a.attachmentId)).toBeNull()
 		expect(owner.getCapability('client', b.attachmentId)).toBeNull()
+		expect(owner.acceptsInput('client')).toBe(false)
 		expect(vi.getTimerCount()).toBe(0)
 	})
 	test('keeps IDs global and rejects collision without retry or interchange', () => {
@@ -97,15 +99,27 @@ describe('WsAttachmentBinding', () => {
 		sent(owner, binding)
 		expect(commit(owner, binding)).toMatchObject({ ok: true })
 	})
-	test('rejects a reused request ID without replacing the live attempt', () => {
-		const id = vi.fn(() => 'attachment-id')
-		const owner = new WsAttachmentBinding({ idGenerator: id })
+	test('rejects a reused request ID and cancels a failed start', () => {
+		const invalidated: Attachment[] = []
+		const id = vi.fn().mockReturnValueOnce('initial-id').mockReturnValueOnce('attachment-id')
+		const owner = new WsAttachmentBinding({
+			idGenerator: id,
+			onInvalidate: (binding) => invalidated.push(binding),
+		})
+		const initial = begin(owner, 'client', 'initial')
+		sent(owner, initial)
+		commit(owner, initial)
 		const binding = begin(owner, 'client', 'request', 'target')
 		expect(owner.beginAttach('client', 'request', 'other')).toEqual(violation)
-		expect(id).toHaveBeenCalledTimes(1)
+		expect(id).toHaveBeenCalledTimes(2)
 		expect(owner.isCurrentAttempt('client', binding)).toBe(true)
-		owner.disconnect('client')
+		expect(owner.cancelAttach('client', binding).ok).toBe(true)
+		expect(owner.getCapability('client', binding.attachmentId)).toBeNull()
+		expect(owner.getCapability('client', initial.attachmentId)).toMatchObject({ committed: true })
+		expect(owner.acceptsInput('client')).toBe(false)
+		expect(invalidated).toEqual([binding])
 		expect(owner.beginAttach('client', 'request', 'other')).toEqual(violation)
+		expect(owner.cancelAttach('client', binding)).toEqual(violation)
 	})
 	test('invalidates each capability exactly once on every clear path', () => {
 		vi.useFakeTimers()
