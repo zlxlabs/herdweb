@@ -104,6 +104,12 @@ describe('TargetRegistry', () => {
 			{
 				id: 'a',
 				name: 'Alpha',
+				processState: 'starting',
+				capabilities: { imageDrop: 'local-path' },
+			},
+			{
+				id: 'a',
+				name: 'Alpha',
 				processState: 'process-running',
 				capabilities: { imageDrop: 'local-path' },
 			},

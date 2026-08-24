@@ -47,7 +47,7 @@ function createFakeRaw(bufferedAmount = 0): FakeRaw {
 
 describe('websocket outbound backlog', () => {
 	test('uses serialized UTF-8 payload bytes at the exact outbound limit', () => {
-		const message: ServerMessage = { type: 'error', message: '雪' }
+		const message: ServerMessage = { type: 'error', attachmentId: 'attachment-1', message: '雪' }
 		const payload = serialiseServerMessage(message)
 		const payloadBytes = Buffer.byteLength(payload, 'utf8')
 		const limit = 1 * 1024 * 1024
@@ -64,7 +64,11 @@ describe('websocket outbound backlog', () => {
 	})
 
 	test('isolates a slow binding while a healthy sibling receives the same broadcast', () => {
-		const message: ServerMessage = { type: 'error', message: 'fan-out 雪' }
+		const message: ServerMessage = {
+			type: 'error',
+			attachmentId: 'attachment-1',
+			message: 'fan-out 雪',
+		}
 		const payload = serialiseServerMessage(message)
 		const limit = 1 * 1024 * 1024
 		const slowRaw = createFakeRaw(limit - Buffer.byteLength(payload, 'utf8') + 1)

@@ -10,6 +10,7 @@ import { sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
+const queuedMessages = new WeakMap<WebSocket, string[]>()
 
 afterEach(async () => {
 	while (runningProcesses.length > 0) {
@@ -89,15 +90,26 @@ function rawPayload(data: WebSocket.RawData): string {
 	return typeof data === 'string' ? data : Buffer.isBuffer(data) ? data.toString('utf-8') : ''
 }
 
+function takeQueued(ws: WebSocket, match: (payload: string) => boolean): string | undefined {
+	const queue = queuedMessages.get(ws)
+	const index = queue?.findIndex(match) ?? -1
+	if (!queue || index < 0) return
+	return queue.splice(index, 1)[0]
+}
+
 function waitForRawMessage(ws: WebSocket, timeoutMs = 10_000): Promise<string> {
+	const queued = takeQueued(ws, () => true)
+	if (queued !== undefined) return Promise.resolve(queued)
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
 			cleanup()
 			reject(new Error('timed out waiting for websocket message'))
 		}, timeoutMs)
 		const onMessage = (data: WebSocket.RawData) => {
+			const payload = rawPayload(data)
+			takeQueued(ws, (item) => item === payload)
 			cleanup()
-			resolve(rawPayload(data))
+			resolve(payload)
 		}
 		const onClose = () => {
 			cleanup()
@@ -127,6 +139,9 @@ function openSocket(port: number): Promise<WebSocket> {
 		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
 			origin: `http://127.0.0.1:${port}`,
 		})
+		const queue: string[] = []
+		queuedMessages.set(ws, queue)
+		ws.on('message', (data) => queue.push(rawPayload(data)))
 
 		const onError = (error: Error) => {
 			cleanup()
@@ -151,6 +166,11 @@ function waitForJsonMessage(
 	timeoutMs = 10_000,
 	predicate: (message: ReturnType<typeof parseServerMessage>) => boolean = () => true,
 ): Promise<ReturnType<typeof parseServerMessage>> {
+	const queued = takeQueued(ws, (payload) => {
+		const parsed = parseServerMessage(payload)
+		return parsed !== null && predicate(parsed)
+	})
+	if (queued !== undefined) return Promise.resolve(parseServerMessage(queued))
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
 			cleanup()
@@ -160,9 +180,8 @@ function waitForJsonMessage(
 		const onMessage = (data: WebSocket.RawData) => {
 			const payload = rawPayload(data)
 			const parsed = parseServerMessage(payload)
-			if (parsed === null || !predicate(parsed)) {
-				return
-			}
+			if (parsed === null || !predicate(parsed)) return
+			takeQueued(ws, (item) => item === payload)
 			cleanup()
 			resolve(parsed)
 		}
@@ -182,6 +201,9 @@ function waitForJsonMessage(
 		ws.on('close', onClose)
 	})
 }
+
+const isType = (type: string) => (message: ReturnType<typeof parseServerMessage>) =>
+	message?.type === type
 
 function waitForClose(ws: WebSocket, timeoutMs = 10_000): Promise<number> {
 	return new Promise((resolve, reject) => {
@@ -222,12 +244,12 @@ describe('serve websocket hardening', () => {
 			const responsePromise = waitForJsonMessage(
 				healthyClient,
 				10_000,
-				(message) => message?.type === 'pong' && message.id === 'health-ping',
+				(message) => message?.type === 'pong' && message.nonce === 'health-ping',
 			)
-			healthyClient.send(JSON.stringify({ type: 'ping', id: 'health-ping' }))
+			healthyClient.send(JSON.stringify({ type: 'ping', nonce: 'health-ping' }))
 
 			const response = await responsePromise
-			expect(response).toEqual({ type: 'pong', id: 'health-ping' })
+			expect(response).toEqual({ type: 'pong', nonce: 'health-ping' })
 			healthyClient.close()
 		} finally {
 			await stopServe(proc)
@@ -254,21 +276,69 @@ describe('serve websocket hardening', () => {
 		}
 	})
 
-	test('real websocket responds to ping before a target is attached', async () => {
+	test('real websocket pings unattached then commits a scoped snapshot', async () => {
 		const port = await reservePort()
 		const proc = startServe(port, ['cat'])
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const client = await openSocket(port)
 			expect(await waitForJsonMessage(client)).toEqual({ type: 'server-ready', protocol: 2 })
-			expect(await waitForJsonMessage(client)).toMatchObject({ type: 'targets' })
-			const responsePromise = waitForJsonMessage(
+			const targets = await waitForJsonMessage(client)
+			if (targets?.type !== 'targets' || !targets.targets[0]) {
+				throw new Error('targets frame missing')
+			}
+			const pong = waitForJsonMessage(
 				client,
 				10_000,
-				(message) => message?.type === 'pong' && message.id === 'health-ping',
+				(message) => message?.type === 'pong' && message.nonce === 'health-ping',
 			)
-			client.send(JSON.stringify({ type: 'ping', id: 'health-ping' }))
-			expect(await responsePromise).toEqual({ type: 'pong', id: 'health-ping' })
+			client.send(JSON.stringify({ type: 'ping', nonce: 'health-ping' }))
+			expect(await pong).toEqual({ type: 'pong', nonce: 'health-ping' })
+			const targetId = targets.targets[0].id
+			const status = (processState: string) => (message: ReturnType<typeof parseServerMessage>) =>
+				message?.type === 'target-status' && message.target.processState === processState
+			client.send(
+				JSON.stringify({
+					type: 'attach-target',
+					requestId: 'attach-1',
+					targetId,
+					cols: 80,
+					rows: 24,
+				}),
+			)
+			const started = await waitForJsonMessage(client, 10_000, isType('attach-started'))
+			if (started?.type !== 'attach-started') throw new Error('attach-started frame missing')
+			expect(await waitForJsonMessage(client, 10_000, status('starting'))).toMatchObject({
+				type: 'target-status',
+				target: { id: targetId, processState: 'starting' },
+			})
+			expect(await waitForJsonMessage(client, 10_000, status('process-running'))).toMatchObject({
+				type: 'target-status',
+				target: { id: targetId, processState: 'process-running' },
+			})
+			const snapshot = await waitForJsonMessage(client, 10_000, isType('snapshot'))
+			if (snapshot?.type !== 'snapshot') throw new Error('snapshot frame missing')
+			expect(snapshot.attachmentId).toBe(started.attachmentId)
+			client.send(
+				JSON.stringify({
+					type: 'snapshot-applied',
+					requestId: started.requestId,
+					attachmentId: started.attachmentId,
+				}),
+			)
+			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toEqual({
+				type: 'attach-committed',
+				requestId: started.requestId,
+				targetId: started.targetId,
+				attachmentId: started.attachmentId,
+			})
+			client.send(
+				JSON.stringify({ type: 'input', attachmentId: started.attachmentId, data: 'wire-marker' }),
+			)
+			expect(await waitForJsonMessage(client, 10_000, isType('output'))).toMatchObject({
+				type: 'output',
+				attachmentId: started.attachmentId,
+			})
 			client.close()
 		} finally {
 			await stopServe(proc)

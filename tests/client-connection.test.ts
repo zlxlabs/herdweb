@@ -36,6 +36,7 @@ class FakeSocket extends EventTarget {
 	static readonly OPEN = 1
 	static readonly CLOSED = 3
 	readonly sent: string[] = []
+	readonly received: string[] = []
 	bufferedAmount = 0
 	readyState = FakeSocket.CONNECTING
 
@@ -57,18 +58,86 @@ class FakeSocket extends EventTarget {
 		this.dispatchEvent(new Event('open'))
 	}
 	receive(data: string): void {
+		this.received.push(data)
 		this.dispatchEvent(new MessageEvent('message', { data }))
 	}
 }
 
+function currentAttachment(socket: FakeSocket): string | undefined {
+	for (const payload of [...socket.received].reverse()) {
+		const message = JSON.parse(payload) as Record<string, unknown>
+		if (message.type === 'attach-started' && typeof message.attachmentId === 'string') {
+			return message.attachmentId
+		}
+	}
+	return undefined
+}
+
+const scopedTypes = new Set([
+	'snapshot',
+	'output',
+	'exit',
+	'error',
+	'input-accepted',
+	'input-rejected',
+])
+
 function receive(socket: FakeSocket, message: Record<string, unknown>): void {
-	socket.receive(JSON.stringify(message))
+	if (message.type === 'pong' && typeof message.id === 'string') {
+		socket.receive(JSON.stringify({ type: 'pong', nonce: message.id }))
+		return
+	}
+	const body = { ...message }
+	if (typeof body.attachmentId !== 'string' && scopedTypes.has(String(body.type))) {
+		body.attachmentId = currentAttachment(socket)
+	}
+	socket.receive(JSON.stringify(body))
+	if (body.type !== 'snapshot') return
+	const applied = JSON.parse(socket.sent.at(-1) ?? 'null') as Record<string, unknown>
+	if (applied.type !== 'snapshot-applied') return
+	socket.receive(
+		JSON.stringify({
+			type: 'attach-committed',
+			requestId: applied.requestId,
+			targetId: 'default',
+			attachmentId: applied.attachmentId,
+		}),
+	)
 }
 
 function currentSocket(): FakeSocket {
 	const socket = harness.sockets[harness.sockets.length - 1]
 	if (!socket) throw new Error('test harness has no socket')
 	return socket
+}
+
+type Started = { requestId: string; attachmentId: string; targetId: string }
+
+function startAttachment(
+	socket: FakeSocket,
+	attachmentId = `attachment-${socket.received.length}`,
+): Started {
+	const attach = JSON.parse(socket.sent.at(-1) as string) as { requestId: string; targetId: string }
+	const started = { requestId: attach.requestId, targetId: attach.targetId, attachmentId }
+	receive(socket, { type: 'attach-started', ...started })
+	return started
+}
+
+function openWithAttach(socket: FakeSocket): Started {
+	socket.open()
+	receive(socket, { type: 'server-ready', protocol: 2 })
+	receive(socket, {
+		type: 'targets',
+		targets: [
+			{
+				id: 'default',
+				name: 'Default',
+				processState: 'process-running',
+				capabilities: { imageDrop: 'disabled' },
+			},
+		],
+	})
+	return startAttachment(socket)
 }
 
 function getStatus(): ConnectionStatus {
@@ -104,11 +173,12 @@ async function freshAttempt(): Promise<FakeSocket> {
 
 async function freshSynced(snapshot = 'snapshot'): Promise<FakeSocket> {
 	const socket = await freshAttempt()
-	socket.open()
+	const started = openWithAttach(socket)
 	receive(socket, {
 		type: 'snapshot',
+		attachmentId: started.attachmentId,
 		data: snapshot,
-		sessionId: `session-${harness.sockets.length}`,
+		sessionId: `session-${started.attachmentId}`,
 		outputWatermark: 0,
 	})
 	return socket
@@ -182,28 +252,29 @@ describe('client connection state machine', () => {
 		window.term?.input('dangerous-command\r', true)
 		expect(socket.sent).toEqual([])
 
-		socket.open()
+		openWithAttach(socket)
 		expect(window.term?.isConnected()).toBe(false)
 		terminal.cols = 90
 		terminal.rows = 30
 		window.__herdwebResize?.()
+		startAttachment(socket, 'latest-attachment')
 		terminal.cols = 100
 		terminal.rows = 40
 		window.__herdwebResize?.()
 
+		const started = startAttachment(socket, 'latest-attachment')
 		receive(socket, { type: 'output', data: 'five', seq: 5 })
 		receive(socket, { type: 'output', data: 'four', seq: 4 })
 		receive(socket, {
 			type: 'snapshot',
+			attachmentId: started.attachmentId,
 			data: 'snapshot',
 			sessionId: 'session-1',
 			outputWatermark: 3,
 		})
 
 		expect(window.term?.isConnected()).toBe(true)
-		expect(socket.sent).toHaveLength(2)
-		expect(JSON.parse(socket.sent[0] as string)).toMatchObject({ type: 'ping', id: 'ping-1' })
-		expect(JSON.parse(socket.sent[1] as string)).toEqual({ type: 'resize', cols: 100, rows: 40 })
+		expect(socket.sent.map((payload) => JSON.parse(payload)).at(-1)).toMatchObject({ type: 'ping' })
 		expect(terminal.writes).toEqual(['<reset>', 'snapshot', 'four', 'five'])
 	})
 
@@ -214,15 +285,16 @@ describe('client connection state machine', () => {
 		expect(socket.sent).toHaveLength(sentBefore + 1)
 		expect(JSON.parse(socket.sent[sentBefore] as string)).toEqual({
 			type: 'input',
+			attachmentId: expect.any(String),
 			data: 'fresh-input',
 		})
 	})
 
 	test('matching pong refreshes an otherwise stale freshness proof', async () => {
 		const socket = await freshSynced()
-		const firstPing = JSON.parse(socket.sent[0] as string) as { id: string }
+		const firstPing = JSON.parse(socket.sent.at(-1) as string) as { nonce: string }
 		vi.setSystemTime(24_000)
-		receive(socket, { type: 'pong', id: firstPing.id })
+		receive(socket, { type: 'pong', nonce: firstPing.nonce })
 		vi.setSystemTime(26_000)
 
 		const sentBefore = socket.sent.length
@@ -230,15 +302,16 @@ describe('client connection state machine', () => {
 		expect(socket.sent).toHaveLength(sentBefore + 1)
 		expect(JSON.parse(socket.sent[sentBefore] as string)).toEqual({
 			type: 'input',
+			attachmentId: expect.any(String),
 			data: 'pong-refreshed',
 		})
 	})
 
 	test('a recent pong prevents a false freshness failure at 24 seconds', async () => {
 		const socket = await freshSynced()
-		const firstPing = JSON.parse(socket.sent[0] as string) as { id: string }
+		const firstPing = JSON.parse(socket.sent.at(-1) as string) as { nonce: string }
 		vi.setSystemTime(10_000)
-		receive(socket, { type: 'pong', id: firstPing.id })
+		receive(socket, { type: 'pong', nonce: firstPing.nonce })
 		vi.setSystemTime(24_000)
 
 		const sentBefore = socket.sent.length
@@ -287,7 +360,7 @@ describe('client connection state machine', () => {
 		await vi.advanceTimersByTimeAsync(1_000)
 
 		const nextSocket = currentSocket()
-		nextSocket.open()
+		openWithAttach(nextSocket)
 		receive(nextSocket, {
 			type: 'snapshot',
 			data: 'fresh-again',
@@ -299,6 +372,7 @@ describe('client connection state machine', () => {
 		expect(nextSocket.sent).toHaveLength(sentBefore + 1)
 		expect(JSON.parse(nextSocket.sent[sentBefore] as string)).toEqual({
 			type: 'input',
+			attachmentId: expect.any(String),
 			data: 'recovered-input',
 		})
 	})
@@ -312,7 +386,12 @@ describe('client connection state machine', () => {
 		window.__herdwebResize?.()
 
 		const frames = socket.sent.map((payload) => JSON.parse(payload) as Record<string, unknown>)
-		expect(frames.at(-1)).toEqual({ type: 'resize', cols: 111, rows: 37 })
+		expect(frames.at(-1)).toMatchObject({
+			type: 'resize',
+			attachmentId: expect.any(String),
+			cols: 111,
+			rows: 37,
+		})
 		expect(getStatus().state).toBe('synced')
 	})
 
@@ -323,8 +402,8 @@ describe('client connection state machine', () => {
 				.map((payload) => JSON.parse(payload) as Record<string, unknown>)
 				.filter((frame) => frame.type === 'ping')
 			const ping = pings[pings.length - 1]
-			if (typeof ping?.id !== 'string') throw new Error('test harness did not observe a ping')
-			receive(socket, { type: 'pong', id: ping.id })
+			if (typeof ping?.nonce !== 'string') throw new Error('test harness did not observe a ping')
+			receive(socket, { type: 'pong', nonce: ping.nonce })
 			await vi.advanceTimersByTimeAsync(10_000)
 		}
 
@@ -333,23 +412,29 @@ describe('client connection state machine', () => {
 		expect(socket.sent).toHaveLength(sentBefore + 1)
 		expect(JSON.parse(socket.sent[sentBefore] as string)).toEqual({
 			type: 'input',
+			attachmentId: expect.any(String),
 			data: 'five-minute-input',
 		})
 	})
 
 	test('only a matching pong schedules the next single ping', async () => {
 		const activeSocket = await freshSynced()
-		const firstPing = JSON.parse(activeSocket.sent[0] as string) as { type: string; id: string }
-		activeSocket.receive(JSON.stringify({ type: 'pong', id: 'late-or-wrong' }))
+		activeSocket.receive(JSON.stringify({ type: 'pong', nonce: 'late-or-wrong' }))
 		await vi.advanceTimersByTimeAsync(10_000)
-		expect(activeSocket.sent).toHaveLength(2)
-
-		activeSocket.receive(JSON.stringify({ type: 'pong', id: firstPing.id }))
+		const currentPing = activeSocket.sent
+			.map((payload) => JSON.parse(payload) as { type: string; nonce?: string })
+			.filter((frame) => frame.type === 'ping')
+			.at(-1)
+		if (!currentPing?.nonce) throw new Error('test harness did not observe the current ping')
+		activeSocket.receive(JSON.stringify({ type: 'pong', nonce: currentPing.nonce }))
 		await vi.advanceTimersByTimeAsync(9_999)
-		expect(activeSocket.sent).toHaveLength(2)
+		expect(activeSocket.sent.filter((payload) => JSON.parse(payload).type === 'ping')).toHaveLength(
+			1,
+		)
 		await vi.advanceTimersByTimeAsync(1)
-		expect(activeSocket.sent).toHaveLength(3)
-		expect(JSON.parse(activeSocket.sent[2] as string).type).toBe('ping')
+		expect(activeSocket.sent.filter((payload) => JSON.parse(payload).type === 'ping')).toHaveLength(
+			2,
+		)
 	})
 
 	test.each([
@@ -386,7 +471,7 @@ describe('client connection state machine', () => {
 		expect(newSocket).not.toBe(oldSocket)
 		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
 		expect(getStatus().state).toBe('reconnecting')
-		oldSocket.open()
+		openWithAttach(oldSocket)
 		receive(oldSocket, {
 			type: 'snapshot',
 			data: 'stale',
@@ -440,7 +525,7 @@ describe('client connection state machine', () => {
 
 	test('visible replaces an OPEN socket that is still syncing', async () => {
 		const oldSocket = await freshAttempt()
-		oldSocket.open()
+		openWithAttach(oldSocket)
 		const socketCount = harness.sockets.length
 		setVisibility('visible')
 		document.dispatchEvent(new Event('visibilitychange'))
@@ -468,7 +553,7 @@ describe('client connection state machine', () => {
 
 	test('non-persisted pageshow during OPEN syncing handshake preserves sole socket', async () => {
 		const syncingSocket = await freshAttempt()
-		syncingSocket.open()
+		openWithAttach(syncingSocket)
 		expect(getStatus().state).toBe('syncing')
 		// lastProvenFreshAt stays 0 until snapshot; with real clocks that fails the
 		// freshness-only guard and WebKit would spawn a second socket on pageshow.
@@ -559,19 +644,22 @@ describe('client connection state machine', () => {
 
 	test('old epoch pong does not renew the current heartbeat deadline', async () => {
 		const oldSocket = await freshSynced()
-		const oldPing = JSON.parse(oldSocket.sent[0] as string) as { id: string }
+		const oldPing = oldSocket.sent
+			.map((payload) => JSON.parse(payload) as { type: string; nonce?: string })
+			.find((frame) => frame.type === 'ping')
+		if (!oldPing?.nonce) throw new Error('test harness did not observe the old ping')
 		setVisibility('visible')
 		document.dispatchEvent(new Event('visibilitychange'))
 		await vi.advanceTimersByTimeAsync(0)
 		const newSocket = currentSocket()
-		newSocket.open()
+		openWithAttach(newSocket)
 		receive(newSocket, {
 			type: 'snapshot',
 			data: 'new snapshot',
 			sessionId: 'new-session',
 			outputWatermark: 0,
 		})
-		oldSocket.receive(JSON.stringify({ type: 'pong', id: oldPing.id }))
+		oldSocket.receive(JSON.stringify({ type: 'pong', nonce: oldPing.nonce }))
 		await vi.advanceTimersByTimeAsync(14_999)
 		expect(newSocket.readyState).toBe(FakeSocket.OPEN)
 		await vi.advanceTimersByTimeAsync(1)
@@ -593,11 +681,11 @@ describe('client connection state machine', () => {
 
 	test('old epoch open is ignored and cannot enter syncing', async () => {
 		const oldSocket = await freshAttempt()
-		oldSocket.open()
+		openWithAttach(oldSocket)
 		setVisibility('visible')
 		document.dispatchEvent(new Event('visibilitychange'))
 		await vi.advanceTimersByTimeAsync(0)
-		oldSocket.open()
+		openWithAttach(oldSocket)
 		expect(getStatus().state).toBe('reconnecting')
 	})
 
@@ -630,7 +718,7 @@ describe('client connection state machine', () => {
 
 	test('an open socket without a snapshot times out as one pre-sync failure', async () => {
 		const socket = await freshPreSyncAttempt()
-		socket.open()
+		openWithAttach(socket)
 		await vi.advanceTimersByTimeAsync(9_999)
 		expect(socket.readyState).toBe(FakeSocket.OPEN)
 		await vi.advanceTimersByTimeAsync(1)
@@ -644,7 +732,7 @@ describe('client connection state machine', () => {
 		currentSocket().close()
 		await vi.advanceTimersByTimeAsync(1_000)
 		const socket = currentSocket()
-		socket.open()
+		openWithAttach(socket)
 		receive(socket, {
 			type: 'snapshot',
 			data: 'recovered',
@@ -698,7 +786,7 @@ describe('client connection state machine', () => {
 		const terminal = harness.terminal as FakeTerminal
 		const writesBefore = terminal.writes.length
 		const socket = await freshAttempt()
-		socket.open()
+		openWithAttach(socket)
 		for (let seq = 1; seq <= 5; seq += 1) {
 			receive(socket, {
 				type: 'output',
@@ -719,7 +807,7 @@ describe('client connection state machine', () => {
 		const terminal = harness.terminal as FakeTerminal
 		const writesBefore = terminal.writes.length
 		const socket = await freshAttempt()
-		socket.open()
+		openWithAttach(socket)
 		receive(socket, { type: 'output', data: 'five', seq: 5 })
 		receive(socket, { type: 'output', data: 'four', seq: 4 })
 		receive(socket, {
@@ -733,7 +821,7 @@ describe('client connection state machine', () => {
 
 	test('pre-snapshot output over one MiB closes the socket and retries', async () => {
 		const socket = await freshPreSyncAttempt()
-		socket.open()
+		openWithAttach(socket)
 		let notice = ''
 		const onNotice = (event: Event): void => {
 			if (event instanceof CustomEvent && typeof event.detail === 'string') notice = event.detail
@@ -753,7 +841,7 @@ describe('client connection state machine', () => {
 
 	test('malformed server frames are protocol errors rather than silent drops', async () => {
 		const socket = await freshPreSyncAttempt()
-		socket.open()
+		openWithAttach(socket)
 		socket.receive('{not-json')
 		expect(socket.readyState).toBe(FakeSocket.CLOSED)
 		expect(getStatus().lastFailureReason).toBe('protocol-error')
@@ -786,6 +874,7 @@ describe('client connection state machine', () => {
 		await vi.advanceTimersByTimeAsync(0)
 		expect(harness.sockets).toHaveLength(socketCount + 1)
 		const retrySocket = currentSocket()
+		openWithAttach(retrySocket)
 		receive(retrySocket, { type: 'exit', exitCode: 0, signal: null })
 		retrySocket.close()
 		await vi.advanceTimersByTimeAsync(20_000)
@@ -800,7 +889,7 @@ describe('client connection state machine', () => {
 		window.term?.requestReconnect()
 		await vi.advanceTimersByTimeAsync(0)
 		const retrySocket = currentSocket()
-		retrySocket.open()
+		openWithAttach(retrySocket)
 		receive(retrySocket, {
 			type: 'snapshot',
 			data: 'new session',
@@ -827,19 +916,23 @@ describe('client connection state machine', () => {
 		window.term?.input('must-not-be-replayed', true)
 		expect(socket.sent).toEqual([])
 
-		socket.open()
+		openWithAttach(socket)
 		receive(socket, {
 			type: 'snapshot',
 			data: 'fresh',
 			sessionId: 'fresh-session',
 			outputWatermark: 0,
 		})
-		expect(socket.sent).toHaveLength(2)
-		expect(JSON.parse(socket.sent[0] as string)).toMatchObject({
-			type: 'ping',
-			id: expect.any(String),
+		const frames = socket.sent.map((payload) => JSON.parse(payload) as Record<string, unknown>)
+		expect(frames.filter((frame) => frame.type === 'attach-target').at(-1)).toMatchObject({
+			type: 'attach-target',
+			cols: 140,
+			rows: 50,
 		})
-		expect(JSON.parse(socket.sent[1] as string)).toEqual({ type: 'resize', cols: 140, rows: 50 })
+		expect(frames.some((frame) => frame.type === 'ping' && typeof frame.nonce === 'string')).toBe(
+			true,
+		)
+		expect(frames.some((frame) => frame.type === 'resize')).toBe(false)
 	})
 
 	test('freeze suspends a synced socket through the pagehide path', async () => {
@@ -865,7 +958,7 @@ describe('client connection state machine', () => {
 		expect(newSocket).not.toBe(oldSocket)
 		expect(getStatus().state).toBe('reconnecting')
 		expect(terminal.writes).toHaveLength(writesBefore)
-		newSocket.open()
+		openWithAttach(newSocket)
 		receive(newSocket, {
 			type: 'snapshot',
 			data: 'fresh-after-resume',
@@ -930,7 +1023,7 @@ describe('client connection state machine', () => {
 		window.dispatchEvent(new Event('online'))
 		await vi.advanceTimersByTimeAsync(0)
 		const nextSocket = currentSocket()
-		nextSocket.open()
+		openWithAttach(nextSocket)
 		receive(nextSocket, {
 			type: 'snapshot',
 			data: 'online-snapshot',
@@ -938,9 +1031,13 @@ describe('client connection state machine', () => {
 			outputWatermark: 0,
 		})
 		const frames = nextSocket.sent.map((payload) => JSON.parse(payload) as Record<string, unknown>)
-		expect(frames).toHaveLength(2)
-		expect(frames[0]).toMatchObject({ type: 'ping' })
-		expect(frames[1]).toEqual({ type: 'resize', cols: 120, rows: 40 })
+		expect(frames.filter((frame) => frame.type === 'attach-target').at(-1)).toMatchObject({
+			type: 'attach-target',
+			cols: 120,
+			rows: 40,
+		})
+		expect(frames.some((frame) => frame.type === 'ping')).toBe(true)
+		expect(frames.some((frame) => frame.type === 'resize')).toBe(false)
 	})
 
 	test('buffered input detects a persistently stuck OPEN socket after settling', async () => {
@@ -968,8 +1065,8 @@ describe('client connection state machine', () => {
 			.map((payload) => JSON.parse(payload) as Record<string, unknown>)
 			.filter((frame) => frame.type === 'input')
 		expect(frames).toEqual([
-			{ type: 'input', data: 'one' },
-			{ type: 'input', data: 'two' },
+			{ type: 'input', attachmentId: expect.any(String), data: 'one' },
+			{ type: 'input', attachmentId: expect.any(String), data: 'two' },
 		])
 	})
 
@@ -990,7 +1087,7 @@ describe('client connection state machine', () => {
 		document.dispatchEvent(new Event('resume'))
 		await vi.advanceTimersByTimeAsync(0)
 		const newSocket = currentSocket()
-		newSocket.open()
+		openWithAttach(newSocket)
 		receive(newSocket, {
 			type: 'snapshot',
 			data: 'resumed',

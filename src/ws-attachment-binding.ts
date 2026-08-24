@@ -99,6 +99,17 @@ export class WsAttachmentBinding {
 		const capability = this.capabilities.get(attachmentId)
 		return capability?.clientId === clientId ? capability : null
 	}
+	invalidateAttachment(clientId: string, attachmentId: string): void {
+		const state = this.clients.get(clientId)
+		if (!state) return
+		let changed = false
+		for (const key of ['provisional', 'committed'] as const) {
+			if (state[key]?.attachmentId !== attachmentId) continue
+			this.clear(state, key)
+			changed = true
+		}
+		if (changed) state.acceptsInput = false
+	}
 	acceptsInput(clientId: string): boolean {
 		return this.clients.get(clientId)?.acceptsInput ?? false
 	}

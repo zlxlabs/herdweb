@@ -3,18 +3,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import XtermHeadless from '@xterm/headless'
 import { type IPty, spawnPty } from './pty'
-import type {
-	ErrorMessage,
-	ExitMessage,
-	InputAcceptedMessage,
-	InputActionMessage,
-	InputMessage,
-	InputRejectedMessage,
-	InputRejectedReason,
-	OutputMessage,
-	ResizeMessage,
-	SnapshotMessage,
-} from './session-protocol'
+import type { InputRejectedReason } from './session-protocol'
 
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
@@ -25,14 +14,19 @@ const MIRROR_LOW_WATERMARK_BYTES = 512 * 1024
 const HeadlessTerminal = XtermHeadless.Terminal
 type HeadlessTerminalInstance = InstanceType<typeof HeadlessTerminal>
 
-type SessionInputMessage = InputMessage | ResizeMessage | InputActionMessage
+export type SessionInputMessage =
+	| { readonly type: 'input'; readonly data: string }
+	| { readonly type: 'resize'; readonly cols: number; readonly rows: number }
+	| { readonly type: 'input-action'; readonly id: string; readonly data: string }
+
 export type SessionServerMessage =
-	| SnapshotMessage
-	| OutputMessage
-	| ExitMessage
-	| ErrorMessage
-	| InputAcceptedMessage
-	| InputRejectedMessage
+	// biome-ignore format: keep snapshot payload on one line
+	| { readonly type: 'snapshot'; readonly data: string; readonly sessionId: string; readonly outputWatermark: number }
+	| { readonly type: 'output'; readonly data: string; readonly seq: number }
+	| { readonly type: 'exit'; readonly exitCode: number; readonly signal: number | null }
+	| { readonly type: 'error'; readonly message: string }
+	| { readonly type: 'input-accepted'; readonly id: string }
+	| { readonly type: 'input-rejected'; readonly id: string; readonly reason: InputRejectedReason }
 
 // Typed view of the xterm internal the snapshot relies on: the serialize
 // addon replays mouse *tracking* modes but the public IModes exposes no
