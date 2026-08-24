@@ -66,10 +66,30 @@ function openSession(port: number): Promise<void> {
 		const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
 			origin: `http://127.0.0.1:${port}`,
 		})
+		const requestId = 'cli-single-mode-attach'
+		let attachmentId = ''
+		let ready = false
 		ws.once('error', reject)
-		ws.once('message', () => {
-			ws.close()
-			resolve()
+		ws.on('message', (raw) => {
+			const message = JSON.parse(String(raw)) as Record<string, unknown>
+			if (message.type === 'server-ready' && message.protocol === 2) ready = true
+			if (message.type === 'targets') {
+				const targetId = (message.targets as { id?: string }[] | undefined)?.[0]?.id
+				if (!ready || !targetId) {
+					ws.close()
+					reject(new Error('attach requires protocol 2 server-ready then targets'))
+					return
+				}
+				ws.send(JSON.stringify({ type: 'attach-target', requestId, targetId, cols: 80, rows: 24 }))
+			}
+			if (message.type === 'attach-started') attachmentId = String(message.attachmentId)
+			if (message.type === 'snapshot') {
+				ws.send(JSON.stringify({ type: 'snapshot-applied', requestId, attachmentId }))
+			}
+			if (message.type === 'attach-committed') {
+				ws.close()
+				resolve()
+			}
 		})
 	})
 }

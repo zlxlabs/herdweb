@@ -107,8 +107,24 @@ test('send button produces a WS input payload while the keyboard is suppressed',
 	})
 
 	await expect
-		.poll(() => page.evaluate(() => window.__sentPayloads ?? []))
-		.toContain(JSON.stringify({ type: 'input', data: '\x1b' }))
+		.poll(() =>
+			page.evaluate(
+				() =>
+					(window.__sentPayloads ?? [])
+						.map((raw) => JSON.parse(raw) as Record<string, unknown>)
+						.find(
+							(message) =>
+								message.type === 'input' &&
+								typeof message.attachmentId === 'string' &&
+								message.attachmentId.length > 0,
+						) ?? null,
+			),
+		)
+		.toEqual({
+			type: 'input',
+			data: '\x1b',
+			attachmentId: expect.stringMatching(/./),
+		})
 
 	// Escape leaves interactive bash's readline waiting for the next byte;
 	// return the PTY to a killable state before isolated-serve teardown.
