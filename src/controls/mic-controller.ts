@@ -686,8 +686,8 @@ export function createMicController(options: MicControllerOptions): MicControlle
 		preview.restoreDraft()
 	}
 
-	const previewConfirm = preview.onConfirm(confirmPreview)
-	const previewRetry = preview.onRetry(retryPending)
+	const previewConfirm = preview.onConfirm(options.term, confirmPreview)
+	const previewRetry = preview.onRetry(options.term, retryPending)
 	const previewAbandon = preview.onAbandon(abandonPending)
 	const previewCancel = preview.onCancel(cancelPreview)
 	document.addEventListener('visibilitychange', onVisibilityChange)

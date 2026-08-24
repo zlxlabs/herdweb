@@ -1,6 +1,6 @@
-import type { InputRejectedReason } from '../types'
+import type { InputRejectedReason, XTerminal } from '../types'
 import { el, svg } from '../util/dom'
-import { onTap } from '../util/tap'
+import { onAttachmentTap, onTap } from '../util/tap'
 
 declare const __herdwebBasePath: string | undefined
 
@@ -157,8 +157,8 @@ export interface AsrPreview {
 	readonly clear: () => void
 	readonly onOpenChange: (handler: (open: boolean) => void) => { dispose(): void }
 	readonly onHeightChange: (handler: () => void) => { dispose(): void }
-	readonly onConfirm: (handler: () => void) => { dispose(): void }
-	readonly onRetry: (handler: () => void) => { dispose(): void }
+	readonly onConfirm: (term: XTerminal, handler: () => void) => { dispose(): void }
+	readonly onRetry: (term: XTerminal, handler: () => void) => { dispose(): void }
 	readonly onAbandon: (handler: () => void) => { dispose(): void }
 	readonly onCancel: (handler: () => void) => { dispose(): void }
 }
@@ -467,6 +467,24 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 		}
 	}
 
+	function registerAttachment(
+		term: XTerminal,
+		target: HTMLButtonElement,
+		handler: () => void,
+	): { dispose(): void } {
+		const callback = (event: Event): void => {
+			event.stopPropagation()
+			handler()
+		}
+		onAttachmentTap(term, target, callback)
+		return {
+			dispose() {
+				target.removeEventListener('click', callback)
+				target.removeEventListener('touchend', callback)
+			},
+		}
+	}
+
 	function registerCancel(handler: () => void): { dispose(): void } {
 		const callback = (event: Event): void => {
 			event.stopPropagation()
@@ -515,8 +533,8 @@ export function createAsrPreview(options: { readonly defaultTargetId: string }):
 			heightChangeHandlers.add(handler)
 			return { dispose: () => heightChangeHandlers.delete(handler) }
 		},
-		onConfirm: (handler) => register(sendButton, handler),
-		onRetry: (handler) => registerAction(retryButton, handler),
+		onConfirm: (term, handler) => registerAttachment(term, sendButton, handler),
+		onRetry: (term, handler) => registerAttachment(term, retryButton, handler),
 		onAbandon: (handler) => registerAction(abandonButton, handler),
 		onCancel: registerCancel,
 	}

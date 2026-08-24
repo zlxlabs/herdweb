@@ -11,6 +11,7 @@ import { defineConfig } from '../src/config'
 import { createAsrPreview } from '../src/controls/asr-preview'
 import { createMicController } from '../src/controls/mic-controller'
 import { createHookRegistry } from '../src/hooks/registry'
+import { serialiseClientMessage } from '../src/session-protocol'
 import type { InputActionResult, XTerminal } from '../src/types'
 import { mockTerminalWithSent } from './fixtures'
 
@@ -163,6 +164,7 @@ interface MicHarness {
 	readonly controller: NonNullable<ReturnType<typeof createMicController>>
 	readonly engine: FakeEngine
 	readonly term: XTerminal & { readonly sent: string[]; inputActionCalls: string[] }
+	readonly wsFrames: string[]
 	setAttachment(id: string | null): void
 }
 
@@ -170,12 +172,15 @@ function createMicHarness(hooks = createHookRegistry()): MicHarness {
 	const engine = new FakeEngine()
 	const baseTerm = mockTerminalWithSent()
 	const inputActionCalls: string[] = []
+	const wsFrames: string[] = []
 	const actionResultListeners = new Set<(result: InputActionResult) => void>()
 	let attachmentId: string | null = 'att-one'
 	const term = {
 		...baseTerm,
 		getAttachmentId: () => attachmentId,
 		sendInputAction(id: string, data: string) {
+			if (attachmentId === null) return false
+			wsFrames.push(serialiseClientMessage({ type: 'input-action', attachmentId, id, data }))
 			inputActionCalls.push(data)
 			queueMicrotask(() => {
 				for (const handler of actionResultListeners) handler({ id, accepted: true, reason: null })
@@ -198,6 +203,7 @@ function createMicHarness(hooks = createHookRegistry()): MicHarness {
 		controller,
 		engine,
 		term: Object.assign(term, { inputActionCalls }),
+		wsFrames,
 		setAttachment(id: string | null) {
 			attachmentId = id
 		},
@@ -255,6 +261,59 @@ describe('mic controller target isolation (T6a)', () => {
 		expect(controller.preview.getPending()?.id).toBe(pendingOnA.id)
 		expect(controller.preview.message.dataset.submissionStatus).toBe('unknown')
 	})
+
+	test.each([
+		{
+			label: 'Send',
+			selector: '.wt-composer-send',
+			switchTarget: true,
+			prepare(controller: MicHarness['controller']) {
+				controller.setTarget('one')
+				typeDraft(controller.preview, 'A draft')
+				controller.setTarget('two')
+				typeDraft(controller.preview, 'B draft')
+				controller.setTarget('one')
+				controller.preview.show('A draft')
+			},
+		},
+		{
+			label: 'Retry',
+			selector: '.wt-composer-retry',
+			switchTarget: false,
+			prepare(controller: MicHarness['controller']) {
+				controller.setTarget('one')
+				expect(
+					controller.preview.setPending({
+						id: 'p1',
+						sessionId: 'test-session',
+						sourceText: 'do the thing',
+						data: 'do the thing',
+						status: 'unknown',
+					}),
+				).toBe(true)
+				controller.setTarget('two')
+				typeDraft(controller.preview, 'B draft')
+				controller.setTarget('one')
+			},
+		},
+	])(
+		'composer $label touch captured on A sends 0 input-action frames to B after A→B commit before touchend',
+		async ({ label, selector, switchTarget, prepare }) => {
+			const harness = createMicHarness()
+			prepare(harness.controller)
+			const button = harness.controller.preview.element.querySelector(selector)
+			if (!(button instanceof HTMLButtonElement)) throw new Error(`no ${label} button`)
+			button.dispatchEvent(new TouchEvent('touchstart'))
+			harness.setAttachment('att-two')
+			if (switchTarget) harness.controller.setTarget('two')
+			button.dispatchEvent(new TouchEvent('touchend'))
+			for (let index = 0; index < 8; index++) await Promise.resolve()
+			const toB = harness.wsFrames
+				.map((payload) => JSON.parse(payload) as Record<string, unknown>)
+				.filter((frame) => frame.type === 'input-action' && frame.attachmentId === 'att-two')
+			expect(toB).toEqual([])
+		},
+	)
 
 	test('composer confirm started on A sends nothing after the attachment switches to B', async () => {
 		const gate = (() => {
