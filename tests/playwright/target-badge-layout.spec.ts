@@ -24,10 +24,14 @@ test.describe('target badge layout (explicit mode)', () => {
 		if (!badgeBox) throw new Error('target badge must have a visible bounding box')
 		const toolbarBox = await toolbar.boundingBox()
 		if (!toolbarBox) throw new Error('toolbar must have a visible bounding box')
+		const terminal = page.locator('#terminal-container')
+		const terminalBox = await terminal.boundingBox()
+		if (!terminalBox) throw new Error('terminal container must have a visible bounding box')
 
 		expect(badgeBox.y).toBeGreaterThanOrEqual(toolbarBox.y)
 		expect(badgeBox.y + badgeBox.height).toBeLessThanOrEqual(toolbarBox.y + toolbarBox.height)
 		expect(toolbarBox.height).toBeGreaterThan(44)
+		expect(terminalBox.y + terminalBox.height).toBeLessThanOrEqual(toolbarBox.y)
 	})
 
 	test('coarse-pointer badge hides while the voice composer layer is open', async ({
