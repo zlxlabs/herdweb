@@ -42,6 +42,7 @@ function setup(
 	let aid = 0
 	const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ path: PATH })))
 	const writeText = vi.fn(() => Promise.resolve())
+	const toastSpy = vi.fn()
 	const pasteTarget = document.createElement('textarea')
 	document.body.appendChild(pasteTarget)
 	const controller = createImageDropController({
@@ -72,6 +73,7 @@ function setup(
 			return `a${aid}`
 		},
 		ackTimeoutMs: 30,
+		showToastFn: toastSpy,
 		...(options.paste ? { pasteTarget } : {}),
 	})
 	const emit = (result: InputActionResult) => {
@@ -81,7 +83,17 @@ function setup(
 		connected = next
 		for (const listener of connectionListeners) listener(next)
 	}
-	return { controller, attachment, sent, emit, emitConnection, fetchMock, writeText, pasteTarget }
+	return {
+		controller,
+		attachment,
+		sent,
+		emit,
+		emitConnection,
+		fetchMock,
+		writeText,
+		toastSpy,
+		pasteTarget,
+	}
 }
 
 function query<T extends HTMLElement>(c: ImageDropController, sel: string): T {
@@ -189,23 +201,26 @@ test('failures: HTTP status, malformed 200, rejected, lost ACK — all keep a vi
 	expect(statusText(h.controller)).toBe(rejectedStatus)
 })
 
-test('gating: session/freshness guard auto-insert; stale ACKs and clipboard feedback are safe', async () => {
+test('gating: session/freshness guard auto-insert; stale ACKs are safe; success path toasts only', async () => {
 	const h = setup()
 	pick(h.controller, png())
+	expect(h.toastSpy).toHaveBeenLastCalledWith('Uploading a.png…')
+	expect(h.controller.element.style.display).toBe('none')
 	await flush()
 	expect(h.sent).toEqual([{ id: 'image-drop-a1', data: ` ${PATH} ` }])
 	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
-	expect(statusText(h.controller)).toContain('Inserted')
-	query<HTMLButtonElement>(h.controller, '.wt-image-drop-close').click()
+	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserted into agent input.')
+	expect(h.controller.element.style.display).toBe('none')
 	pick(h.controller, png())
 	await flush()
 	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
-	expect(statusText(h.controller)).toContain('Inserting')
+	expect(h.toastSpy).toHaveBeenCalledTimes(3) // stale ACK: still inserting, no new toast
 	h.emit({ id: 'image-drop-a2', accepted: true, reason: null })
-	expect(statusText(h.controller)).toContain('Inserted')
+	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserted into agent input.')
+	expect(h.controller.element.style.display).toBe('none')
 })
 
-test('done toast: no path/buttons, auto-hides after ~2.5s', async () => {
+test('done toast: panel stays hidden, toast carries success, auto-returns to idle after ~2.5s', async () => {
 	const h = setup()
 	vi.useFakeTimers()
 	const pathText = query(h.controller, '.wt-image-drop-path')
@@ -215,16 +230,29 @@ test('done toast: no path/buttons, auto-hides after ~2.5s', async () => {
 	await vi.advanceTimersByTimeAsync(0) // upload resolves → auto-insert
 	expect(h.sent).toHaveLength(1)
 	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
-	expect(statusText(h.controller)).toBe('Inserted into agent input.')
-	h.emitConnection(false)
-	expect(statusText(h.controller)).toBe('Inserted into agent input.')
-	expect(h.controller.element.style.display).toBe('flex')
+	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserted into agent input.')
+	expect(h.toastSpy).toHaveBeenCalledTimes(2)
+	h.emitConnection(false) // 'done' survives a connection blip without a stale error
+	expect(h.toastSpy).toHaveBeenCalledTimes(2)
+	expect(h.controller.element.style.display).toBe('none')
 	expect(pathText.style.display).toBe('none')
 	expect(actions.style.display).toBe('none')
 	await vi.advanceTimersByTimeAsync(2_499)
-	expect(h.controller.element.style.display).toBe('flex')
+	expect(statusText(h.controller)).toBe('Inserted into agent input.')
 	await vi.advanceTimersByTimeAsync(1)
+	expect(statusText(h.controller)).toBe('') // back to idle
 	expect(h.controller.element.style.display).toBe('none')
+})
+
+test('dispose: a pending done-to-idle timer must not move state after dispose', async () => {
+	const h = setup()
+	vi.useFakeTimers()
+	pick(h.controller, png())
+	await vi.advanceTimersByTimeAsync(0)
+	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
+	h.controller.dispose()
+	await vi.advanceTimersByTimeAsync(3_000)
+	expect(statusText(h.controller)).toBe('Inserted into agent input.')
 })
 
 test('lifecycle: rejected path clears immediately on attachment switch', async () => {
