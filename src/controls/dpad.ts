@@ -91,6 +91,64 @@ const DPAD_LONG_PRESS_MS = 500
 const DPAD_REPEAT_DELAY_MS = 300
 const DPAD_REPEAT_INTERVAL_MS = 100
 
+/** localStorage key for the user-dragged d-pad position (same `herdweb:` prefix as herdweb:fontSize) */
+export const DPAD_POSITION_STORAGE_KEY = 'herdweb:dpadPosition'
+
+/** Drag distance (px) below which a handle press is a tap, not a drag */
+const DPAD_DRAG_THRESHOLD_PX = 4
+
+/** Double-tap window (ms) on the handle that docks the pad back to its default position */
+const DPAD_DOCK_DOUBLE_TAP_MS = 300
+
+/** Top-left corner of the pad in viewport pixels */
+interface DpadPosition {
+	readonly x: number
+	readonly y: number
+}
+
+/** Clamp a d-pad position into the visible viewport (a pad larger than the viewport pins to 0) */
+export function clampDpadPosition(
+	position: DpadPosition,
+	viewportWidth: number,
+	viewportHeight: number,
+	padWidth: number,
+	padHeight: number,
+): DpadPosition {
+	return {
+		x: Math.min(Math.max(0, position.x), Math.max(0, viewportWidth - padWidth)),
+		y: Math.min(Math.max(0, position.y), Math.max(0, viewportHeight - padHeight)),
+	}
+}
+
+/** Read the persisted d-pad position; null when absent or corrupted (corruption is treated as absent) */
+export function readDpadPosition(storage: Storage): DpadPosition | null {
+	const raw = storage.getItem(DPAD_POSITION_STORAGE_KEY)
+	if (raw === null) return null
+	let parsed: unknown
+	try {
+		parsed = JSON.parse(raw)
+	} catch {
+		return null
+	}
+	if (typeof parsed !== 'object' || parsed === null) return null
+	if (!('x' in parsed) || !('y' in parsed)) return null
+	const { x, y } = parsed
+	if (typeof x !== 'number' || typeof y !== 'number' || !Number.isFinite(x) || !Number.isFinite(y))
+		return null
+	return { x, y }
+}
+
+/** Persist the d-pad position; returns false when storage rejects the write (e.g. iOS private mode) */
+export function writeDpadPosition(storage: Storage, position: DpadPosition): boolean {
+	try {
+		storage.setItem(DPAD_POSITION_STORAGE_KEY, JSON.stringify(position))
+		return true
+	} catch (error) {
+		console.error('herdweb: failed to persist d-pad position', error)
+		return false
+	}
+}
+
 /** Dependencies injected into the d-pad by the app wiring layer */
 interface DpadDeps {
 	/**
@@ -131,6 +189,100 @@ export function createDpad(
 	readonly toggle: () => void
 } {
 	const element = el('div', { id: 'wt-dpad' })
+
+	// Drag handle (slim full-width strip above the key grid): drag to move the
+	// pad out of the way of bottom-of-terminal agent menus; double-tap docks it
+	// back. The dragged position persists in localStorage and is applied
+	// (viewport-clamped) on first open. Focus safety: like the keys, the handle
+	// suppresses the synthesised mousedown, and desktop mousedown is
+	// default-prevented, so dragging never steals terminal textarea focus.
+	const handle = el(
+		'button',
+		{
+			type: 'button',
+			class: 'wt-dpad-handle',
+			'aria-label': 'Drag to move pad, double-tap to dock',
+		},
+		'⠿',
+	)
+	suppressSynthesisedMouse(handle)
+	handle.addEventListener('mousedown', (event) => event.preventDefault())
+	element.appendChild(handle)
+
+	let currentPosition: DpadPosition | null = null
+	const applyPosition = (position: DpadPosition): void => {
+		currentPosition = position
+		element.classList.add('wt-dpad-floating')
+		element.style.left = `${position.x}px`
+		element.style.top = `${position.y}px`
+	}
+	const dock = (): void => {
+		currentPosition = null
+		element.classList.remove('wt-dpad-floating')
+		element.style.left = ''
+		element.style.top = ''
+		localStorage.removeItem(DPAD_POSITION_STORAGE_KEY)
+	}
+
+	let dragStart: {
+		readonly pointerX: number
+		readonly pointerY: number
+		readonly originX: number
+		readonly originY: number
+	} | null = null
+	let dragMoved = false
+	let lastHandleTapAt = 0
+
+	handle.addEventListener('pointerdown', (event) => {
+		handle.setPointerCapture(event.pointerId)
+		const rect = element.getBoundingClientRect()
+		dragStart = {
+			pointerX: event.clientX,
+			pointerY: event.clientY,
+			originX: rect.left,
+			originY: rect.top,
+		}
+		dragMoved = false
+	})
+	handle.addEventListener('pointermove', (event) => {
+		if (!dragStart) return
+		const dx = event.clientX - dragStart.pointerX
+		const dy = event.clientY - dragStart.pointerY
+		if (!dragMoved && Math.abs(dx) + Math.abs(dy) < DPAD_DRAG_THRESHOLD_PX) return
+		dragMoved = true
+		applyPosition({ x: dragStart.originX + dx, y: dragStart.originY + dy })
+	})
+	handle.addEventListener('pointerup', (event) => {
+		if (!dragStart) return
+		dragStart = null
+		if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId)
+		if (dragMoved) {
+			const rect = element.getBoundingClientRect()
+			const clamped = clampDpadPosition(
+				currentPosition ?? { x: rect.left, y: rect.top },
+				window.innerWidth,
+				window.innerHeight,
+				rect.width,
+				rect.height,
+			)
+			applyPosition(clamped)
+			writeDpadPosition(localStorage, clamped)
+			return
+		}
+		// No movement: a quick second tap docks the pad back to its default position
+		const now = Date.now()
+		if (now - lastHandleTapAt < DPAD_DOCK_DOUBLE_TAP_MS) {
+			lastHandleTapAt = 0
+			dock()
+		} else {
+			lastHandleTapAt = now
+		}
+	})
+	handle.addEventListener('pointercancel', () => {
+		dragStart = null
+	})
+
+	let storedPositionApplied = false
 
 	for (const key of keys) {
 		if (key === null) {
@@ -215,6 +367,16 @@ export function createDpad(
 
 	function toggle(): void {
 		element.classList.toggle('open')
+		// Apply the persisted position on first open — only then is the pad
+		// measurable, so the clamp can account for its real size.
+		if (!element.classList.contains('open') || storedPositionApplied) return
+		storedPositionApplied = true
+		const stored = readDpadPosition(localStorage)
+		if (!stored) return
+		const rect = element.getBoundingClientRect()
+		applyPosition(
+			clampDpadPosition(stored, window.innerWidth, window.innerHeight, rect.width, rect.height),
+		)
 	}
 
 	return { element, toggle }

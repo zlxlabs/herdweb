@@ -1,7 +1,15 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createDefaultActionRegistry } from '../src/actions/registry'
-import { createDpad, defaultDpadKeys, dpadToggleButton } from '../src/controls/dpad'
+import {
+	DPAD_POSITION_STORAGE_KEY,
+	clampDpadPosition,
+	createDpad,
+	defaultDpadKeys,
+	dpadToggleButton,
+	readDpadPosition,
+	writeDpadPosition,
+} from '../src/controls/dpad'
 import type { ButtonAction, ControlButton } from '../src/types'
 import { _resetTouchGuard } from '../src/util/tap'
 import { sendData } from '../src/util/terminal'
@@ -18,7 +26,7 @@ afterEach(() => {
 })
 
 function dpadKeys(element: HTMLElement): HTMLButtonElement[] {
-	return [...element.querySelectorAll('button')]
+	return [...element.querySelectorAll('button:not(.wt-dpad-handle)')]
 }
 
 function createTestDpad(
@@ -111,9 +119,11 @@ describe('createDpad', () => {
 		const buttons = dpadKeys(dpad.element)
 		expect(buttons.map((b) => b.textContent)).toEqual(['📋', 'C-d'])
 		expect(buttons[0]?.getAttribute('aria-label')).toBe('Paste from clipboard')
+		// Children: the drag handle plus one grid cell per key slot
 		const cells = [...dpad.element.children]
-		expect(cells).toHaveLength(3)
-		expect(cells[1]?.classList.contains('wt-dpad-spacer')).toBe(true)
+		expect(cells).toHaveLength(4)
+		expect(cells[0]?.classList.contains('wt-dpad-handle')).toBe(true)
+		expect(cells[2]?.classList.contains('wt-dpad-spacer')).toBe(true)
 	})
 
 	test('send keys emit their exact byte sequence; 📋 dispatches through executeAction', () => {
@@ -468,5 +478,115 @@ describe('hold-to-repeat (← ↑ ↓ → ⌫)', () => {
 		} finally {
 			vi.useRealTimers()
 		}
+	})
+})
+
+describe('draggable pad with persisted position', () => {
+	function dragHandle(element: HTMLElement): HTMLButtonElement {
+		const handle = element.querySelector<HTMLButtonElement>('.wt-dpad-handle')
+		if (!handle) throw new Error('no drag handle')
+		return handle
+	}
+
+	function pointer(type: string, target: HTMLElement, x: number, y: number): void {
+		target.dispatchEvent(new PointerEvent(type, { pointerId: 1, clientX: x, clientY: y }))
+	}
+
+	beforeEach(() => {
+		localStorage.clear()
+	})
+
+	describe('clampDpadPosition', () => {
+		test('clamps negative and overflowing coordinates into the viewport', () => {
+			expect(clampDpadPosition({ x: -5, y: 9999 }, 390, 844, 164, 180)).toEqual({ x: 0, y: 664 })
+			expect(clampDpadPosition({ x: 9999, y: -5 }, 390, 844, 164, 180)).toEqual({ x: 226, y: 0 })
+			expect(clampDpadPosition({ x: 50, y: 60 }, 390, 844, 164, 180)).toEqual({ x: 50, y: 60 })
+		})
+
+		test('a pad larger than the viewport pins to 0 (no negative range)', () => {
+			expect(clampDpadPosition({ x: 50, y: 50 }, 100, 100, 164, 180)).toEqual({ x: 0, y: 0 })
+		})
+	})
+
+	describe('readDpadPosition / writeDpadPosition', () => {
+		test('round-trips a position through storage', () => {
+			writeDpadPosition(localStorage, { x: 12, y: 34 })
+			expect(readDpadPosition(localStorage)).toEqual({ x: 12, y: 34 })
+			expect(localStorage.getItem(DPAD_POSITION_STORAGE_KEY)).toBe('{"x":12,"y":34}')
+		})
+
+		test('returns null when the key is missing, corrupted, or has non-numeric fields', () => {
+			expect(readDpadPosition(localStorage)).toBeNull()
+			localStorage.setItem(DPAD_POSITION_STORAGE_KEY, 'not json')
+			expect(readDpadPosition(localStorage)).toBeNull()
+			localStorage.setItem(DPAD_POSITION_STORAGE_KEY, '{"x":"12","y":34}')
+			expect(readDpadPosition(localStorage)).toBeNull()
+		})
+	})
+
+	test('renders a full-width drag handle above the key grid', () => {
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		const handle = dragHandle(dpad.element)
+		expect(handle.getAttribute('aria-label')).toBe('Drag to move pad, double-tap to dock')
+		expect(dpad.element.firstElementChild).toBe(handle)
+	})
+
+	test('dragging the handle updates left/top inline styles, floats the pad, and persists on release', () => {
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		const handle = dragHandle(dpad.element)
+
+		pointer('pointerdown', handle, 100, 100)
+		pointer('pointermove', handle, 150, 140)
+
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(true)
+		expect(dpad.element.style.left).toBe('50px')
+		expect(dpad.element.style.top).toBe('40px')
+
+		pointer('pointerup', handle, 150, 140)
+		expect(readDpadPosition(localStorage)).toEqual({ x: 50, y: 40 })
+	})
+
+	test('pointermove below the 4px threshold is still a tap, not a drag', () => {
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		const handle = dragHandle(dpad.element)
+
+		pointer('pointerdown', handle, 100, 100)
+		pointer('pointermove', handle, 101, 102)
+		pointer('pointerup', handle, 101, 102)
+
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(false)
+		expect(readDpadPosition(localStorage)).toBeNull()
+	})
+
+	test('double-tap on the handle docks the pad (clears inline styles and storage)', () => {
+		writeDpadPosition(localStorage, { x: 20, y: 30 })
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		const handle = dragHandle(dpad.element)
+
+		pointer('pointerdown', handle, 100, 100)
+		pointer('pointermove', handle, 150, 140)
+		pointer('pointerup', handle, 150, 140)
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(true)
+
+		pointer('pointerdown', handle, 150, 140)
+		pointer('pointerup', handle, 150, 140)
+		pointer('pointerdown', handle, 150, 140)
+		pointer('pointerup', handle, 150, 140)
+
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(false)
+		expect(dpad.element.style.left).toBe('')
+		expect(dpad.element.style.top).toBe('')
+		expect(readDpadPosition(localStorage)).toBeNull()
+	})
+
+	test('a stored position is applied (clamped) when the pad is first opened', () => {
+		writeDpadPosition(localStorage, { x: 70, y: 80 })
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+
+		dpad.toggle()
+
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(true)
+		expect(dpad.element.style.left).toBe('70px')
+		expect(dpad.element.style.top).toBe('80px')
 	})
 })

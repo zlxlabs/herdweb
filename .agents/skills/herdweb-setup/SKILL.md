@@ -287,6 +287,8 @@ Caveat: the hold-to-newline key is only meaningful in an agent input box. In a p
 
 Keys may also carry `repeatOnHold: true`: after a 300ms hold the tap action repeats every 100ms until release (the release tap is then suppressed). Default on ← ↑ ↓ → ⌫. Mutually exclusive with `longPressAction` — longPress wins and repeat is not wired.
 
+The pad is draggable: grab the slim `⠿` handle above the key grid to move it (e.g. when it covers a bottom-of-terminal approval menu). The position persists across sessions (`localStorage` key `herdweb:dpadPosition`); double-tap the handle to dock it back above the toolbar. Not configurable — always on.
+
 ### Gestures
 
 | Field | Default | Notes |
