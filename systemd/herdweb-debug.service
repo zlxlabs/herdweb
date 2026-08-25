@@ -9,4 +9,4 @@ RestartSec=3
 Environment=HOME=%h
 Environment=PATH=/home/zlx/.local/share/fnm/aliases/default/bin:/home/zlx/.local/bin:/usr/local/bin:/usr/bin:/bin
 WorkingDirectory=/home/zlx/projects/oss/herdweb
-ExecStart=/home/zlx/.local/share/fnm/aliases/default/bin/pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7691 --base-path /herdweb --config /home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts -- herdr session attach herdweb-dev
+ExecStart=/home/zlx/.local/share/fnm/aliases/default/bin/pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7691 --base-path /herdweb --config /home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts
