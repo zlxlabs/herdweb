@@ -661,7 +661,7 @@ body.wt-composer-open .wt-target-badge {
 	font-weight: 700;
 	cursor: pointer;
 	touch-action: manipulation;
-	/* Long-press keys (e.g. ⏎ hold-for-newline) must not pop the iOS callout */
+	/* No iOS long-press callout on any d-pad button — every key supports a hold gesture (repeat or long-press) */
 	-webkit-touch-callout: none;
 }
 

@@ -22,6 +22,7 @@ beforeEach(() => {
 
 afterEach(() => {
 	vi.restoreAllMocks()
+	vi.unstubAllGlobals()
 	GlobalRegistrator.unregister()
 })
 
@@ -620,6 +621,22 @@ describe('draggable pad with persisted position', () => {
 		target.dispatchEvent(new PointerEvent(type, { pointerId: 1, clientX: x, clientY: y }))
 	}
 
+	// happy-dom reports zero-size DOMRects; mock a realistic pad size so clamp
+	// assertions exercise real geometry instead of a degenerate 0×0 rect
+	function mockPadRect(element: HTMLElement, width = 152, height = 168): void {
+		vi.spyOn(element, 'getBoundingClientRect').mockReturnValue({
+			x: 0,
+			y: 0,
+			left: 0,
+			top: 0,
+			right: width,
+			bottom: height,
+			width,
+			height,
+			toJSON: () => ({}),
+		})
+	}
+
 	beforeEach(() => {
 		localStorage.clear()
 	})
@@ -707,14 +724,69 @@ describe('draggable pad with persisted position', () => {
 		expect(readDpadPosition(localStorage)).toBeNull()
 	})
 
-	test('a stored position is applied (clamped) when the pad is first opened', () => {
+	test('a stored position is applied when the pad is first opened', () => {
 		writeDpadPosition(localStorage, { x: 70, y: 80 })
 		const { dpad } = createTestDpad(mockTerminalWithSent())
+		mockPadRect(dpad.element)
 
 		dpad.toggle()
 
 		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(true)
 		expect(dpad.element.style.left).toBe('70px')
 		expect(dpad.element.style.top).toBe('80px')
+	})
+
+	test('an out-of-bounds stored position is clamped into the viewport on first open', () => {
+		writeDpadPosition(localStorage, { x: 9999, y: 9999 })
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		mockPadRect(dpad.element, 152, 168)
+
+		dpad.toggle()
+
+		// The pad's bottom-right corner must stay inside the viewport given its real size
+		expect(dpad.element.style.left).toBe(`${window.innerWidth - 152}px`)
+		expect(dpad.element.style.top).toBe(`${window.innerHeight - 168}px`)
+	})
+
+	test('storage API failures (getItem/removeItem) never break the d-pad', () => {
+		const denied = (): never => {
+			throw new Error('storage denied')
+		}
+		const throwingStorage = {
+			getItem: denied,
+			setItem: denied,
+			removeItem: denied,
+		} as unknown as Storage
+
+		// Pure-function level: a throwing getItem reads as "no stored position"
+		expect(readDpadPosition(throwingStorage)).toBeNull()
+
+		// Element level: opening, key taps and docking all keep working
+		vi.stubGlobal('localStorage', throwingStorage)
+		const consoleErrors: unknown[][] = []
+		vi.spyOn(console, 'error').mockImplementation((...args) => {
+			consoleErrors.push(args)
+		})
+		const term = mockTerminalWithSent()
+		const { dpad } = createTestDpad(term)
+
+		expect(() => dpad.toggle()).not.toThrow()
+		expect(dpad.element.classList.contains('open')).toBe(true)
+
+		dpadKeys(dpad.element)
+			.find((b) => b.textContent === '↓')
+			?.click()
+		expect(term.sent).toEqual(['\x1b[B'])
+
+		// Dock (double-tap) hits removeItem — the failure is logged, and the pad
+		// still docks back to its default position
+		const handle = dragHandle(dpad.element)
+		pointer('pointerdown', handle, 100, 100)
+		pointer('pointerup', handle, 100, 100)
+		pointer('pointerdown', handle, 100, 100)
+		pointer('pointerup', handle, 100, 100)
+
+		expect(dpad.element.classList.contains('wt-dpad-floating')).toBe(false)
+		expect(consoleErrors.some((args) => String(args[0]).includes('d-pad position'))).toBe(true)
 	})
 })

@@ -22,12 +22,16 @@ export function showToast(message: string): void {
 		'div',
 		{
 			role: 'status',
+			'aria-live': 'polite',
+			'aria-atomic': 'true',
 			style: [
 				'position:fixed',
 				'left:50%',
 				'bottom:96px',
 				'transform:translateX(-50%)',
-				'z-index:10001',
+				// Above every overlay in styles/base.css (max z-index there is
+				// 10005) — a fail-loud toast must never be hidden behind a panel
+				'z-index:10006',
 				'max-width:80vw',
 				'padding:10px 16px',
 				'border-radius:8px',

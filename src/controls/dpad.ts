@@ -120,9 +120,15 @@ export function clampDpadPosition(
 	}
 }
 
-/** Read the persisted d-pad position; null when absent or corrupted (corruption is treated as absent) */
+/** Read the persisted d-pad position; null when absent, corrupted, or storage is unavailable (e.g. iOS private mode) */
 export function readDpadPosition(storage: Storage): DpadPosition | null {
-	const raw = storage.getItem(DPAD_POSITION_STORAGE_KEY)
+	let raw: string | null
+	try {
+		raw = storage.getItem(DPAD_POSITION_STORAGE_KEY)
+	} catch (error) {
+		console.error('herdweb: failed to read d-pad position', error)
+		return null
+	}
 	if (raw === null) return null
 	let parsed: unknown
 	try {
@@ -205,12 +211,14 @@ export function createDpad(
 	// (viewport-clamped) on first open. Focus safety: like the keys, the handle
 	// suppresses the synthesised mousedown, and desktop mousedown is
 	// default-prevented, so dragging never steals terminal textarea focus.
+	// Pointer-only interaction — excluded from the Tab order.
 	const handle = el(
 		'button',
 		{
 			type: 'button',
 			class: 'wt-dpad-handle',
 			'aria-label': 'Drag to move pad, double-tap to dock',
+			tabindex: '-1',
 		},
 		'⠿',
 	)
@@ -230,7 +238,13 @@ export function createDpad(
 		element.classList.remove('wt-dpad-floating')
 		element.style.left = ''
 		element.style.top = ''
-		localStorage.removeItem(DPAD_POSITION_STORAGE_KEY)
+		try {
+			localStorage.removeItem(DPAD_POSITION_STORAGE_KEY)
+		} catch (error) {
+			// Storage unavailable (e.g. iOS private mode): docking still works, the
+			// stale persisted position simply stays until storage recovers
+			console.error('herdweb: failed to clear d-pad position', error)
+		}
 	}
 
 	let dragStart: {
