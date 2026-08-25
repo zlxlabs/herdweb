@@ -2,7 +2,7 @@
 
 > **已完成 / 历史执行单，请勿重复执行。**
 >
-> - 产品落地：PR #108 / merge `5e8b0d8`；release `1.11.0` / `0a39414`。
+> - 本轮 UI 收口：PR #108 / merge `5e8b0d8`；release `1.11.0` / `0a39414`。
 >   `targets.length <= 1` 不创建 picker；`> 1` 时手机 badge 在底部 toolbar，桌面仍在右上。
 > - 真机：2026-08-25 Android 经 Tailscale 调试入口验收；HTTP 200，WS protocol 2 返回 3 targets。
 >   未验收 iOS / 通知 / image / 远端 pane 健康。

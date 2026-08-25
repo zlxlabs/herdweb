@@ -205,7 +205,7 @@ ss -ltn | grep -E '127\.0\.0\.1:(7681|7691)'
 ### 2026-08-25 Android 后续验收
 
 记录时间：2026-08-25（Asia/Shanghai）。入口：Tailscale 调试 `127.0.0.1:7691` + `/herdweb`，
-源码基线 `0a39414`（release 1.11.0；PR #108 / merge `5e8b0d8` 完成移动位置与单目标隐藏）。
+功能 merge `5e8b0d8`（PR #108，完成移动位置与单目标隐藏）；随后发布为 1.11.0。
 
 - Android 真机：目标 badge 不再遮挡 herdr 右上按钮，切换正常。
 - HTTP `GET /herdweb/` = 200；WebSocket protocol 2 返回上述 3 targets。
