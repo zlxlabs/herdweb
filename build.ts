@@ -72,7 +72,7 @@ function projectClientConfig(config: HerdwebConfig): ClientConfigProjection {
 			autoEnter: config.asr.autoEnter,
 		},
 		targetMode: config.targetMode,
-		targets: config.targets.map(({ id, name }) => ({ id, name })),
+		targetCount: config.targets.length,
 	}
 }
 

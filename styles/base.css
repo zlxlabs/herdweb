@@ -605,11 +605,7 @@ body.wt-composer-open .wt-target-badge {
 	display: none;
 	position: fixed;
 	/* Above the default single-row toolbar (44px keys + 12px padding + 8px gap) */
-	bottom: calc(
-		var(--wt-toolbar-height, 64px) +
-		env(safe-area-inset-bottom, 0px) +
-		var(--kb-inset, 0px)
-	);
+	bottom: calc(var(--wt-toolbar-height, 64px) + var(--kb-inset, 0px));
 	right: calc(8px + env(safe-area-inset-right, 0px));
 	grid-template-columns: repeat(3, 48px);
 	gap: 4px;
@@ -1155,7 +1151,7 @@ body.wt-composer-open .wt-target-badge {
 	position: fixed;
 	left: 12px;
 	right: 12px;
-	bottom: calc(var(--wt-toolbar-height, 64px) + env(safe-area-inset-bottom, 0px));
+	bottom: var(--wt-toolbar-height, 64px);
 	flex-direction: column;
 	gap: 8px;
 	padding: 12px;

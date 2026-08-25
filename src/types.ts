@@ -300,8 +300,7 @@ export interface ClientConfigProjection {
 		readonly autoEnter: boolean
 	}
 	readonly targetMode: TargetMode
-	/** Browser-safe target metadata; commands remain server-only. */
-	readonly targets: readonly Pick<TargetConfig, 'id' | 'name'>[]
+	readonly targetCount?: number
 }
 
 /** Full herdweb configuration */
