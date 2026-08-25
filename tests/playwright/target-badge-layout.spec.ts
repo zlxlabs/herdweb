@@ -3,35 +3,31 @@ import { expect, test } from './fixtures'
 
 const explicitConfigPath = join(import.meta.dirname, 'target-switch.config.ts')
 
-// Coarse pointers: the badge must dodge herdr's own top-right `switch` — it
-// parks lower-left above the toolbar and hides behind the voice composer layer;
-// fine pointers keep it top-right. Only user-perceivable geometry is asserted
-// (viewport halves, no overlap, visible gap), never exact pixels.
+// Coarse pointers put the badge in the toolbar's reserved target bar; fine
+// pointers keep it top-right. Only user-perceivable geometry is asserted,
+// never exact pixels.
 test.describe('target badge layout (explicit mode)', () => {
 	test.use({ serveOptions: { configPath: explicitConfigPath, command: [] } })
 
-	test('coarse-pointer badge parks lower-left, clear of the toolbar', async ({ page, serve }) => {
+	test('coarse-pointer badge is a toolbar child and fits inside its measured chrome', async ({
+		page,
+		serve,
+	}) => {
 		await page.goto(serve.url, { waitUntil: 'domcontentloaded' })
 		await expect.poll(() => page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true)
 		const badge = page.locator('button.wt-target-badge')
 		await expect(badge).toBeVisible({ timeout: 15_000 })
 		const toolbar = page.locator('#wt-toolbar')
 		await expect(toolbar).toBeVisible()
+		await expect(toolbar.locator(':scope > button.wt-target-badge')).toHaveCount(1)
 		const badgeBox = await badge.boundingBox()
 		if (!badgeBox) throw new Error('target badge must have a visible bounding box')
 		const toolbarBox = await toolbar.boundingBox()
 		if (!toolbarBox) throw new Error('toolbar must have a visible bounding box')
-		const viewport = await page.evaluate(() => ({
-			width: window.innerWidth,
-			height: window.innerHeight,
-		}))
 
-		// Lower-left half of the viewport (bottom-right stays dpad turf).
-		expect(badgeBox.y + badgeBox.height / 2).toBeGreaterThan(viewport.height / 2)
-		expect(badgeBox.x + badgeBox.width / 2).toBeLessThan(viewport.width / 2)
-		// Sits above the toolbar with a visible gap, never intersecting it.
-		expect(badgeBox.y + badgeBox.height).toBeLessThanOrEqual(toolbarBox.y)
-		expect(toolbarBox.y - (badgeBox.y + badgeBox.height)).toBeGreaterThanOrEqual(4)
+		expect(badgeBox.y).toBeGreaterThanOrEqual(toolbarBox.y)
+		expect(badgeBox.y + badgeBox.height).toBeLessThanOrEqual(toolbarBox.y + toolbarBox.height)
+		expect(toolbarBox.height).toBeGreaterThan(44)
 	})
 
 	test('coarse-pointer badge hides while the voice composer layer is open', async ({
@@ -56,6 +52,7 @@ test.describe('target badge layout (explicit mode)', () => {
 			await page.goto(serve.url, { waitUntil: 'domcontentloaded' })
 			const badge = page.locator('button.wt-target-badge')
 			await expect(badge).toBeVisible({ timeout: 15_000 })
+			await expect(page.locator('#wt-toolbar > button.wt-target-badge')).toHaveCount(0)
 			const badgeBox = await badge.boundingBox()
 			if (!badgeBox) throw new Error('target badge must have a visible bounding box')
 			const viewport = await page.evaluate(() => ({

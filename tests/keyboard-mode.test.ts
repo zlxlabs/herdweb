@@ -509,9 +509,9 @@ describe('renderer wiring (toolbar / drawer / floating)', () => {
 
 describe('base.css keyboard rules', () => {
 	test('landscape wt-kb-open hides only a true second row, exempting the keyboard-toggle (F1)', () => {
-		// Single-row toolbar: the only row is :first-child and must stay visible
+		// Single-row toolbar: the only row is :first-of-type and must stay visible
 		expect(css).toContain(
-			'#wt-toolbar.wt-kb-open .wt-row:not(:first-child):last-child button:not(.wt-keyboard-toggle)',
+			'#wt-toolbar.wt-kb-open .wt-row:not(:first-of-type):last-child button:not(.wt-keyboard-toggle)',
 		)
 		// The unguarded last-child hide (would blank the single-row toolbar) must be gone
 		expect(css).not.toMatch(
