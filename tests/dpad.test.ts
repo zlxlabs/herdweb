@@ -26,7 +26,7 @@ afterEach(() => {
 })
 
 function dpadKeys(element: HTMLElement): HTMLButtonElement[] {
-	return [...element.querySelectorAll('button:not(.wt-dpad-handle)')]
+	return [...element.querySelectorAll<HTMLButtonElement>('button:not(.wt-dpad-handle)')]
 }
 
 function createTestDpad(
