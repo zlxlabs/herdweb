@@ -594,6 +594,25 @@ describe('press lifecycle (attachment binding + abort paths)', () => {
 		}
 	})
 
+	test('mouseleave after a completed click is a no-op — a later bare click (keyboard activation) still sends', () => {
+		const term = mockTerminalWithSent()
+		const { dpad } = createTestDpad(term)
+		const enter = keyByLabel(dpad.element, '⏎')
+
+		// A normal mouse press completes: mousedown → mouseup → click sends \r
+		enter.dispatchEvent(new MouseEvent('mousedown'))
+		enter.dispatchEvent(new MouseEvent('mouseup'))
+		enter.click()
+		expect(term.sent).toEqual(['\r'])
+
+		// R3 P1-1 probe: with no active press, mouseleave must not arm any
+		// abort state, and a bare click (Tab+Enter keyboard activation, no
+		// preceding mousedown) keeps its legacy direct-dispatch behaviour.
+		enter.dispatchEvent(new MouseEvent('mouseleave'))
+		enter.click()
+		expect(term.sent).toEqual(['\r', '\r'])
+	})
+
 	test('a click trailing an aborted press (mouseleave) is suppressed', () => {
 		vi.useFakeTimers()
 		try {
