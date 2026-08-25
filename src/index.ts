@@ -198,6 +198,12 @@ export function init(
 
 				document.title = `${config.name} · ${location.hostname.replace(/\..*/, '')}`
 
+				const targetPicker = config.targetMode === 'explicit' ? createTargetPicker(term) : null
+				if (targetPicker) {
+					document.body.appendChild(targetPicker.badge)
+					document.body.appendChild(targetPicker.element)
+				}
+
 				if (!mobile) {
 					await hooks.runOverlayReady({ term, config, mobile })
 					return
@@ -227,13 +233,6 @@ export function init(
 				keyboard = setup.keyboard
 				const effectiveConfig = withVoiceComposerEntry(setup.effectiveConfig)
 				const keyboardController = setup.keyboard
-
-				const targetPicker =
-					effectiveConfig.targetMode === 'explicit' ? createTargetPicker(term) : null
-				if (targetPicker) {
-					document.body.appendChild(targetPicker.badge)
-					document.body.appendChild(targetPicker.element)
-				}
 
 				let closeComposerOverlays = (): void => {
 					comboPicker.close()

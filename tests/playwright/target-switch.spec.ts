@@ -9,6 +9,39 @@ const explicitConfigPath = join(import.meta.dirname, 'target-switch.config.ts')
 test.describe('explicit target picker (T5)', () => {
 	test.use({ serveOptions: { configPath: explicitConfigPath, command: [] } })
 
+	test('desktop browser shows badge and picker in explicit mode', async ({ browser, serve }) => {
+		const desktopContext = await browser.newContext({
+			viewport: { width: 1280, height: 720 },
+			isMobile: false,
+			hasTouch: false,
+		})
+		try {
+			const page = await desktopContext.newPage()
+			await page.goto(serve.url)
+			await expect
+				.poll(() =>
+					page.evaluate(() => !('ontouchstart' in window) && navigator.maxTouchPoints === 0),
+				)
+				.toBe(true)
+			const badge = page.locator('button.wt-target-badge')
+			await expect(badge).toBeVisible({ timeout: 15_000 })
+			await expect(badge).toHaveText('One')
+			await expect(page.locator('body')).toContainText('target-one-ready')
+
+			await badge.click()
+			const picker = page.locator('.wt-target-picker.open')
+			await expect(picker).toBeVisible()
+			await expect(picker.locator('[data-target-id="two"]')).toContainText('Not started')
+
+			await picker.locator('[data-target-id="two"]').click()
+			await expect(picker).toHaveCount(0)
+			await expect(badge).toHaveText('Two', { timeout: 15_000 })
+			await expect(page.locator('body')).toContainText('target-two-ready')
+		} finally {
+			await desktopContext.close()
+		}
+	})
+
 	test('badge reflects the current target and the picker switches targets', async ({
 		page,
 		serve,
