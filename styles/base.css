@@ -162,7 +162,8 @@ body {
 	user-select: none;
 }
 
-body.wt-composer-open #wt-toolbar {
+body.wt-composer-open #wt-toolbar,
+body.wt-composer-open .wt-target-badge {
 	display: none;
 }
 
@@ -512,6 +513,18 @@ body.wt-composer-open #wt-toolbar {
 	z-index: 9998;
 	-webkit-user-select: none;
 	user-select: none;
+}
+
+/* Coarse pointers: herdr's own switch lives top-right — park the badge
+   bottom-left above the toolbar (bottom-right stays dpad turf). */
+@media (pointer: coarse) {
+	.wt-target-badge {
+		top: auto;
+		right: auto;
+		left: calc(8px + env(safe-area-inset-left, 0px));
+		/* Same lift as #wt-dpad: clears the single-row toolbar + soft keyboard. */
+		bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px));
+	}
 }
 
 .wt-target-picker {
