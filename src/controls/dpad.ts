@@ -42,10 +42,16 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		action: { type: 'send', data: '\x1b[D' },
 	},
 	{
+		// Hold ⏎ for "newline without submit" (issue #98): '\n' (Ctrl+J) is the
+		// agent-agnostic sequence — Claude Code, Codex, pi and OpenCode all accept
+		// it, and it needs no kitty keyboard-protocol forwarding through
+		// herdr/tmux. Users on kitty-protocol agents can override via
+		// `longPressAction: { type: 'send', data: '\x1b[13;2u' }`.
 		id: 'dpad-enter',
 		label: '⏎',
-		description: 'Send Enter/Return key',
+		description: 'Enter — hold to insert newline (no submit)',
 		action: { type: 'send', data: '\r' },
+		longPressAction: { type: 'send', data: '\n' },
 	},
 	{
 		id: 'dpad-right',
@@ -73,6 +79,9 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 	},
 ]
 
+/** Hold time (ms) before a key's longPressAction fires instead of its tap action */
+const DPAD_LONG_PRESS_MS = 500
+
 /** Dependencies injected into the d-pad by the app wiring layer */
 interface DpadDeps {
 	/**
@@ -83,11 +92,16 @@ interface DpadDeps {
 }
 
 /**
- * moshi-style floating d-pad: an eight-key arrow cluster (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥) that
+ * moshi-style floating d-pad: a nine-key cluster (⌫ ↑ 📋 / ← ⏎ → / ⇥ ↓ ⇧⇥) that
  * pops up above the toolbar via the ✥ dpad-toggle button. The key layout comes
  * from config (`dpad.keys`); `send` keys emit bytes directly via sendData (the
  * same path as typed input), any other action type is handed to
  * `deps.executeAction` (the action registry).
+ *
+ * Long press: a key with `longPressAction` starts a 500ms timer on
+ * touchstart/mousedown; when it fires, the longPressAction is dispatched
+ * (haptic included) and the pending tap is suppressed, so the normal action
+ * never double-fires. Releasing before the threshold is a plain tap.
  *
  * Focus safety (hard requirement): every key suppresses the synthesised
  * mousedown after touchend, so tapping a key never steals focus from the
@@ -113,14 +127,47 @@ export function createDpad(
 		button.textContent = key.label
 		button.setAttribute('aria-label', key.description)
 		suppressSynthesisedMouse(button)
-		const action = key.action
-		onAttachmentTap(term, button, () => {
+
+		const dispatch = (action: ButtonAction): void => {
 			haptic()
 			if (action.type === 'send') {
 				sendData(term, action.data)
 			} else {
 				deps.executeAction(action)
 			}
+		}
+
+		let longPressFired = false
+		const longPressAction = key.longPressAction
+		if (longPressAction) {
+			button.classList.add('wt-dpad-has-alt')
+			let longPressTimer: ReturnType<typeof setTimeout> | undefined
+			const cancelLongPressTimer = (): void => {
+				if (longPressTimer !== undefined) clearTimeout(longPressTimer)
+				longPressTimer = undefined
+			}
+			const startLongPressTimer = (): void => {
+				cancelLongPressTimer()
+				longPressTimer = setTimeout(() => {
+					longPressTimer = undefined
+					longPressFired = true
+					dispatch(longPressAction)
+				}, DPAD_LONG_PRESS_MS)
+			}
+			button.addEventListener('touchstart', startLongPressTimer)
+			button.addEventListener('touchend', cancelLongPressTimer)
+			button.addEventListener('touchcancel', cancelLongPressTimer)
+			button.addEventListener('mousedown', startLongPressTimer)
+			button.addEventListener('mouseup', cancelLongPressTimer)
+			button.addEventListener('mouseleave', cancelLongPressTimer)
+		}
+
+		onAttachmentTap(term, button, () => {
+			if (longPressFired) {
+				longPressFired = false
+				return
+			}
+			dispatch(key.action)
 		})
 		element.appendChild(button)
 	}

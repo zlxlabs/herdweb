@@ -255,3 +255,103 @@ describe('dpad paste wiring (registry end-to-end)', () => {
 		expect(term.sent).toEqual([])
 	})
 })
+
+describe('long-press (hold ⏎ for newline, no submit)', () => {
+	const touch = (id: number, target: HTMLElement) =>
+		({ identifier: id, target, clientX: 0, clientY: 0 }) as unknown as Touch
+
+	function enterKey(element: HTMLElement): HTMLButtonElement {
+		const button = dpadKeys(element).find((b) => b.textContent === '⏎')
+		if (!button) throw new Error('no ⏎ key')
+		return button
+	}
+
+	function tapTouch(button: HTMLButtonElement, holdMs: number): void {
+		vi.useFakeTimers()
+		try {
+			button.dispatchEvent(new TouchEvent('touchstart', { changedTouches: [touch(1, button)] }))
+			vi.advanceTimersByTime(holdMs)
+			button.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch(1, button)] }))
+		} finally {
+			vi.useRealTimers()
+		}
+	}
+
+	test('the default ⏎ key carries longPressAction \\n and the alt-key marker class', () => {
+		const { dpad } = createTestDpad(mockTerminalWithSent())
+		const enter = enterKey(dpad.element)
+		expect(enter.classList.contains('wt-dpad-has-alt')).toBe(true)
+		expect(enter.getAttribute('aria-label')).toBe('Enter — hold to insert newline (no submit)')
+		const backspace = dpadKeys(dpad.element).find((b) => b.textContent === '⌫')
+		expect(backspace?.classList.contains('wt-dpad-has-alt')).toBe(false)
+	})
+
+	test('short tap on ⏎ sends \\r (unchanged tap behaviour)', () => {
+		const term = mockTerminalWithSent()
+		const { dpad } = createTestDpad(term)
+
+		tapTouch(enterKey(dpad.element), 100)
+
+		expect(term.sent).toEqual(['\r'])
+	})
+
+	test('holding ⏎ past the threshold sends \\n and suppresses the \\r tap', () => {
+		const term = mockTerminalWithSent()
+		const { dpad } = createTestDpad(term)
+
+		tapTouch(enterKey(dpad.element), 600)
+
+		expect(term.sent).toEqual(['\n'])
+	})
+
+	test('releasing ⏎ below the threshold sends only \\r', () => {
+		const term = mockTerminalWithSent()
+		const { dpad } = createTestDpad(term)
+
+		tapTouch(enterKey(dpad.element), 499)
+
+		expect(term.sent).toEqual(['\r'])
+	})
+
+	test('a custom longPressAction (e.g. kitty sequence) is dispatched instead', () => {
+		const term = mockTerminalWithSent()
+		const kittyEnter: ControlButton = {
+			id: 'dpad-enter',
+			label: '⏎',
+			description: 'Enter — hold to insert newline (no submit)',
+			action: { type: 'send', data: '\r' },
+			longPressAction: { type: 'send', data: '\x1b[13;2u' },
+		}
+		const { dpad } = createTestDpad(term, [kittyEnter])
+		const enter = enterKey(dpad.element)
+
+		tapTouch(enter, 600)
+		expect(term.sent).toEqual(['\x1b[13;2u'])
+
+		tapTouch(enter, 100)
+		expect(term.sent).toEqual(['\x1b[13;2u', '\r'])
+	})
+
+	test('mouse long-press works too (mousedown holds, click is suppressed)', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const enter = enterKey(dpad.element)
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(600)
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\n'])
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(100)
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\n', '\r'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})

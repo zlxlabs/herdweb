@@ -633,10 +633,28 @@ body.wt-composer-open .wt-target-badge {
 	font-weight: 700;
 	cursor: pointer;
 	touch-action: manipulation;
+	/* Long-press keys (e.g. ⏎ hold-for-newline) must not pop the iOS callout */
+	-webkit-touch-callout: none;
 }
 
 #wt-dpad button:active {
 	background: #585b70;
+}
+
+/* Corner badge: the key has a long-press action (wt-dpad-has-alt) */
+#wt-dpad button.wt-dpad-has-alt {
+	position: relative;
+}
+
+#wt-dpad button.wt-dpad-has-alt::after {
+	content: "";
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: #89b4fa;
 }
 
 #wt-dpad .wt-dpad-spacer {

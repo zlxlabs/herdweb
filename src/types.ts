@@ -23,6 +23,11 @@ export interface ControlButton {
 	readonly description: string
 	readonly action: ButtonAction
 	/**
+	 * Optional hold-to-trigger action (~500ms long press). When it fires, the
+	 * normal tap action is suppressed. Currently consumed by the d-pad renderer.
+	 */
+	readonly longPressAction?: ButtonAction
+	/**
 	 * Optional drawer section label — the drawer renders a heading row whenever
 	 * the section of adjacent buttons changes. Toolbar/floating renderers ignore it.
 	 */
