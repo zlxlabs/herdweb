@@ -297,7 +297,8 @@ describe('createDefaultActionRegistry', () => {
 		expect(focused).toBe(true)
 	})
 
-	test('paste action swallows clipboard errors and restores focus', async () => {
+	test('paste failure surfaces a toast and restores focus (fail-loud, not silent)', async () => {
+		const toasts: string[] = []
 		const registry = createDefaultActionRegistry()
 		let focused = false
 		let sent = false
@@ -323,12 +324,104 @@ describe('createDefaultActionRegistry', () => {
 					async sendText(_data: string) {
 						sent = true
 					},
+					showToast(message: string) {
+						toasts.push(message)
+					},
 				},
 			),
 		).resolves.toBe(true)
 
+		expect(toasts).toEqual(['Paste failed — clipboard read was denied.'])
 		expect(focused).toBe(true)
 		expect(sent).toBe(false)
+	})
+
+	test('paste without clipboard API surfaces a toast and restores focus', async () => {
+		const toasts: string[] = []
+		const registry = createDefaultActionRegistry()
+		let focused = false
+
+		Object.defineProperty(navigator, 'clipboard', {
+			value: undefined,
+			configurable: true,
+		})
+
+		await registry.execute(
+			{ type: 'paste' },
+			{
+				term: mockTerminal(),
+				kbWasOpen: false,
+				focusIfNeeded() {
+					focused = true
+				},
+				async sendText(_data: string) {},
+				showToast(message: string) {
+					toasts.push(message)
+				},
+			},
+		)
+
+		expect(toasts).toEqual(['Paste unavailable — no clipboard access in this browser.'])
+		expect(focused).toBe(true)
+	})
+
+	test('paste falls back to the registry-deps toast when the context has none', async () => {
+		const toasts: string[] = []
+		const registry = createDefaultActionRegistry({
+			showToast(message: string) {
+				toasts.push(message)
+			},
+		})
+
+		Object.defineProperty(navigator, 'clipboard', {
+			value: undefined,
+			configurable: true,
+		})
+
+		await registry.execute(
+			{ type: 'paste' },
+			{
+				term: mockTerminal(),
+				kbWasOpen: false,
+				focusIfNeeded() {},
+				async sendText(_data: string) {},
+			},
+		)
+
+		expect(toasts).toEqual(['Paste unavailable — no clipboard access in this browser.'])
+	})
+
+	test('empty clipboard stays silent (no toast, no send, focus restored)', async () => {
+		const toasts: string[] = []
+		const registry = createDefaultActionRegistry()
+		let focused = false
+		let sent = false
+
+		Object.defineProperty(navigator, 'clipboard', {
+			value: { readText: async () => '' },
+			configurable: true,
+		})
+
+		await registry.execute(
+			{ type: 'paste' },
+			{
+				term: mockTerminal(),
+				kbWasOpen: false,
+				focusIfNeeded() {
+					focused = true
+				},
+				async sendText(_data: string) {
+					sent = true
+				},
+				showToast(message: string) {
+					toasts.push(message)
+				},
+			},
+		)
+
+		expect(toasts).toEqual([])
+		expect(sent).toBe(false)
+		expect(focused).toBe(true)
 	})
 
 	test('combo-picker opens picker with raw sender when available', async () => {

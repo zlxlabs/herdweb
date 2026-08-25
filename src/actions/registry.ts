@@ -24,6 +24,8 @@ export interface ActionExecutionContext {
 	readonly toggleKeyboard?: () => void
 	/** Toggles the floating d-pad — supplied per call or via registry deps */
 	readonly toggleDpad?: () => void
+	/** Surfaces a user-visible failure toast (e.g. paste denied) — supplied per call or via registry deps */
+	readonly showToast?: (message: string) => void
 }
 
 type ActionHandler = (action: ButtonAction, context: ActionExecutionContext) => void | Promise<void>
@@ -129,6 +131,8 @@ interface DefaultActionDeps {
 	readonly toggleDpad?: () => void
 	/** Opens the single-file image picker — T3 wires this to the image-drop controller from src/client-entry.ts */
 	readonly openImageDrop?: () => void
+	/** Surfaces a user-visible failure toast (e.g. paste denied) */
+	readonly showToast?: (message: string) => void
 }
 
 export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): ActionRegistry {
@@ -141,7 +145,15 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 	})
 
 	registry.register('paste', (_action, context) => {
+		// Fail loud: a paste failure must surface as a toast, never a dead button.
+		const reportPasteFailure = (message: string): void => {
+			const showToast = context.showToast ?? deps.showToast
+			if (showToast) showToast(message)
+			else console.error(`herdweb: ${message}`)
+		}
+
 		if (!navigator.clipboard || typeof navigator.clipboard.readText !== 'function') {
+			reportPasteFailure('Paste unavailable — no clipboard access in this browser.')
 			context.focusIfNeeded()
 			return
 		}
@@ -160,7 +172,7 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 				await context.sendText(text)
 			} catch {
 				// Clipboard access may fail due to permissions or browser constraints.
-				// Keep behaviour fail-safe and restore focus without surfacing runtime errors.
+				reportPasteFailure('Paste failed — clipboard read was denied.')
 			} finally {
 				context.focusIfNeeded()
 			}

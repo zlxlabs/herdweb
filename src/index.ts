@@ -30,6 +30,7 @@ import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
 import type { ClientConfigProjection, HerdwebConfig, XTerminal } from './types'
 import { createAttachmentGuard, resizeTerm, sendData, waitForTerm } from './util/terminal'
+import { showToast } from './util/toast'
 import { initHeightManager } from './viewport/height'
 
 // Re-export for package consumers
@@ -260,6 +261,7 @@ export function init(
 					toggleKeyboard: () => keyboardController.toggle(),
 					toggleDpad: () => dpad.toggle(),
 					openImageDrop: deps?.openImageDrop,
+					showToast,
 				})
 
 				// Floating d-pad. send keys emit bytes directly (the typed-input
