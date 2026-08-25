@@ -198,13 +198,13 @@ export function init(
 
 				document.title = `${config.name} · ${location.hostname.replace(/\..*/, '')}`
 
-				const targetPicker = config.targetMode === 'explicit' ? createTargetPicker(term) : null
+				const targetPicker = config.targets.length > 1 ? createTargetPicker(term) : null
 				if (targetPicker) {
-					document.body.appendChild(targetPicker.badge)
 					document.body.appendChild(targetPicker.element)
 				}
 
 				if (!mobile) {
+					if (targetPicker) document.body.appendChild(targetPicker.badge)
 					await hooks.runOverlayReady({ term, config, mobile })
 					return
 				}
@@ -298,6 +298,7 @@ export function init(
 					comboPicker.open,
 					micController,
 				)
+				if (targetPicker) toolbar.prepend(targetPicker.badge)
 				document.body.appendChild(toolbar)
 				await hooks.runToolbarCreated({ term, config: effectiveConfig, toolbar })
 

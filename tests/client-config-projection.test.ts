@@ -79,6 +79,9 @@ describe('client config projection', () => {
 		expect(assets.js).toContain('client-toolbar-sentinel')
 		expect(assets.js).toContain('"reconnect":{"enabled":false}')
 		expect(assets.js).toContain('"targetMode":"explicit"')
+		expect(assets.js).toContain(
+			'"targets":[{"id":"target-id-sentinel","name":"target-name-sentinel"}]',
+		)
 		expect(assets.js).not.toContain('"command":["herdr","--session","default"]')
 	})
 })
