@@ -164,6 +164,12 @@ export interface ScrollButtonsConfig {
 	readonly enabled: boolean
 }
 
+/** Floating d-pad configuration */
+export interface DpadConfig {
+	/** Keys in 3×3 grid order; null renders an empty spacer cell */
+	readonly keys: readonly (ControlButton | null)[]
+}
+
 /** Reconnect overlay configuration */
 export interface ReconnectConfig {
 	readonly enabled: boolean
@@ -289,6 +295,7 @@ export interface ClientConfigProjection {
 	readonly mobile: MobileConfig
 	readonly floatingButtons: readonly FloatingButtonGroup[]
 	readonly scrollButtons: ScrollButtonsConfig
+	readonly dpad: DpadConfig
 	readonly reconnect: ReconnectConfig
 	readonly asr: {
 		readonly enabled: boolean
@@ -333,7 +340,14 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons' | 'notify' | 'targetMode' | 'targets' | 'defaultTargetId'
+	| 'toolbar'
+	| 'drawer'
+	| 'floatingButtons'
+	| 'dpad'
+	| 'notify'
+	| 'targetMode'
+	| 'targets'
+	| 'defaultTargetId'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -343,6 +357,10 @@ export type HerdwebConfigOverrides = Omit<
 		readonly buttons?: ButtonArrayInput<ControlButton>
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
+	readonly dpad?: {
+		/** Array form replaces the default keys entirely (arrays are never deep-merged) */
+		readonly keys?: readonly (ControlButton | null)[]
+	}
 	readonly notify?: NotifyConfigOverrides
 	readonly targets?: readonly TargetConfigInput[]
 	readonly defaultTargetId?: string

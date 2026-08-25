@@ -320,6 +320,19 @@ const scrollButtonsResolvedSchema = v.strictObject({
 	enabled: v.boolean(),
 })
 
+// --- D-pad ---
+
+/** D-pad keys: ControlButton cells with null for empty spacer cells */
+const dpadKeysSchema = v.array(v.nullable(controlButtonSchema))
+
+const dpadOverridesSchema = v.strictObject({
+	keys: v.optional(dpadKeysSchema),
+})
+
+const dpadResolvedSchema = v.strictObject({
+	keys: dpadKeysSchema,
+})
+
 // --- PWA ---
 
 const pwaOverridesSchema = v.strictObject({
@@ -611,6 +624,7 @@ const herdwebConfigOverridesBaseSchema = v.strictObject({
 	mobile: v.optional(mobileOverridesSchema),
 	floatingButtons: v.optional(v.array(floatingButtonGroupSchema)),
 	scrollButtons: v.optional(scrollButtonsOverridesSchema),
+	dpad: v.optional(dpadOverridesSchema),
 	pwa: v.optional(pwaOverridesSchema),
 	reconnect: v.optional(reconnectOverridesSchema),
 	asr: v.optional(asrOverridesSchema),
@@ -642,6 +656,7 @@ const herdwebConfigResolvedBaseSchema = v.strictObject({
 	mobile: mobileResolvedSchema,
 	floatingButtons: v.array(floatingButtonGroupSchema),
 	scrollButtons: scrollButtonsResolvedSchema,
+	dpad: dpadResolvedSchema,
 	pwa: pwaResolvedSchema,
 	reconnect: reconnectResolvedSchema,
 	asr: asrResolvedSchema,

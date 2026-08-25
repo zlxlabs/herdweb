@@ -205,6 +205,25 @@ describe('defaultConfig', () => {
 		expect(config.scrollButtons.enabled).toBe(true)
 	})
 
+	test('d-pad defaults to the eight-key cluster with a null spacer at index 2', () => {
+		expect(defaultConfig.dpad.keys).toHaveLength(9)
+		expect(defaultConfig.dpad.keys[2]).toBeNull()
+	})
+
+	test('dpad.keys override replaces the default layout', () => {
+		const keys = [
+			{
+				id: 'dpad-paste',
+				label: '📋',
+				description: 'Paste from clipboard',
+				action: { type: 'paste' as const },
+			},
+			null,
+		]
+		const config = defineConfig({ dpad: { keys } })
+		expect(config.dpad.keys).toEqual(keys)
+	})
+
 	test('has default name', () => {
 		expect(defaultConfig.name).toBe('herdweb')
 	})

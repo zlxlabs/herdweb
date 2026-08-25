@@ -1,5 +1,5 @@
 import { resolveButtonArray } from './config-resolve'
-import { dpadToggleButton } from './controls/dpad'
+import { defaultDpadKeys, dpadToggleButton } from './controls/dpad'
 import { keyboardToggleButton } from './controls/keyboard-controller'
 import { catppuccinMocha } from './theme/catppuccin-mocha'
 import type {
@@ -367,6 +367,7 @@ export const defaultConfig: HerdwebConfig = {
 	mobile: defaultMobile,
 	floatingButtons: [],
 	scrollButtons: { enabled: false },
+	dpad: { keys: defaultDpadKeys },
 	pwa: defaultPwa,
 	reconnect: { enabled: true },
 	asr: defaultAsr,

@@ -199,7 +199,7 @@ Tell the user:
 ### Allowed root keys
 
 ```
-name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify  targets  defaultTargetId
+name  theme  font  toolbar  drawer  dpad  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify  targets  defaultTargetId
 ```
 
 ### ButtonAction union
@@ -257,6 +257,12 @@ object itself. Requests run in parallel with Web Push, are isolated per channel,
 `POST /api/events` is loopback-only. Badge kinds `asking`, `done`, `ci-red` require an on-host event source (agent-config#495) — not active until that outbound lane is deployed.
 
 Drawer buttons also accept an optional `section?: string` — the drawer renders a heading row whenever adjacent buttons' section changes; toolbar/floating renderers ignore it.
+
+### D-pad
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `dpad.keys` | 8-key arrow cluster (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥) | 3×3 grid order; `null` renders an empty spacer cell (default: index 2). Array form replaces the default keys entirely. `send` keys emit bytes directly; any other action type (e.g. `paste`) dispatches through the action registry |
 
 ### Gestures
 

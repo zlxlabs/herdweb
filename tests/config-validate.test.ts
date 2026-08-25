@@ -547,6 +547,29 @@ describe('assertValidConfigOverrides', () => {
 		)
 		expect(message).toContain('config.scrollButtons.position')
 	})
+
+	test('accepts dpad.keys with null spacer cells', () => {
+		expect(() =>
+			assertValidConfigOverrides({
+				dpad: {
+					keys: [
+						{
+							id: 'dpad-paste',
+							label: '📋',
+							description: 'Paste from clipboard',
+							action: { type: 'paste' },
+						},
+						null,
+					],
+				},
+			}),
+		).not.toThrow()
+	})
+
+	test('rejects dpad.keys entries that are neither buttons nor null', () => {
+		const message = getValidationMessage({ dpad: { keys: ['x'] } }, assertValidConfigOverrides)
+		expect(message).toContain('config.dpad.keys[0]')
+	})
 })
 
 describe('assertValidResolvedConfig', () => {

@@ -61,6 +61,7 @@ function projectClientConfig(config: HerdwebConfig): ClientConfigProjection {
 		mobile: config.mobile,
 		floatingButtons: config.floatingButtons,
 		scrollButtons: config.scrollButtons,
+		dpad: config.dpad,
 		reconnect: config.reconnect,
 		asr: {
 			enabled: config.asr.enabled,

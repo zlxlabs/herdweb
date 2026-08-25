@@ -42,6 +42,7 @@ export type {
 	ButtonAction,
 	ButtonArrayInput,
 	ControlButton,
+	DpadConfig,
 	KeyboardMode,
 	TermTheme,
 	FloatingButtonGroup,
@@ -249,19 +250,39 @@ export function init(
 					if (resolvedId) micController?.setTarget(resolvedId)
 				})
 
-				// Floating d-pad — created before the action registry so
-				// dpad-toggle buttons wire up via DI (same pattern as ⌨).
-				const dpad = createDpad(term)
-				document.body.appendChild(dpad.element)
-
+				// Action registry first — the d-pad dispatches its non-send keys
+				// through it; dpad-toggle wires back via a lazy closure (same DI
+				// pattern as ⌨).
 				const actions = createDefaultActionRegistry({
 					font: config.font,
 					openHelp,
 					openNotifyPanel,
 					toggleKeyboard: () => keyboardController.toggle(),
-					toggleDpad: dpad.toggle,
+					toggleDpad: () => dpad.toggle(),
 					openImageDrop: deps?.openImageDrop,
 				})
+
+				// Floating d-pad. send keys emit bytes directly (the typed-input
+				// path); any other action type dispatches through the registry.
+				// D-pad taps never move focus, so there is no keyboard state to
+				// restore (kbWasOpen: false, no-op focusIfNeeded).
+				const dpad = createDpad(term, effectiveConfig.dpad.keys, {
+					executeAction: (action) => {
+						void actions
+							.execute(action, {
+								term,
+								kbWasOpen: false,
+								focusIfNeeded: () => {},
+								sendText: async (data) => {
+									sendData(term, data)
+								},
+							})
+							.catch((error) => {
+								console.error('herdweb: d-pad action failed', error)
+							})
+					},
+				})
+				document.body.appendChild(dpad.element)
 
 				// Create drawer (needed by toolbar for toggle)
 				const drawer = createDrawer(term, effectiveConfig.drawer.buttons, {

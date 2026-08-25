@@ -1,4 +1,4 @@
-import type { ControlButton, XTerminal } from '../types'
+import type { ButtonAction, ControlButton, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { onAttachmentTap } from '../util/tap'
@@ -13,40 +13,91 @@ export const dpadToggleButton: ControlButton = {
 	action: { type: 'dpad-toggle' },
 }
 
-/** D-pad keys in 3×3 grid order; null = empty cell (moshi-style cluster shape) */
-const DPAD_KEYS: ReadonlyArray<{
-	readonly label: string
-	readonly data: string
-	readonly description: string
-} | null> = [
-	{ label: '⌫', data: '\x7f', description: 'Send Backspace key' },
-	{ label: '↑', data: '\x1b[A', description: 'Send Up arrow key' },
+/** Default d-pad keys in 3×3 grid order; null = empty cell (moshi-style cluster shape) */
+export const defaultDpadKeys: readonly (ControlButton | null)[] = [
+	{
+		id: 'dpad-backspace',
+		label: '⌫',
+		description: 'Send Backspace key',
+		action: { type: 'send', data: '\x7f' },
+	},
+	{
+		id: 'dpad-up',
+		label: '↑',
+		description: 'Send Up arrow key',
+		action: { type: 'send', data: '\x1b[A' },
+	},
 	null,
-	{ label: '←', data: '\x1b[D', description: 'Send Left arrow key' },
-	{ label: '⏎', data: '\r', description: 'Send Enter/Return key' },
-	{ label: '→', data: '\x1b[C', description: 'Send Right arrow key' },
-	{ label: '⇥', data: '\t', description: 'Send Tab key' },
-	{ label: '↓', data: '\x1b[B', description: 'Send Down arrow key' },
-	{ label: '⇧⇥', data: '\x1b[Z', description: 'Send Shift+Tab key' },
+	{
+		id: 'dpad-left',
+		label: '←',
+		description: 'Send Left arrow key',
+		action: { type: 'send', data: '\x1b[D' },
+	},
+	{
+		id: 'dpad-enter',
+		label: '⏎',
+		description: 'Send Enter/Return key',
+		action: { type: 'send', data: '\r' },
+	},
+	{
+		id: 'dpad-right',
+		label: '→',
+		description: 'Send Right arrow key',
+		action: { type: 'send', data: '\x1b[C' },
+	},
+	{
+		id: 'dpad-tab',
+		label: '⇥',
+		description: 'Send Tab key',
+		action: { type: 'send', data: '\t' },
+	},
+	{
+		id: 'dpad-down',
+		label: '↓',
+		description: 'Send Down arrow key',
+		action: { type: 'send', data: '\x1b[B' },
+	},
+	{
+		id: 'dpad-shift-tab',
+		label: '⇧⇥',
+		description: 'Send Shift+Tab key',
+		action: { type: 'send', data: '\x1b[Z' },
+	},
 ]
+
+/** Dependencies injected into the d-pad by the app wiring layer */
+interface DpadDeps {
+	/**
+	 * Dispatch a non-send key action through the action registry (e.g. async
+	 * paste). `send` keys bypass this and go straight to sendData.
+	 */
+	readonly executeAction: (action: ButtonAction) => void
+}
 
 /**
  * moshi-style floating d-pad: an eight-key arrow cluster (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥) that
- * pops up above the toolbar via the ✥ dpad-toggle button.
+ * pops up above the toolbar via the ✥ dpad-toggle button. The key layout comes
+ * from config (`dpad.keys`); `send` keys emit bytes directly via sendData (the
+ * same path as typed input), any other action type is handed to
+ * `deps.executeAction` (the action registry).
  *
  * Focus safety (hard requirement): every key suppresses the synthesised
  * mousedown after touchend, so tapping a key never steals focus from the
  * terminal textarea — the soft-keyboard state (and the manual-mode input
- * lock) is untouched. Keys send via term.input (sendData), the same path
- * as typed input, so keyboard suppression semantics do not apply.
+ * lock) is untouched.
  */
-export function createDpad(term: XTerminal): {
+export function createDpad(
+	term: XTerminal,
+	keys: readonly (ControlButton | null)[],
+	deps: DpadDeps,
+): {
 	readonly element: HTMLDivElement
 	readonly toggle: () => void
 } {
 	const element = el('div', { id: 'wt-dpad' })
 
-	for (const key of DPAD_KEYS) {
+	for (const key of keys) {
 		if (key === null) {
 			element.appendChild(el('div', { class: 'wt-dpad-spacer' }))
 			continue
@@ -55,10 +106,14 @@ export function createDpad(term: XTerminal): {
 		button.textContent = key.label
 		button.setAttribute('aria-label', key.description)
 		suppressSynthesisedMouse(button)
-		const data = key.data
+		const action = key.action
 		onAttachmentTap(term, button, () => {
 			haptic()
-			sendData(term, data)
+			if (action.type === 'send') {
+				sendData(term, action.data)
+			} else {
+				deps.executeAction(action)
+			}
 		})
 		element.appendChild(button)
 	}
