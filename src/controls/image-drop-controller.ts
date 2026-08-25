@@ -62,10 +62,12 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		state = next
 		// The full-width panel is the failure-recovery form (error/file-ready).
 		// Transient success-path states never show it — a lightweight toast
-		// carries the two user-visible beats (upload started, insert done).
+		// carries the user-visible beats (upload started, insert sent, insert
+		// done). 'inserting' must toast too: a manual Retry insert would
+		// otherwise sit silent for the whole ACK timeout.
 		const showPanel = next === 'error' || next === 'file-ready'
 		panel.style.display = showPanel ? 'flex' : 'none'
-		if (next === 'uploading' || next === 'done') toast(message)
+		if (next === 'uploading' || next === 'inserting' || next === 'done') toast(message)
 		status.textContent = message
 		const showDetails = showPanel && path !== null
 		pathText.style.display = showDetails ? '' : 'none'

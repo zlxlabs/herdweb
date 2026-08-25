@@ -184,6 +184,10 @@ test('failures: HTTP status, malformed 200, rejected, lost ACK — all keep a vi
 	const retryBtn = query<HTMLButtonElement>(h.controller, '.wt-image-drop-retry')
 	retryBtn.click()
 	expect(h.sent.map((s) => s.id)).toEqual(['image-drop-a1', 'image-drop-a1'])
+	// Manual retry re-enters 'inserting' with the panel hidden — a toast must
+	// carry the wait, or the user sits silent until the ACK timeout.
+	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserting path…')
+	expect(h.controller.element.style.display).toBe('none')
 	vi.useFakeTimers()
 	h.emit({ id: 'image-drop-a1', accepted: false, reason: 'id-conflict' })
 	retryBtn.click()
@@ -214,7 +218,7 @@ test('gating: session/freshness guard auto-insert; stale ACKs are safe; success 
 	pick(h.controller, png())
 	await flush()
 	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
-	expect(h.toastSpy).toHaveBeenCalledTimes(3) // stale ACK: still inserting, no new toast
+	expect(h.toastSpy).toHaveBeenCalledTimes(5) // stale ACK: still inserting, no new toast
 	h.emit({ id: 'image-drop-a2', accepted: true, reason: null })
 	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserted into agent input.')
 	expect(h.controller.element.style.display).toBe('none')
@@ -231,9 +235,9 @@ test('done toast: panel stays hidden, toast carries success, auto-returns to idl
 	expect(h.sent).toHaveLength(1)
 	h.emit({ id: 'image-drop-a1', accepted: true, reason: null })
 	expect(h.toastSpy).toHaveBeenLastCalledWith('Inserted into agent input.')
-	expect(h.toastSpy).toHaveBeenCalledTimes(2)
+	expect(h.toastSpy).toHaveBeenCalledTimes(3) // uploading → inserting → done
 	h.emitConnection(false) // 'done' survives a connection blip without a stale error
-	expect(h.toastSpy).toHaveBeenCalledTimes(2)
+	expect(h.toastSpy).toHaveBeenCalledTimes(3)
 	expect(h.controller.element.style.display).toBe('none')
 	expect(pathText.style.display).toBe('none')
 	expect(actions.style.display).toBe('none')
