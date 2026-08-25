@@ -94,6 +94,7 @@ export function initHeightManager(
 
 		checkLandscapeKeyboard(toolbar)
 		lockDocumentHeight(h)
+		document.documentElement.style.setProperty('--wt-toolbar-height', `${toolbarH}px`)
 		document.documentElement.style.setProperty(
 			'--kb-inset',
 			`${keyboardInsetPx(vp, window.innerHeight)}px`,

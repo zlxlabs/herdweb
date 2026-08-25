@@ -59,7 +59,8 @@ describe('mobile init attachment guard', () => {
 			return undefined
 		})
 
-		init(defineConfig({ mobile: { initData: 'init\r' } }), hooks)
+		const config = defineConfig({ mobile: { initData: 'init\r' } })
+		init({ ...config, targetCount: config.targets.length }, hooks)
 		await vi.waitFor(() => expect(document.getElementById('wt-toolbar')).not.toBeNull())
 		attachmentId = 'att-b'
 		gate.resolve()

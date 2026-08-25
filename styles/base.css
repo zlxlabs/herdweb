@@ -80,7 +80,7 @@ body {
 	flex-shrink: 1;
 }
 
-#wt-toolbar .wt-row:first-child button {
+#wt-toolbar .wt-row:first-of-type button {
 	min-width: 38px;
 }
 
@@ -515,15 +515,15 @@ body.wt-composer-open .wt-target-badge {
 	user-select: none;
 }
 
-/* Coarse pointers: herdr's own switch lives top-right — park the badge
-   bottom-left above the toolbar (bottom-right stays dpad turf). */
 @media (pointer: coarse) {
-	.wt-target-badge {
-		top: auto;
-		right: auto;
-		left: calc(8px + env(safe-area-inset-left, 0px));
-		/* Same lift as #wt-dpad: clears the single-row toolbar + soft keyboard. */
-		bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px));
+	#wt-toolbar > .wt-target-badge {
+		position: static;
+		align-self: flex-start;
+		box-sizing: border-box;
+		max-width: calc(100% - 8px);
+		min-height: 26px;
+		margin: 0 4px;
+		flex-shrink: 0;
 	}
 }
 
@@ -605,7 +605,7 @@ body.wt-composer-open .wt-target-badge {
 	display: none;
 	position: fixed;
 	/* Above the default single-row toolbar (44px keys + 12px padding + 8px gap) */
-	bottom: calc(64px + env(safe-area-inset-bottom, 0px) + var(--kb-inset, 0px));
+	bottom: calc(var(--wt-toolbar-height, 64px) + var(--kb-inset, 0px));
 	right: calc(8px + env(safe-area-inset-right, 0px));
 	grid-template-columns: repeat(3, 48px);
 	gap: 4px;
@@ -1131,11 +1131,11 @@ body.wt-composer-open .wt-target-badge {
 }
 
 /* Landscape + keyboard: hide row 2 buttons, shrink buttons.
-   Only a true second row is hidden — :not(:first-child) keeps the default
+   Only a true second row is hidden — :not(:first-of-type) keeps the default
    single-row toolbar fully visible. The keyboard-toggle is exempt either
    way — it must stay reachable so the user can dismiss the keyboard (F1). */
 @media (orientation: landscape) {
-	#wt-toolbar.wt-kb-open .wt-row:not(:first-child):last-child button:not(.wt-keyboard-toggle) {
+	#wt-toolbar.wt-kb-open .wt-row:not(:first-of-type):last-child button:not(.wt-keyboard-toggle) {
 		display: none;
 	}
 	#wt-toolbar.wt-kb-open button {
@@ -1151,7 +1151,7 @@ body.wt-composer-open .wt-target-badge {
 	position: fixed;
 	left: 12px;
 	right: 12px;
-	bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+	bottom: var(--wt-toolbar-height, 64px);
 	flex-direction: column;
 	gap: 8px;
 	padding: 12px;

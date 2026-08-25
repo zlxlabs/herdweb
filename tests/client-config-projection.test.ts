@@ -78,7 +78,20 @@ describe('client config projection', () => {
 		expect(assets.js).toContain('client-font-sentinel')
 		expect(assets.js).toContain('client-toolbar-sentinel')
 		expect(assets.js).toContain('"reconnect":{"enabled":false}')
-		expect(assets.js).toContain('"targetMode":"explicit"')
+		const projectionMatch = assets.js.match(
+			/globalThis\.__herdwebConfig=(\{.*?\});globalThis\.__herdwebBasePath=/,
+		)
+		if (projectionMatch === null) {
+			throw new Error('client config projection was not embedded')
+		}
+		const projection = projectionMatch[1]
+		if (projection === undefined) {
+			throw new Error('client config projection payload was empty')
+		}
+		const projected = JSON.parse(projection) as Record<string, unknown>
+		expect(projected.targetMode).toBe('explicit')
+		expect(projected.targetCount).toBe(1)
+		expect(projected).not.toHaveProperty('targets')
 		expect(assets.js).not.toContain('"command":["herdr","--session","default"]')
 	})
 })

@@ -215,6 +215,18 @@ describe('initHeightManager', () => {
 		expect(document.documentElement.style.getPropertyValue('--kb-inset')).toBe('280px')
 	})
 
+	test('writes the measured toolbar height for fixed bottom consumers', () => {
+		setInnerHeight(800)
+		fakeViewport(800)
+		const toolbar = makeToolbar()
+		Object.defineProperty(toolbar, 'offsetHeight', { value: 132, configurable: true })
+
+		initHeightManager(toolbar)
+		vi.advanceTimersByTime(1)
+
+		expect(document.documentElement.style.getPropertyValue('--wt-toolbar-height')).toBe('132px')
+	})
+
 	test('deducts visible chrome from the locked height while the keyboard is open', () => {
 		setInnerHeight(800)
 		fakeViewport(500, 20) // keyboard open (baseline 800 taken from innerHeight)

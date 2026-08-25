@@ -300,10 +300,11 @@ export interface ClientConfigProjection {
 		readonly autoEnter: boolean
 	}
 	readonly targetMode: TargetMode
+	readonly targetCount: number
 }
 
 /** Full herdweb configuration */
-export interface HerdwebConfig extends ClientConfigProjection {
+export interface HerdwebConfig extends Omit<ClientConfigProjection, 'targetCount'> {
 	readonly pwa: PwaConfig
 	readonly asr: AsrConfig
 	readonly notify: NotifyConfig

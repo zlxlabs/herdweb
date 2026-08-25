@@ -77,7 +77,7 @@ async function bootOverlay(config: HerdwebConfig = defineConfig()): Promise<XTer
 	window.term = term
 
 	const { init } = await import('../src/index')
-	init(config)
+	init({ ...config, targetCount: config.targets.length })
 
 	await vi.waitFor(
 		() => {

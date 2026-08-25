@@ -509,9 +509,9 @@ describe('renderer wiring (toolbar / drawer / floating)', () => {
 
 describe('base.css keyboard rules', () => {
 	test('landscape wt-kb-open hides only a true second row, exempting the keyboard-toggle (F1)', () => {
-		// Single-row toolbar: the only row is :first-child and must stay visible
+		// Single-row toolbar: the only row is :first-of-type and must stay visible
 		expect(css).toContain(
-			'#wt-toolbar.wt-kb-open .wt-row:not(:first-child):last-child button:not(.wt-keyboard-toggle)',
+			'#wt-toolbar.wt-kb-open .wt-row:not(:first-of-type):last-child button:not(.wt-keyboard-toggle)',
 		)
 		// The unguarded last-child hide (would blank the single-row toolbar) must be gone
 		expect(css).not.toMatch(
@@ -530,6 +530,15 @@ describe('base.css keyboard rules', () => {
 
 	test('keyboard indicator style exists', () => {
 		expect(css).toContain('#wt-toolbar button.wt-keyboard-toggle.wt-kb-active')
+	})
+
+	test('fixed bottom consumers use toolbar height without duplicating bottom safe-area', () => {
+		const dpadBlock = css.match(/#wt-dpad\s*\{([^}]*)\}/)?.[1] ?? ''
+		const imageDropBlock = css.match(/#wt-image-drop\s*\{([^}]*)\}/)?.[1] ?? ''
+		expect(dpadBlock).toContain('var(--wt-toolbar-height, 64px)')
+		expect(dpadBlock).not.toContain('safe-area-inset-bottom')
+		expect(imageDropBlock).toContain('var(--wt-toolbar-height, 64px)')
+		expect(imageDropBlock).not.toContain('safe-area-inset-bottom')
 	})
 })
 
@@ -586,7 +595,8 @@ describe('init lifecycle (P2-1)', () => {
 		window.term = term
 
 		const { init } = await import('../src/index')
-		init(defineConfig({ mobile: { keyboardMode: 'manual' } }))
+		const config = defineConfig({ mobile: { keyboardMode: 'manual' } })
+		init({ ...config, targetCount: config.targets.length })
 
 		// Wait until init has rendered the toolbar (controller created before it)
 		await vi.waitFor(
