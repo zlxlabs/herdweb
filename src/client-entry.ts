@@ -1142,9 +1142,14 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	const hooks = createHookRegistry()
 	// Image drop: synced/fresh gating reuses the term bridge — isConnected() is the
 	// synced state and sendInputAction() enforces heartbeat freshness internally.
+	// pasteTarget adds the Ctrl+V entry: a capture-phase paste listener on the
+	// terminal textarea claims image clipboards before xterm sees them. The real
+	// terminal's textarea always exists after term.open(container) above; the
+	// unit-test FakeTerminal has none, so wiring is simply skipped there.
 	const imageDrop = createImageDropController({
 		term: termBridge,
 		basePath,
+		pasteTarget: term.textarea,
 	})
 	document.body.appendChild(imageDrop.element)
 

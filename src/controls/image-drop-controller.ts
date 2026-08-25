@@ -21,6 +21,7 @@ interface ImageDropControllerDeps {
 	readonly clipboard?: { writeText(text: string): Promise<void> }
 	readonly createActionId?: () => string
 	readonly ackTimeoutMs?: number
+	readonly pasteTarget?: HTMLElement
 }
 
 export interface ImageDropController {
@@ -128,13 +129,40 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	input.addEventListener('change', () => {
 		const file = input.files?.[0]
 		input.value = ''
-		generation += 1
-		clearAckTimer()
 		if (!file) {
+			generation += 1
+			clearAckTimer()
 			path = null
 			setState('idle', '')
 			return
 		}
+		startUpload(file)
+	})
+
+	// Second upload entry (after the hidden file input): Ctrl+V on the terminal
+	// textarea. Capture phase so we run before xterm's own paste handling — an
+	// image-only clipboard has no text for xterm to insert, so we claim the
+	// event; a text clipboard falls through to xterm untouched.
+	const pasteTarget = deps.pasteTarget
+	const onPaste = (event: ClipboardEvent): void => {
+		const items = event.clipboardData?.items
+		if (!items) return
+		let file: File | null = null
+		for (let i = 0; i < items.length; i += 1) {
+			const item = items[i]
+			if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
+			file = item.getAsFile()
+			if (file) break
+		}
+		if (file === null) return
+		event.preventDefault()
+		startUpload(file)
+	}
+	if (pasteTarget) pasteTarget.addEventListener('paste', onPaste, true)
+
+	function startUpload(file: File): void {
+		generation += 1
+		clearAckTimer()
 		const gen = generation
 		actionId = `image-drop-${newActionId()}`
 		const attachment = pickAttachment()
@@ -168,7 +196,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 			},
 			() => failUpload(gen, 'Upload failed — network error.'),
 		)
-	})
+	}
 
 	const subscription = term.onInputActionResult((result: InputActionResult) => {
 		if (disposed || result.id !== actionId || state !== 'inserting') return
@@ -234,6 +262,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 			clearAckTimer()
 			subscription.dispose()
 			connection.dispose()
+			if (pasteTarget) pasteTarget.removeEventListener('paste', onPaste, true)
 		},
 	}
 }

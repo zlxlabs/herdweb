@@ -22,7 +22,11 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 function setup(
-	options: { imageDrop?: 'local-path' | 'disabled'; attachmentId?: string | null } = {},
+	options: {
+		imageDrop?: 'local-path' | 'disabled'
+		attachmentId?: string | null
+		paste?: boolean
+	} = {},
 ) {
 	const sent: Array<{ id: string; data: string }> = []
 	const listeners = new Set<(result: InputActionResult) => void>()
@@ -38,6 +42,8 @@ function setup(
 	let aid = 0
 	const fetchMock = vi.fn(() => Promise.resolve(jsonResponse({ path: PATH })))
 	const writeText = vi.fn(() => Promise.resolve())
+	const pasteTarget = document.createElement('textarea')
+	document.body.appendChild(pasteTarget)
 	const controller = createImageDropController({
 		term: {
 			isConnected: () => connected && attachment.id !== null,
@@ -66,6 +72,7 @@ function setup(
 			return `a${aid}`
 		},
 		ackTimeoutMs: 30,
+		...(options.paste ? { pasteTarget } : {}),
 	})
 	const emit = (result: InputActionResult) => {
 		for (const listener of listeners) listener(result)
@@ -74,7 +81,7 @@ function setup(
 		connected = next
 		for (const listener of connectionListeners) listener(next)
 	}
-	return { controller, attachment, sent, emit, emitConnection, fetchMock, writeText }
+	return { controller, attachment, sent, emit, emitConnection, fetchMock, writeText, pasteTarget }
 }
 
 function query<T extends HTMLElement>(c: ImageDropController, sel: string): T {
@@ -89,6 +96,25 @@ function pick(c: ImageDropController, file: File | null): void {
 	const input = query<HTMLInputElement>(c, 'input')
 	Object.defineProperty(input, 'files', { value: file ? [file] : [], configurable: true })
 	input.dispatchEvent(new Event('change'))
+}
+
+interface FakeClipboardItem {
+	readonly kind: string
+	readonly type: string
+	readonly file?: File
+}
+
+function paste(target: HTMLElement, items: readonly FakeClipboardItem[]): ClipboardEvent {
+	const clipboardData = {
+		items: items.map((item) => ({
+			kind: item.kind,
+			type: item.type,
+			getAsFile: () => item.file ?? null,
+		})),
+	} as unknown as DataTransfer
+	const event = new ClipboardEvent('paste', { bubbles: true, cancelable: true, clipboardData })
+	target.dispatchEvent(event)
+	return event
 }
 
 test('picker: cancel hides the panel; reset allows re-select; single-flight; raw File POST', async () => {
@@ -229,4 +255,47 @@ test('capability and attachment gates: no request when disabled or unsynced; swi
 	await flush()
 	expect(h.sent).toHaveLength(0)
 	expect(statusText(h.controller)).toContain('Upload became stale')
+})
+
+test('paste: clipboard image uploads via the same pipeline and prevents default', async () => {
+	const h = setup({ paste: true })
+	const file = png()
+	const event = paste(h.pasteTarget, [
+		{ kind: 'string', type: 'text/plain' },
+		{ kind: 'file', type: 'image/png', file },
+	])
+	expect(event.defaultPrevented).toBe(true)
+	expect(h.fetchMock).toHaveBeenCalledTimes(1)
+	expect(h.fetchMock).toHaveBeenCalledWith('/herdweb/api/image-drop', {
+		method: 'POST',
+		body: file,
+		headers: { [X_HERDWEB_ATTACHMENT_ID_HEADER]: 'att-1' },
+	})
+	await flush()
+	expect(h.sent).toEqual([{ id: 'image-drop-a1', data: ` ${PATH} ` }])
+})
+
+test('paste: text-only clipboard is left to the terminal untouched', () => {
+	const h = setup({ paste: true })
+	const event = paste(h.pasteTarget, [{ kind: 'string', type: 'text/plain' }])
+	expect(event.defaultPrevented).toBe(false)
+	expect(h.fetchMock).not.toHaveBeenCalled()
+})
+
+test('paste: no pasteTarget wires no listener; unsynced paste reuses not-ready gate; dispose stops uploads', () => {
+	const noTarget = setup()
+	const stray = paste(noTarget.pasteTarget, [{ kind: 'file', type: 'image/png', file: png() }])
+	expect(stray.defaultPrevented).toBe(false)
+	expect(noTarget.fetchMock).not.toHaveBeenCalled()
+
+	const unsynced = setup({ attachmentId: null, paste: true })
+	paste(unsynced.pasteTarget, [{ kind: 'file', type: 'image/png', file: png() }])
+	expect(unsynced.fetchMock).not.toHaveBeenCalled()
+	expect(statusText(unsynced.controller)).toContain('syncing')
+
+	const h = setup({ paste: true })
+	h.controller.dispose()
+	const afterDispose = paste(h.pasteTarget, [{ kind: 'file', type: 'image/png', file: png() }])
+	expect(afterDispose.defaultPrevented).toBe(false)
+	expect(h.fetchMock).not.toHaveBeenCalled()
 })
