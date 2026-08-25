@@ -1,3 +1,17 @@
+# [1.11.0](https://github.com/zlxlabs/herdweb/compare/v1.10.2...v1.11.0) (2026-08-25)
+
+
+### Bug Fixes
+
+* **client:** correct target bar safe-area accounting ([b90fe92](https://github.com/zlxlabs/herdweb/commit/b90fe925e753bb733eefe229d9bf10e63ea7b0b2))
+* **client:** narrow overlay init contract ([e65ed63](https://github.com/zlxlabs/herdweb/commit/e65ed6395f2a7579ce7e46388e6d8b92cd8820d3))
+* **client:** require projected target count ([8d54194](https://github.com/zlxlabs/herdweb/commit/8d541948bb2e4cb3617f30837230d5a0b8e683e5))
+
+
+### Features
+
+* **client:** place mobile target badge in toolbar ([c9f5d17](https://github.com/zlxlabs/herdweb/commit/c9f5d176dda2070d7e8dd29389545b81596e77e7))
+
 ## [1.10.2](https://github.com/zlxlabs/herdweb/compare/v1.10.1...v1.10.2) (2026-08-25)
 
 
