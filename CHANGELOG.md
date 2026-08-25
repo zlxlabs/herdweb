@@ -1,3 +1,10 @@
+## [1.10.2](https://github.com/zlxlabs/herdweb/compare/v1.10.1...v1.10.2) (2026-08-25)
+
+
+### Bug Fixes
+
+* **client:** park target badge bottom-left on coarse pointers ([9ef16dc](https://github.com/zlxlabs/herdweb/commit/9ef16dccf2bfccf3eaa81060256534530082f3f1))
+
 ## [1.10.1](https://github.com/zlxlabs/herdweb/compare/v1.10.0...v1.10.1) (2026-08-25)
 
 
