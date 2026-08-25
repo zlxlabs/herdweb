@@ -1,3 +1,10 @@
+## [1.10.1](https://github.com/zlxlabs/herdweb/compare/v1.10.0...v1.10.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **client:** show target picker on desktop ([fbca758](https://github.com/zlxlabs/herdweb/commit/fbca758ceb67bf95359f3aeb37ebb2277e526016))
+
 # [1.10.0](https://github.com/zlxlabs/herdweb/compare/v1.9.0...v1.10.0) (2026-08-24)
 
 
