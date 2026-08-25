@@ -1,3 +1,11 @@
+## [1.13.1](https://github.com/zlxlabs/herdweb/compare/v1.13.0...v1.13.1) (2026-08-25)
+
+
+### Bug Fixes
+
+* **image-drop:** keep success path to a lightweight toast ([6ef8764](https://github.com/zlxlabs/herdweb/commit/6ef8764e71b2b2c25b689601d1d630943bdba443))
+* **image-drop:** toast on manual retry insert ([4655df6](https://github.com/zlxlabs/herdweb/commit/4655df64ff1ff3ccf1936eb5554e6b3c570e0452))
+
 # [1.13.0](https://github.com/zlxlabs/herdweb/compare/v1.12.0...v1.13.0) (2026-08-25)
 
 
