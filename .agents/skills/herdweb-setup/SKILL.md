@@ -262,7 +262,7 @@ Drawer buttons also accept an optional `section?: string` — the drawer renders
 
 | Field | Default | Notes |
 |-------|---------|-------|
-| `dpad.keys` | 8-key arrow cluster (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥) | 3×3 grid order; `null` renders an empty spacer cell (default: index 2). Array form replaces the default keys entirely. `send` keys emit bytes directly; any other action type (e.g. `paste`) dispatches through the action registry |
+| `dpad.keys` | 9-key cluster (⌫ ↑ 📋 / ← ⏎ → / ⇥ ↓ ⇧⇥) | 3×3 grid order; `null` renders an empty spacer cell (the defaults have none — index 2 is the paste key). Array form replaces the default keys entirely. `send` keys emit bytes directly; any other action type (e.g. `paste`) dispatches through the action registry |
 
 ### Gestures
 

@@ -1,8 +1,10 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { createDefaultActionRegistry } from '../src/actions/registry'
 import { createDpad, defaultDpadKeys, dpadToggleButton } from '../src/controls/dpad'
 import type { ButtonAction, ControlButton } from '../src/types'
 import { _resetTouchGuard } from '../src/util/tap'
+import { sendData } from '../src/util/terminal'
 import { mockTerminalWithSent } from './fixtures'
 
 beforeEach(() => {
@@ -37,15 +39,24 @@ describe('dpadToggleButton', () => {
 })
 
 describe('defaultDpadKeys', () => {
-	test('is the 3×3 cluster: eight send keys with a null spacer at index 2', () => {
+	test('is the 3×3 cluster: eight send keys plus a 📋 paste key at index 2', () => {
 		expect(defaultDpadKeys).toHaveLength(9)
-		expect(defaultDpadKeys[2]).toBeNull()
-		const keys = defaultDpadKeys.filter((key) => key !== null)
-		expect(keys).toHaveLength(8)
-		for (const key of keys) {
-			expect(key.action.type).toBe('send')
+		expect(defaultDpadKeys.map((key) => key?.label)).toEqual([
+			'⌫',
+			'↑',
+			'📋',
+			'←',
+			'⏎',
+			'→',
+			'⇥',
+			'↓',
+			'⇧⇥',
+		])
+		expect(defaultDpadKeys[2]?.action).toEqual({ type: 'paste' })
+		for (const [index, key] of defaultDpadKeys.entries()) {
+			if (index === 2) continue
+			expect(key?.action.type).toBe('send')
 		}
-		expect(keys.map((key) => key.label)).toEqual(['⌫', '↑', '←', '⏎', '→', '⇥', '↓', '⇧⇥'])
 	})
 })
 
@@ -63,11 +74,12 @@ describe('createDpad', () => {
 		expect(dpad.element.classList.contains('open')).toBe(false)
 	})
 
-	test('renders exactly the eight keys ← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥ plus a spacer cell', () => {
+	test('renders the nine keys in grid order (⌫ ↑ 📋 ← ⏎ → ⇥ ↓ ⇧⇥), no spacer', () => {
 		const { dpad } = createTestDpad(mockTerminalWithSent())
 		expect(dpadKeys(dpad.element).map((b) => b.textContent)).toEqual([
 			'⌫',
 			'↑',
+			'📋',
 			'←',
 			'⏎',
 			'→',
@@ -75,10 +87,7 @@ describe('createDpad', () => {
 			'↓',
 			'⇧⇥',
 		])
-
-		const cells = [...dpad.element.children]
-		expect(cells).toHaveLength(9)
-		expect(cells[2]?.classList.contains('wt-dpad-spacer')).toBe(true)
+		expect(dpad.element.querySelector('.wt-dpad-spacer')).toBeNull()
 	})
 
 	test('custom keys replace the default layout', () => {
@@ -107,7 +116,7 @@ describe('createDpad', () => {
 		expect(cells[1]?.classList.contains('wt-dpad-spacer')).toBe(true)
 	})
 
-	test('each default key sends its exact byte sequence via term.input', () => {
+	test('send keys emit their exact byte sequence; 📋 dispatches through executeAction', () => {
 		const term = mockTerminalWithSent()
 		const { dpad, executeAction } = createTestDpad(term)
 		const expected: Record<string, string> = {
@@ -124,10 +133,12 @@ describe('createDpad', () => {
 		for (const button of dpadKeys(dpad.element)) {
 			const label = button.textContent ?? ''
 			button.click()
+			if (label === '📋') continue
 			expect(term.sent[term.sent.length - 1]).toBe(expected[label])
 		}
 		expect(term.sent).toHaveLength(8)
-		expect(executeAction).not.toHaveBeenCalled()
+		expect(executeAction).toHaveBeenCalledTimes(1)
+		expect(executeAction).toHaveBeenCalledWith({ type: 'paste' })
 	})
 
 	test('non-send keys dispatch through executeAction and never touch term.input', () => {
@@ -179,5 +190,68 @@ describe('createDpad', () => {
 		expect(focused).toBe(0)
 		expect(blurred).toBe(0)
 		expect(probe.sent).toHaveLength(8)
+	})
+})
+
+describe('dpad paste wiring (registry end-to-end)', () => {
+	function createDpadWithRealRegistry(options: { clipboard: unknown; toasts: string[] }) {
+		const term = mockTerminalWithSent()
+		Object.defineProperty(navigator, 'clipboard', {
+			value: options.clipboard,
+			configurable: true,
+		})
+		const registry = createDefaultActionRegistry({
+			showToast: (message) => options.toasts.push(message),
+		})
+		let executed: Promise<boolean> | undefined
+		const dpad = createDpad(term, defaultDpadKeys, {
+			executeAction: (action) => {
+				executed = registry.execute(action, {
+					term,
+					kbWasOpen: false,
+					focusIfNeeded() {},
+					async sendText(data: string) {
+						sendData(term, data)
+					},
+				})
+			},
+		})
+		const tapPaste = () => {
+			dpadKeys(dpad.element)
+				.find((button) => button.textContent === '📋')
+				?.click()
+			return executed
+		}
+		return { term, tapPaste }
+	}
+
+	test('📋 paste key delivers clipboard text into the terminal', async () => {
+		const toasts: string[] = []
+		const { term, tapPaste } = createDpadWithRealRegistry({
+			clipboard: { readText: async () => 'clipboard text' },
+			toasts,
+		})
+
+		await tapPaste()
+
+		expect(term.sent).toEqual(['clipboard text'])
+		expect(toasts).toEqual([])
+	})
+
+	test('📋 paste failure surfaces a toast and sends nothing', async () => {
+		const toasts: string[] = []
+		const { term, tapPaste } = createDpadWithRealRegistry({
+			clipboard: {
+				readText: async () => {
+					throw new Error('denied')
+				},
+			},
+			toasts,
+		})
+
+		await tapPaste()
+
+		expect(toasts).toEqual(['Paste failed — clipboard read was denied.'])
+		expect(term.sent).toEqual([])
 	})
 })

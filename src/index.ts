@@ -265,19 +265,41 @@ export function init(
 				})
 
 				// Floating d-pad. send keys emit bytes directly (the typed-input
-				// path); any other action type dispatches through the registry.
-				// D-pad taps never move focus, so there is no keyboard state to
-				// restore (kbWasOpen: false, no-op focusIfNeeded).
+				// path); any other action type dispatches through the registry with
+				// the same context capability as drawer buttons (hooks + attachment
+				// guard + sendData). D-pad taps never move focus, so there is no
+				// keyboard state to restore (kbWasOpen: false, no-op focusIfNeeded).
 				const dpad = createDpad(term, effectiveConfig.dpad.keys, {
 					executeAction: (action) => {
+						const isGenerationCurrent = createAttachmentGuard(term)
+						async function sendWithHooks(data: string): Promise<void> {
+							const before = await hooks.runBeforeSendData({
+								term,
+								config: effectiveConfig,
+								source: 'dpad',
+								actionType: action.type,
+								kbWasOpen: false,
+								data,
+							})
+							if (before.blocked) return
+							if (!isGenerationCurrent()) return
+							sendData(term, before.data)
+							await hooks.runAfterSendData({
+								term,
+								config: effectiveConfig,
+								source: 'dpad',
+								actionType: action.type,
+								kbWasOpen: false,
+								data: before.data,
+							})
+						}
 						void actions
 							.execute(action, {
 								term,
 								kbWasOpen: false,
 								focusIfNeeded: () => {},
-								sendText: async (data) => {
-									sendData(term, data)
-								},
+								sendText: sendWithHooks,
+								sendRawText: sendWithHooks,
 							})
 							.catch((error) => {
 								console.error('herdweb: d-pad action failed', error)

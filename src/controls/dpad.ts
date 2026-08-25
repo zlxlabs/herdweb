@@ -27,7 +27,14 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		description: 'Send Up arrow key',
 		action: { type: 'send', data: '\x1b[A' },
 	},
-	null,
+	{
+		// Paste sits in the high-frequency cluster (issue #99) — one tap from the
+		// d-pad, no drawer round trip.
+		id: 'dpad-paste',
+		label: '📋',
+		description: 'Paste clipboard contents',
+		action: { type: 'paste' },
+	},
 	{
 		id: 'dpad-left',
 		label: '←',

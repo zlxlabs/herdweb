@@ -1,6 +1,6 @@
 import type { ButtonAction, HerdwebConfig, XTerminal } from '../types'
 
-export type SendSource = 'toolbar' | 'drawer' | 'floating-buttons' | 'mobile-init'
+export type SendSource = 'toolbar' | 'drawer' | 'floating-buttons' | 'dpad' | 'mobile-init'
 
 export interface BeforeSendDataContext {
 	readonly term: XTerminal
