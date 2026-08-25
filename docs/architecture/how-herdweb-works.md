@@ -4,7 +4,9 @@ herdweb is a phone-sized control surface for herdr. One server owns a target reg
 target lazily gets one local PTY-backed `SharedTerminalSession`. A browser renders only the currently
 committed target attachment through `xterm.js`.
 
-For transport and lifecycle details, see [Networking and WebSocket flow](networking-and-websockets.md).
+The user-facing model — Herdr servers, devices, and the three setup shapes — is in the
+[README](../../README.md#how-it-fits-together). For transport and lifecycle details, see
+[Networking and WebSocket flow](networking-and-websockets.md).
 
 ## System view
 
