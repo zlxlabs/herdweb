@@ -199,7 +199,7 @@ Tell the user:
 ### Allowed root keys
 
 ```
-name  theme  font  toolbar  drawer  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify  targets  defaultTargetId
+name  theme  font  toolbar  drawer  dpad  gestures  mobile  floatingButtons  scrollButtons  pwa  reconnect  asr  notify  targets  defaultTargetId
 ```
 
 ### ButtonAction union
@@ -257,6 +257,37 @@ object itself. Requests run in parallel with Web Push, are isolated per channel,
 `POST /api/events` is loopback-only. Badge kinds `asking`, `done`, `ci-red` require an on-host event source (agent-config#495) — not active until that outbound lane is deployed.
 
 Drawer buttons also accept an optional `section?: string` — the drawer renders a heading row whenever adjacent buttons' section changes; toolbar/floating renderers ignore it.
+
+### D-pad
+
+| Field | Default | Notes |
+|-------|---------|-------|
+| `dpad.keys` | 9-key cluster (⌫ ↑ 📋 / ← ⏎ → / ⇥ ↓ ⇧⇥) | 3×3 grid order; `null` renders an empty spacer cell (the defaults have none — index 2 is the paste key). Array form replaces the default keys entirely. `send` keys emit bytes directly; any other action type (e.g. `paste`) dispatches through the action registry |
+
+Any d-pad key may carry `longPressAction` (a `ButtonAction`): holding the key ~500ms fires it (with haptic) and suppresses the normal tap; a corner badge marks such keys. The default ⏎ key uses it for "newline without submit": tap sends `'\r'`, hold sends `'\n'` (Ctrl+J) — the agent-agnostic sequence accepted by Claude Code, Codex, pi and OpenCode without relying on kitty keyboard-protocol forwarding through herdr/tmux. `dpad.keys` replaces the whole array (no function form), so agents on the kitty protocol override by supplying all nine keys with the ⏎ entry swapped:
+
+```typescript
+dpad: {
+  keys: [
+    { id: 'dpad-backspace', label: '⌫', description: 'Send Backspace key', action: { type: 'send', data: '\x7f' } },
+    { id: 'dpad-up', label: '↑', description: 'Send Up arrow key', action: { type: 'send', data: '\x1b[A' } },
+    { id: 'dpad-paste', label: '📋', description: 'Paste clipboard contents', action: { type: 'paste' } },
+    { id: 'dpad-left', label: '←', description: 'Send Left arrow key', action: { type: 'send', data: '\x1b[D' } },
+    { id: 'dpad-enter', label: '⏎', description: 'Enter — hold to insert newline (no submit)',
+      action: { type: 'send', data: '\r' }, longPressAction: { type: 'send', data: '\x1b[13;2u' } },
+    { id: 'dpad-right', label: '→', description: 'Send Right arrow key', action: { type: 'send', data: '\x1b[C' } },
+    { id: 'dpad-tab', label: '⇥', description: 'Send Tab key', action: { type: 'send', data: '\t' } },
+    { id: 'dpad-down', label: '↓', description: 'Send Down arrow key', action: { type: 'send', data: '\x1b[B' } },
+    { id: 'dpad-shift-tab', label: '⇧⇥', description: 'Send Shift+Tab key', action: { type: 'send', data: '\x1b[Z' } },
+  ],
+}
+```
+
+Caveat: the hold-to-newline key is only meaningful in an agent input box. In a plain shell, Ctrl+J is Enter — holding ⏎ there executes the command line.
+
+Keys may also carry `repeatOnHold: true`: after a 300ms hold the tap action repeats every 100ms until release (the release tap is then suppressed). Default on ← ↑ ↓ → ⌫. Mutually exclusive with `longPressAction` — longPress wins and repeat is not wired.
+
+The pad is draggable: grab the slim `⠿` handle above the key grid to move it (e.g. when it covers a bottom-of-terminal approval menu). The position persists across sessions (`localStorage` key `herdweb:dpadPosition`); double-tap the handle to dock it back above the toolbar. Not configurable — always on.
 
 ### Gestures
 

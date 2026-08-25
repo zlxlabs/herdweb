@@ -23,6 +23,18 @@ export interface ControlButton {
 	readonly description: string
 	readonly action: ButtonAction
 	/**
+	 * Optional hold-to-trigger action (~500ms long press). When it fires, the
+	 * normal tap action is suppressed. Currently consumed by the d-pad renderer.
+	 */
+	readonly longPressAction?: ButtonAction
+	/**
+	 * Optional hold-to-repeat: after a 300ms hold the tap action repeats every
+	 * 100ms until release (releasing then suppresses the tap, so nothing fires
+	 * twice). Mutually exclusive with `longPressAction` — longPress wins and
+	 * repeat is not wired. Currently consumed by the d-pad renderer.
+	 */
+	readonly repeatOnHold?: boolean
+	/**
 	 * Optional drawer section label — the drawer renders a heading row whenever
 	 * the section of adjacent buttons changes. Toolbar/floating renderers ignore it.
 	 */
@@ -164,6 +176,12 @@ export interface ScrollButtonsConfig {
 	readonly enabled: boolean
 }
 
+/** Floating d-pad configuration */
+export interface DpadConfig {
+	/** Keys in 3×3 grid order; null renders an empty spacer cell */
+	readonly keys: readonly (ControlButton | null)[]
+}
+
 /** Reconnect overlay configuration */
 export interface ReconnectConfig {
 	readonly enabled: boolean
@@ -289,6 +307,7 @@ export interface ClientConfigProjection {
 	readonly mobile: MobileConfig
 	readonly floatingButtons: readonly FloatingButtonGroup[]
 	readonly scrollButtons: ScrollButtonsConfig
+	readonly dpad: DpadConfig
 	readonly reconnect: ReconnectConfig
 	readonly asr: {
 		readonly enabled: boolean
@@ -333,7 +352,14 @@ export type ButtonArrayInput<T extends { readonly id: string }> =
 /** Config overrides shape that supports ButtonArrayInput for button arrays */
 export type HerdwebConfigOverrides = Omit<
 	DeepPartial<HerdwebConfig>,
-	'toolbar' | 'drawer' | 'floatingButtons' | 'notify' | 'targetMode' | 'targets' | 'defaultTargetId'
+	| 'toolbar'
+	| 'drawer'
+	| 'floatingButtons'
+	| 'dpad'
+	| 'notify'
+	| 'targetMode'
+	| 'targets'
+	| 'defaultTargetId'
 > & {
 	readonly toolbar?: {
 		readonly row1?: ButtonArrayInput<ControlButton>
@@ -343,6 +369,10 @@ export type HerdwebConfigOverrides = Omit<
 		readonly buttons?: ButtonArrayInput<ControlButton>
 	}
 	readonly floatingButtons?: readonly FloatingButtonGroup[]
+	readonly dpad?: {
+		/** Array form replaces the default keys entirely (arrays are never deep-merged) */
+		readonly keys?: readonly (ControlButton | null)[]
+	}
 	readonly notify?: NotifyConfigOverrides
 	readonly targets?: readonly TargetConfigInput[]
 	readonly defaultTargetId?: string

@@ -205,6 +205,25 @@ describe('defaultConfig', () => {
 		expect(config.scrollButtons.enabled).toBe(true)
 	})
 
+	test('d-pad defaults to the nine-key cluster with a 📋 paste key at index 2', () => {
+		expect(defaultConfig.dpad.keys).toHaveLength(9)
+		expect(defaultConfig.dpad.keys[2]?.action).toEqual({ type: 'paste' })
+	})
+
+	test('dpad.keys override replaces the default layout', () => {
+		const keys = [
+			{
+				id: 'dpad-paste',
+				label: '📋',
+				description: 'Paste from clipboard',
+				action: { type: 'paste' as const },
+			},
+			null,
+		]
+		const config = defineConfig({ dpad: { keys } })
+		expect(config.dpad.keys).toEqual(keys)
+	})
+
 	test('has default name', () => {
 		expect(defaultConfig.name).toBe('herdweb')
 	})

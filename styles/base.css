@@ -622,6 +622,34 @@ body.wt-composer-open .wt-target-badge {
 	display: grid;
 }
 
+/* User-dragged position: left/top inline styles take over from right/bottom */
+#wt-dpad.wt-dpad-floating {
+	right: auto;
+	bottom: auto;
+}
+
+/* Slim full-width drag strip above the key grid (drag to move, double-tap to dock) */
+#wt-dpad .wt-dpad-handle {
+	grid-column: 1 / -1;
+	width: auto;
+	height: 16px;
+	padding: 0;
+	background: transparent;
+	color: #7f849c;
+	font-size: 10px;
+	font-weight: 400;
+	line-height: 16px;
+	border-radius: 4px;
+	cursor: grab;
+	/* The browser must not hijack the drag as a scroll/pan gesture */
+	touch-action: none;
+}
+
+#wt-dpad .wt-dpad-handle:active {
+	cursor: grabbing;
+	background: transparent;
+}
+
 #wt-dpad button {
 	width: 48px;
 	height: 48px;
@@ -633,10 +661,28 @@ body.wt-composer-open .wt-target-badge {
 	font-weight: 700;
 	cursor: pointer;
 	touch-action: manipulation;
+	/* No iOS long-press callout on any d-pad button — every key supports a hold gesture (repeat or long-press) */
+	-webkit-touch-callout: none;
 }
 
 #wt-dpad button:active {
 	background: #585b70;
+}
+
+/* Corner badge: the key has a long-press action (wt-dpad-has-alt) */
+#wt-dpad button.wt-dpad-has-alt {
+	position: relative;
+}
+
+#wt-dpad button.wt-dpad-has-alt::after {
+	content: "";
+	position: absolute;
+	top: 4px;
+	right: 4px;
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: #89b4fa;
 }
 
 #wt-dpad .wt-dpad-spacer {

@@ -547,6 +547,56 @@ describe('assertValidConfigOverrides', () => {
 		)
 		expect(message).toContain('config.scrollButtons.position')
 	})
+
+	test('accepts dpad.keys with null spacer cells and longPressAction', () => {
+		expect(() =>
+			assertValidConfigOverrides({
+				dpad: {
+					keys: [
+						{
+							id: 'dpad-paste',
+							label: '📋',
+							description: 'Paste from clipboard',
+							action: { type: 'paste' },
+						},
+						{
+							id: 'dpad-enter',
+							label: '⏎',
+							description: 'Enter — hold to insert newline (no submit)',
+							action: { type: 'send', data: '\r' },
+							longPressAction: { type: 'send', data: '\x1b[13;2u' },
+						},
+						null,
+					],
+				},
+			}),
+		).not.toThrow()
+	})
+
+	test('rejects dpad.keys entries that are neither buttons nor null', () => {
+		const message = getValidationMessage({ dpad: { keys: ['x'] } }, assertValidConfigOverrides)
+		expect(message).toContain('config.dpad.keys[0]')
+	})
+
+	test('rejects an unknown longPressAction type', () => {
+		const message = getValidationMessage(
+			{
+				dpad: {
+					keys: [
+						{
+							id: 'dpad-enter',
+							label: '⏎',
+							description: 'Enter',
+							action: { type: 'send', data: '\r' },
+							longPressAction: { type: 'bogus' },
+						},
+					],
+				},
+			},
+			assertValidConfigOverrides,
+		)
+		expect(message).toContain('config.dpad.keys[0].longPressAction.type')
+	})
 })
 
 describe('assertValidResolvedConfig', () => {

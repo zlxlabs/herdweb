@@ -95,7 +95,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/gestures/` — swipe, pinch, scroll detection + gesture lock
 - `src/controls/` — help overlay, combo picker, floating buttons, scroll buttons, keyboard controller, d-pad
 - `src/controls/keyboard-controller.ts` — keyboard sovereignty: three-signal state controller (`inputPermission`/`textareaFocus`/`keyboardVisible`), escape hatch, fail-loud overlay; also exports the shared touchend focus-steal guard
-- `src/controls/dpad.ts` — moshi-style floating arrow-key pad (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥), toggled by the ✥ `dpad-toggle` action; keys are focus-safe (touchend guard) and send via `sendData`
+- `src/controls/dpad.ts` — moshi-style floating key pad (⌫ ↑ 📋 / ← ⏎ → / ⇥ ↓ ⇧⇥), toggled by the ✥ `dpad-toggle` action; keys come from `config.dpad.keys` (null = spacer cell), are focus-safe (touchend guard), and `send` keys go via `sendData` while other action types dispatch through the action registry. Keys with `longPressAction` (default: ⏎ → `'\n'`, newline without submit) fire it on a 500ms hold and suppress the tap; they carry the `wt-dpad-has-alt` corner badge. Keys with `repeatOnHold` (default: ← ↑ ↓ → ⌫) repeat their action after a 300ms hold every 100ms until release (mutually exclusive with `longPressAction` — longPress wins). The slim `⠿` handle above the grid drags the pad (pointer capture, `wt-dpad-floating` switches right/bottom to inline left/top); the position persists in `localStorage` key `herdweb:dpadPosition` (viewport-clamped on apply), and double-tapping the handle docks it back
 - `src/controls/image-drop-controller.ts` — `createImageDropController`: POSTs the picked image to `{basePath}/api/image-drop`, then inserts ` ${path} ` into the agent input (never Enter) once the session is unchanged and synced; success is a transient toast (auto-hides after ~2.5s), only failure states show the retry/copy/close panel
 - `src/controls/notify-panel.ts` — push notification settings panel (subscribe toggle, test button, iOS standalone hint, event history list); opened via drawer `notify-panel` action (☰ → 🔔)
 - `src/controls/target-picker.ts` — target badge + flat picker list; created only when projected `targetCount > 1`. Coarse-pointer badge is a direct child of `#wt-toolbar`; fine-pointer stays top-right.
@@ -107,6 +107,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/util/terminal.ts` — sendData, resizeTerm, waitForTerm
 - `src/util/haptic.ts` — vibration feedback
 - `src/util/keyboard.ts` — isKeyboardOpen, conditionalFocus
+- `src/util/toast.ts` — showToast: transient inline-styled status toast (auto-hide ~2.5s); wired into the action registry for fail-loud paste errors
 - `src/util/tap.ts` — onTap: touch + click handler for iOS Safari compatibility
 - `src/actions/registry.ts` — action dispatch + clipboard
 - `src/hooks/registry.ts` — lifecycle hook system

@@ -2,7 +2,7 @@ import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { createDefaultActionRegistry } from '../src/actions/registry'
 import { defineConfig } from '../src/config'
-import { createDpad } from '../src/controls/dpad'
+import { createDpad, defaultDpadKeys } from '../src/controls/dpad'
 import { createScrollButtons } from '../src/controls/scroll-buttons'
 import { createDrawer } from '../src/drawer/drawer'
 import { createGestureLock } from '../src/gestures/lock'
@@ -172,8 +172,8 @@ describe('T4b delayed-input attachment guard', () => {
 
 	test('d-pad touch captured on A sends 0 after A→B before touchend', () => {
 		const term = mockGuardedTerm('att-a')
-		const { element } = createDpad(term)
-		const button = element.querySelector('button')
+		const { element } = createDpad(term, defaultDpadKeys, { executeAction: () => {} })
+		const button = element.querySelector('button:not(.wt-dpad-handle)')
 		if (!button) throw new Error('no d-pad button')
 		const t = (id: number) =>
 			({ identifier: id, target: button, clientX: 0, clientY: 0 }) as unknown as Touch

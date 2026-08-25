@@ -30,6 +30,7 @@ import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
 import type { ClientConfigProjection, HerdwebConfig, XTerminal } from './types'
 import { createAttachmentGuard, resizeTerm, sendData, waitForTerm } from './util/terminal'
+import { showToast } from './util/toast'
 import { initHeightManager } from './viewport/height'
 
 // Re-export for package consumers
@@ -42,6 +43,7 @@ export type {
 	ButtonAction,
 	ButtonArrayInput,
 	ControlButton,
+	DpadConfig,
 	KeyboardMode,
 	TermTheme,
 	FloatingButtonGroup,
@@ -249,19 +251,62 @@ export function init(
 					if (resolvedId) micController?.setTarget(resolvedId)
 				})
 
-				// Floating d-pad — created before the action registry so
-				// dpad-toggle buttons wire up via DI (same pattern as ⌨).
-				const dpad = createDpad(term)
-				document.body.appendChild(dpad.element)
-
+				// Action registry first — the d-pad dispatches its non-send keys
+				// through it; dpad-toggle wires back via a lazy closure (same DI
+				// pattern as ⌨).
 				const actions = createDefaultActionRegistry({
 					font: config.font,
 					openHelp,
 					openNotifyPanel,
 					toggleKeyboard: () => keyboardController.toggle(),
-					toggleDpad: dpad.toggle,
+					toggleDpad: () => dpad.toggle(),
 					openImageDrop: deps?.openImageDrop,
+					showToast,
 				})
+
+				// Floating d-pad. send keys emit bytes directly (the typed-input
+				// path); any other action type dispatches through the registry with
+				// the same context capability as drawer buttons (hooks + attachment
+				// guard + sendData). D-pad taps never move focus, so there is no
+				// keyboard state to restore (kbWasOpen: false, no-op focusIfNeeded).
+				const dpad = createDpad(term, effectiveConfig.dpad.keys, {
+					executeAction: (action) => {
+						const isGenerationCurrent = createAttachmentGuard(term)
+						async function sendWithHooks(data: string): Promise<void> {
+							const before = await hooks.runBeforeSendData({
+								term,
+								config: effectiveConfig,
+								source: 'dpad',
+								actionType: action.type,
+								kbWasOpen: false,
+								data,
+							})
+							if (before.blocked) return
+							if (!isGenerationCurrent()) return
+							sendData(term, before.data)
+							await hooks.runAfterSendData({
+								term,
+								config: effectiveConfig,
+								source: 'dpad',
+								actionType: action.type,
+								kbWasOpen: false,
+								data: before.data,
+							})
+						}
+						void actions
+							.execute(action, {
+								term,
+								kbWasOpen: false,
+								focusIfNeeded: () => {},
+								sendText: sendWithHooks,
+								sendRawText: sendWithHooks,
+							})
+							.catch((error) => {
+								console.error('herdweb: d-pad action failed', error)
+							})
+					},
+				})
+				document.body.appendChild(dpad.element)
 
 				// Create drawer (needed by toolbar for toggle)
 				const drawer = createDrawer(term, effectiveConfig.drawer.buttons, {
