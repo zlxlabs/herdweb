@@ -28,6 +28,13 @@ export interface ControlButton {
 	 */
 	readonly longPressAction?: ButtonAction
 	/**
+	 * Optional hold-to-repeat: after a 300ms hold the tap action repeats every
+	 * 100ms until release (releasing then suppresses the tap, so nothing fires
+	 * twice). Mutually exclusive with `longPressAction` — longPress wins and
+	 * repeat is not wired. Currently consumed by the d-pad renderer.
+	 */
+	readonly repeatOnHold?: boolean
+	/**
 	 * Optional drawer section label — the drawer renders a heading row whenever
 	 * the section of adjacent buttons changes. Toolbar/floating renderers ignore it.
 	 */

@@ -285,6 +285,8 @@ dpad: {
 
 Caveat: the hold-to-newline key is only meaningful in an agent input box. In a plain shell, Ctrl+J is Enter — holding ⏎ there executes the command line.
 
+Keys may also carry `repeatOnHold: true`: after a 300ms hold the tap action repeats every 100ms until release (the release tap is then suppressed). Default on ← ↑ ↓ → ⌫. Mutually exclusive with `longPressAction` — longPress wins and repeat is not wired.
+
 ### Gestures
 
 | Field | Default | Notes |

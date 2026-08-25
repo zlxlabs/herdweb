@@ -20,12 +20,14 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		label: '⌫',
 		description: 'Send Backspace key',
 		action: { type: 'send', data: '\x7f' },
+		repeatOnHold: true,
 	},
 	{
 		id: 'dpad-up',
 		label: '↑',
 		description: 'Send Up arrow key',
 		action: { type: 'send', data: '\x1b[A' },
+		repeatOnHold: true,
 	},
 	{
 		// Paste sits in the high-frequency cluster (issue #99) — one tap from the
@@ -40,6 +42,7 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		label: '←',
 		description: 'Send Left arrow key',
 		action: { type: 'send', data: '\x1b[D' },
+		repeatOnHold: true,
 	},
 	{
 		// Hold ⏎ for "newline without submit" (issue #98): '\n' (Ctrl+J) is the
@@ -58,6 +61,7 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		label: '→',
 		description: 'Send Right arrow key',
 		action: { type: 'send', data: '\x1b[C' },
+		repeatOnHold: true,
 	},
 	{
 		id: 'dpad-tab',
@@ -70,6 +74,7 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 		label: '↓',
 		description: 'Send Down arrow key',
 		action: { type: 'send', data: '\x1b[B' },
+		repeatOnHold: true,
 	},
 	{
 		id: 'dpad-shift-tab',
@@ -81,6 +86,10 @@ export const defaultDpadKeys: readonly (ControlButton | null)[] = [
 
 /** Hold time (ms) before a key's longPressAction fires instead of its tap action */
 const DPAD_LONG_PRESS_MS = 500
+
+/** Hold-to-repeat cadence, aligned with scroll-buttons: 300ms delay, then every 100ms */
+const DPAD_REPEAT_DELAY_MS = 300
+const DPAD_REPEAT_INTERVAL_MS = 100
 
 /** Dependencies injected into the d-pad by the app wiring layer */
 interface DpadDeps {
@@ -102,6 +111,11 @@ interface DpadDeps {
  * touchstart/mousedown; when it fires, the longPressAction is dispatched
  * (haptic included) and the pending tap is suppressed, so the normal action
  * never double-fires. Releasing before the threshold is a plain tap.
+ *
+ * Hold-to-repeat: a key with `repeatOnHold` starts repeating its tap action
+ * after a 300ms hold (then every 100ms) until release; if any repeat fired,
+ * the release tap is suppressed. Mutually exclusive with `longPressAction` —
+ * longPress wins and repeat is not wired for that key.
  *
  * Focus safety (hard requirement): every key suppresses the synthesised
  * mousedown after touchend, so tapping a key never steals focus from the
@@ -128,8 +142,8 @@ export function createDpad(
 		button.setAttribute('aria-label', key.description)
 		suppressSynthesisedMouse(button)
 
-		const dispatch = (action: ButtonAction): void => {
-			haptic()
+		const dispatch = (action: ButtonAction, withHaptic = true): void => {
+			if (withHaptic) haptic()
 			if (action.type === 'send') {
 				sendData(term, action.data)
 			} else {
@@ -137,9 +151,11 @@ export function createDpad(
 			}
 		}
 
-		let longPressFired = false
+		let holdFired = false
 		const longPressAction = key.longPressAction
 		if (longPressAction) {
+			// longPressAction and repeatOnHold are mutually exclusive — longPress
+			// wins and repeat is never wired for this key.
 			button.classList.add('wt-dpad-has-alt')
 			let longPressTimer: ReturnType<typeof setTimeout> | undefined
 			const cancelLongPressTimer = (): void => {
@@ -150,7 +166,7 @@ export function createDpad(
 				cancelLongPressTimer()
 				longPressTimer = setTimeout(() => {
 					longPressTimer = undefined
-					longPressFired = true
+					holdFired = true
 					dispatch(longPressAction)
 				}, DPAD_LONG_PRESS_MS)
 			}
@@ -160,11 +176,36 @@ export function createDpad(
 			button.addEventListener('mousedown', startLongPressTimer)
 			button.addEventListener('mouseup', cancelLongPressTimer)
 			button.addEventListener('mouseleave', cancelLongPressTimer)
+		} else if (key.repeatOnHold) {
+			let delayTimer: ReturnType<typeof setTimeout> | undefined
+			let intervalTimer: ReturnType<typeof setInterval> | undefined
+			const stopRepeat = (): void => {
+				if (delayTimer !== undefined) clearTimeout(delayTimer)
+				delayTimer = undefined
+				if (intervalTimer !== undefined) clearInterval(intervalTimer)
+				intervalTimer = undefined
+			}
+			const startRepeat = (): void => {
+				stopRepeat()
+				delayTimer = setTimeout(() => {
+					delayTimer = undefined
+					holdFired = true
+					// Haptic once when repeat engages, not on every 100ms tick
+					dispatch(key.action)
+					intervalTimer = setInterval(() => dispatch(key.action, false), DPAD_REPEAT_INTERVAL_MS)
+				}, DPAD_REPEAT_DELAY_MS)
+			}
+			button.addEventListener('touchstart', startRepeat)
+			button.addEventListener('touchend', stopRepeat)
+			button.addEventListener('touchcancel', stopRepeat)
+			button.addEventListener('mousedown', startRepeat)
+			button.addEventListener('mouseup', stopRepeat)
+			button.addEventListener('mouseleave', stopRepeat)
 		}
 
 		onAttachmentTap(term, button, () => {
-			if (longPressFired) {
-				longPressFired = false
+			if (holdFired) {
+				holdFired = false
 				return
 			}
 			dispatch(key.action)

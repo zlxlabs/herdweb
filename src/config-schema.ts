@@ -63,6 +63,7 @@ const controlButtonSchema = v.strictObject({
 	description: v.string(),
 	action: buttonActionSchema,
 	longPressAction: v.optional(buttonActionSchema),
+	repeatOnHold: v.optional(v.boolean()),
 	section: v.optional(v.string()),
 })
 

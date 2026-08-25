@@ -355,3 +355,118 @@ describe('long-press (hold ⏎ for newline, no submit)', () => {
 		}
 	})
 })
+
+describe('hold-to-repeat (← ↑ ↓ → ⌫)', () => {
+	const touch = (id: number, target: HTMLElement) =>
+		({ identifier: id, target, clientX: 0, clientY: 0 }) as unknown as Touch
+
+	function keyByLabel(element: HTMLElement, label: string): HTMLButtonElement {
+		const button = dpadKeys(element).find((b) => b.textContent === label)
+		if (!button) throw new Error(`no ${label} key`)
+		return button
+	}
+
+	function holdTouch(button: HTMLButtonElement, holdMs: number): void {
+		button.dispatchEvent(new TouchEvent('touchstart', { changedTouches: [touch(1, button)] }))
+		vi.advanceTimersByTime(holdMs)
+		button.dispatchEvent(new TouchEvent('touchend', { changedTouches: [touch(1, button)] }))
+	}
+
+	test('holding ↓ for 1s follows the 300ms-delay/100ms-interval cadence (8 sends), tap suppressed', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+
+			holdTouch(keyByLabel(dpad.element, '↓'), 1000)
+
+			expect(term.sent).toEqual(Array(8).fill('\x1b[B'))
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('short tap on ↓ still sends exactly once', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+
+			holdTouch(keyByLabel(dpad.element, '↓'), 100)
+
+			expect(term.sent).toEqual(['\x1b[B'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('releasing mid-repeat stops immediately (3 sends at 550ms, none after)', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const down = keyByLabel(dpad.element, '↓')
+
+			holdTouch(down, 550)
+			expect(term.sent).toHaveLength(3)
+
+			vi.advanceTimersByTime(1000)
+			expect(term.sent).toHaveLength(3)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('⏎ has longPressAction, so it never repeats (1.5s hold → a single \\n)', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+
+			holdTouch(keyByLabel(dpad.element, '⏎'), 1500)
+
+			expect(term.sent).toEqual(['\n'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('a custom key with repeatOnHold: true repeats', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const repeatKey: ControlButton = {
+				id: 'dpad-x',
+				label: 'x',
+				description: 'Send x key',
+				action: { type: 'send', data: 'x' },
+				repeatOnHold: true,
+			}
+			const { dpad } = createTestDpad(term, [repeatKey])
+
+			holdTouch(keyByLabel(dpad.element, 'x'), 650)
+
+			expect(term.sent).toEqual(['x', 'x', 'x', 'x'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('mouse hold repeats and the click after mouseup is suppressed', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const down = keyByLabel(dpad.element, '↓')
+
+			down.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(800)
+			down.dispatchEvent(new MouseEvent('mouseup'))
+			down.click()
+
+			expect(term.sent).toEqual(Array(6).fill('\x1b[B'))
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
