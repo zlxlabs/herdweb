@@ -1,3 +1,23 @@
+# [1.12.0](https://github.com/zlxlabs/herdweb/compare/v1.11.0...v1.12.0) (2026-08-25)
+
+
+### Bug Fixes
+
+* **dpad:** bind hold/repeat sends to press-time attachment and lifecycle ([296a716](https://github.com/zlxlabs/herdweb/commit/296a716be182657f7df7bac7b4ff5a43b110b1e0))
+* **dpad:** fail-safe position storage and toast layering ([b71cfbe](https://github.com/zlxlabs/herdweb/commit/b71cfbe06937598948684994e79e3b737e6ded8f))
+* **dpad:** guard mouse click sends with press-time attachment generation ([adf4750](https://github.com/zlxlabs/herdweb/commit/adf47501a43ec78d8483e77ba277f9b62c622d55))
+* **dpad:** scope press lifecycle to an explicit per-press session ([36a7fd5](https://github.com/zlxlabs/herdweb/commit/36a7fd55e6e13a5426beed7307da3381ddbbe1fa))
+* **paste:** surface clipboard failure instead of silently swallowing ([d0ab36e](https://github.com/zlxlabs/herdweb/commit/d0ab36eb0e8662e4713ca8ff429c5b45cbd19a3b))
+
+
+### Features
+
+* **dpad:** add paste key to the high-frequency cluster ([aeb8499](https://github.com/zlxlabs/herdweb/commit/aeb84992392376b6ae23b6ba52aa11c78b9439d1)), closes [hi#frequency](https://github.com/hi/issues/frequency) [#99](https://github.com/zlxlabs/herdweb/issues/99)
+* **dpad:** draggable pad with persisted position ([be7d039](https://github.com/zlxlabs/herdweb/commit/be7d0399f3b2400cdc69938fdcdb4b8ec312aa14))
+* **dpad:** hold Enter to insert newline without submitting ([96b5c45](https://github.com/zlxlabs/herdweb/commit/96b5c45e9e6bb12bd0eeb6eb64aa872e0c9debc8)), closes [#98](https://github.com/zlxlabs/herdweb/issues/98)
+* **dpad:** hold-to-repeat arrow and backspace keys ([94b5c2c](https://github.com/zlxlabs/herdweb/commit/94b5c2c514cff07e9964daeb3bc9f84116b486d6))
+* **dpad:** make d-pad keys configurable via config.dpad.keys ([3f1dae6](https://github.com/zlxlabs/herdweb/commit/3f1dae605c2778d6eedb546abe7b1022949a9794))
+
 # [1.11.0](https://github.com/zlxlabs/herdweb/compare/v1.10.2...v1.11.0) (2026-08-25)
 
 
