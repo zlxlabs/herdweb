@@ -150,10 +150,9 @@ export function init(
 	version?: string,
 	deps?: { openImageDrop?: () => void; basePath?: string },
 ): void {
-	// Existing client consumers share the full-config shape for their UI hooks;
-	// only the allowlisted projection reaches this boundary at runtime.
+	// Browser projection only lacks server fields; client consumers only read projection fields.
 	/* oxlint-disable-next-line typescript/consistent-type-assertions -- client consumers only read projection fields */
-	const config = projectedConfig as HerdwebConfig
+	const config = projectedConfig as unknown as HerdwebConfig
 	void waitForTerm()
 		// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: mobile overlay bootstrap is intentionally sequential
 		.then(async (term) => {

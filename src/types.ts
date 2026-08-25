@@ -305,7 +305,6 @@ export interface ClientConfigProjection {
 
 /** Full herdweb configuration */
 export interface HerdwebConfig extends Omit<ClientConfigProjection, 'targetCount'> {
-	readonly targetCount?: number
 	readonly pwa: PwaConfig
 	readonly asr: AsrConfig
 	readonly notify: NotifyConfig
