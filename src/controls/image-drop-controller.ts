@@ -150,6 +150,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 		let file: File | null = null
 		for (let i = 0; i < items.length; i += 1) {
 			const item = items[i]
+			if (!item) continue
 			if (item.kind !== 'file' || !item.type.startsWith('image/')) continue
 			file = item.getAsFile()
 			if (file) break
