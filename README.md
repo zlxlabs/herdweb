@@ -9,6 +9,9 @@
 One herdweb process attaches to Herdr [servers](https://herdr.dev/docs/concepts/#client-and-server):
 the default server on this machine, other named servers on the same machine, and
 servers on other machines via [`herdr --remote`](https://herdr.dev/docs/how-to-work/).
+The phone path is built for weak networks, one-handed controls, voice, and
+attention that reaches you even when the page is backgrounded.
+
 It is a self-hosted fork of [connorads/remobi](https://github.com/connorads/remobi) —
 independent since 2026-08-20. See the [fork decision](docs/decisions/2026-08-20-fork-herdr-focus.md).
 
@@ -54,12 +57,16 @@ That is a client of herdweb, not a Herdr device.
 
 ## Why herdweb
 
-- **Built for herdr** — drawer buttons, gestures, and defaults match herdr keybindings
-- **One page, many servers** — switch local named sessions and remote machines from a badge
-- **Swipe between tabs** — gesture navigation without prefix-key fumbling on a phone
-- **Pinch to zoom** — resize text like every other app on your phone
-- **Install to your home screen** — standalone PWA
-- **Self-hosted** — local-first; publish through Tailscale, Cloudflare, or another layer you trust
+These are the optimizations the product is built around — not extras on a generic terminal.
+
+- **Weak networks** — a drop marks the screen stale and blocks replay until a fresh snapshot lands. Composer drafts stay on the phone; heartbeat + backoff reconnect; returning to the tab always resyncs instead of trusting an old OPEN socket. See [Networking](docs/architecture/networking-and-websockets.md).
+- **Phone control** — the soft keyboard stays down unless you tap ⌨. The toolbar lifts above the IME (`--kb-inset`). 44px taps, haptics, floating d-pad, swipe between herdr tabs, pinch to zoom. Soft keyboard is an escape hatch, not the default input path.
+- **Voice input** — toolbar opens a second-layer composer; Mic is tap-to-toggle. Edit the transcript before send. Draft and pending send survive disconnect. Needs HTTPS on a phone and a private `.local` key. See [Configuration — Voice](docs/configuration.md#voice-composer-input).
+- **Many Herdr servers** — one page switches local named sessions and `herdr --remote` machines from a flat badge. One WebSocket, one committed attachment. See [Three shapes](#three-shapes).
+- **PWA notifications** — add to the Home Screen, subscribe from ☰ → 🔔. Web Push fires on silence, process exit / restart, and tests. A tap focuses the open page and selects that target (iOS only works as a standalone PWA). See [Configuration — Push](docs/configuration.md#push-notifications).
+- **Webhook notifications** — `notify.channels` posts the same events in parallel to message-pusher, WeCom, or a raw webhook. Use this when the phone cannot reach FCM; a failed channel does not block Web Push or the others.
+
+Also: defaults match herdr keybindings, and the process stays on localhost until you publish it through a layer you trust.
 
 ## Requirements
 
