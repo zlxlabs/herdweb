@@ -4,32 +4,78 @@
 
 # herdweb
 
-**Purpose-built Web UI for [herdr](https://github.com/ogulcancelik/herdr) — monitor and drive your coding agents from your phone.**
+**Web UI for [herdr](https://herdr.dev/) — drive Herdr servers from your phone.**
 
-herdweb is a mobile-first browser overlay for herdr sessions: swipe between tabs, pinch to zoom, tap to send commands, and keep full terminal power on a 6-inch screen. It is a self-hosted fork of the upstream [connorads/remobi](https://github.com/connorads/remobi) project — independent since 2026-08-20. See [fork decision](docs/decisions/2026-08-20-fork-herdr-focus.md) for background.
+One herdweb process attaches to Herdr [servers](https://herdr.dev/docs/concepts/#client-and-server):
+the default server on this machine, other named servers on the same machine, and
+servers on other machines via [`herdr --remote`](https://herdr.dev/docs/how-to-work/).
+It is a self-hosted fork of [connorads/remobi](https://github.com/connorads/remobi) —
+independent since 2026-08-20. See the [fork decision](docs/decisions/2026-08-20-fork-herdr-focus.md).
+
+## How it fits together
+
+Herdweb uses Herdr's words, then adds one of its own:
+
+| Word | Meaning |
+| --- | --- |
+| **Server** | Herdr background process that owns panes. A [named session](https://herdr.dev/docs/concepts/#session) is a separate server namespace on the same machine. |
+| **Device** | A machine running Herdr — this laptop, a workbox, anything `herdr --remote` can reach. |
+| **Target** | One herdweb spawn command that attaches to one server: `herdr --session …` or `herdr --remote …`. |
+| **herdweb** | One process that can hold several targets. The browser attaches to one target at a time. |
+
+```mermaid
+flowchart LR
+    Phone[Phone or desktop]
+    HW[herdweb]
+    A["herdr --session default"]
+    B["herdr --session work"]
+    C["herdr --remote workbox"]
+
+    Phone --> HW
+    HW --> A
+    HW --> B
+    HW --> C
+```
+
+The picker is a flat list of targets. Two servers on one device are two rows, not
+a device → server submenu. Runtime details live in
+[How herdweb works](docs/architecture/how-herdweb-works.md).
+
+## Three shapes
+
+| Shape | Herdr fact | What you run |
+| --- | --- | --- |
+| **Single device, one server** | One machine, default session | `herdweb serve` — no picker |
+| **Single device, several servers** | Named sessions on this machine | `targets` with `herdr --session …` |
+| **Several devices** | Herdr servers on other machines | Add `herdr --remote <host>` rows |
+
+Opening the same herdweb URL on a phone and a laptop shares the live target.
+That is a client of herdweb, not a Herdr device.
 
 ## Why herdweb
 
-- **Built for herdr** — drawer buttons, gestures, and defaults match herdr keybindings out of the box
-- **Swipe between tabs** — gesture navigation without prefix-key fumbling on a phone screen
+- **Built for herdr** — drawer buttons, gestures, and defaults match herdr keybindings
+- **One page, many servers** — switch local named sessions and remote machines from a badge
+- **Swipe between tabs** — gesture navigation without prefix-key fumbling on a phone
 - **Pinch to zoom** — resize text like every other app on your phone
-- **Install to your home screen** — standalone PWA, looks and feels native
-- **Config-driven** — your buttons, your gestures, your layout
-- **Self-hosted** — local-first by default; bring your own access layer (Tailscale, Cloudflare, ngrok)
+- **Install to your home screen** — standalone PWA
+- **Self-hosted** — local-first; publish through Tailscale, Cloudflare, or another layer you trust
 
 ## Requirements
 
 - [Node.js](https://nodejs.org/) ≥ 22
-- [herdr](https://github.com/ogulcancelik/herdr) — the agent multiplexer herdweb controls
+- [herdr](https://herdr.dev/docs/install/) — the runtime herdweb attaches to
 
 ## Quick start
+
+This is **single device, one server**: default Herdr session on this machine.
 
 ```bash
 git clone <your-fork-url> herdweb && cd herdweb
 pnpm install
 git config core.hooksPath .hk-hooks   # enable commit hooks (conventional commits, biome)
 
-# Start (spawns herdr, serves herdweb on 127.0.0.1:7681)
+# Start (attaches to herdr --session default, serves on 127.0.0.1:7681)
 pnpm exec tsx cli.ts serve
 ```
 
@@ -40,20 +86,51 @@ pnpm run build:dist
 node dist/cli.mjs serve
 ```
 
-Open `http://localhost:7681` on the same machine to verify. For phone access, deploy behind a trusted proxy or tunnel — see [Deploying herdweb](docs/deploy-herdr.md).
+Open `http://localhost:7681` on the same machine to verify. For phone access,
+deploy behind a trusted proxy or tunnel — see [Deploying herdweb](docs/deploy-herdr.md).
 
-herdr captures mouse input by default, so touch scroll and tap-to-focus work with no extra multiplexer configuration.
+herdr captures mouse input by default, so touch scroll and tap-to-focus work
+with no extra multiplexer configuration.
 
-### Voice composer prerequisites
+## Pick your setup
 
-Voice composer microphone capture requires a secure browser context: use HTTPS on a phone (for
-example Tailscale Serve or an HTTPS reverse proxy). `localhost` and `127.0.0.1` are secure-context
-exceptions for local development; a plain HTTP LAN address is not. If the browser cannot use
-`getUserMedia`, herdweb hides the voice composer entry instead of showing an unusable control.
+**Single device, several servers** — each named session is its own Herdr server:
+
+```typescript
+export default {
+  defaultTargetId: 'local',
+  targets: [
+    { id: 'local', name: 'Local', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
+    { id: 'dev', name: 'Local · Dev', command: ['herdr', '--session', 'herdweb-dev'], imageDrop: 'local-path' },
+  ],
+}
+```
+
+**Several devices** — add a remote Herdr server as another flat row:
+
+```typescript
+export default {
+  defaultTargetId: 'local',
+  targets: [
+    { id: 'local', name: 'Local', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
+    { id: 'workbox', name: 'Workbox', command: ['herdr', '--remote', 'workbox'], imageDrop: 'disabled' },
+  ],
+}
+```
+
+A picker appears only when there is more than one target. Explicit configs must
+set `defaultTargetId` and must not pass a trailing command after `--`. Full
+rules: [Configuration — Targets](docs/configuration.md#targets) and
+[Deploying herdweb](docs/deploy-herdr.md).
+
+`herdr --remote` is a local thin client over SSH. herdweb can tell that this
+local process started or exited; it cannot tell whether a remote pane is healthy.
 
 ## Set up with AI
 
-The [herdweb-setup skill](.agents/skills/herdweb-setup/SKILL.md) checks your environment, interviews you about your workflow, generates a validated `herdweb.config.ts`, and walks through deployment — one conversation.
+The [herdweb-setup skill](.agents/skills/herdweb-setup/SKILL.md) checks your
+environment, interviews you about your workflow, generates a validated
+`herdweb.config.ts`, and walks through deployment — one conversation.
 
 Tell your coding agent:
 
@@ -61,15 +138,28 @@ Tell your coding agent:
 
 ## Security model
 
-herdweb is a remote-control surface for your terminal. Anyone who can reach it can drive the herdr session with your user privileges.
+herdweb is a remote-control surface for your terminal. Anyone who can reach it
+can drive the attached Herdr server with your user privileges.
 
 - `herdweb serve` binds to `127.0.0.1` by default.
-- The inner PTY-backed terminal session stays local to the herdweb process.
+- The inner PTY-backed session stays local to the herdweb process.
 - There is no built-in login, password, or ACL in herdweb itself.
 - Safe default: keep it on localhost and publish it through a trusted layer like Tailscale Serve.
-- If you use `herdweb serve --host 0.0.0.0`, you are exposing terminal control to your LAN/whatever can route to that port. Do that only if you intentionally want direct network exposure and have separate network controls in place.
+- If you use `herdweb serve --host 0.0.0.0`, you are exposing terminal control to
+  your LAN / whatever can route to that port. Do that only if you intentionally
+  want direct network exposure and have separate network controls in place.
 
 To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## Configure
+
+Buttons, gestures, voice, image drop, and push notifications live in
+[Configuration](docs/configuration.md). Config search order, `.local` secrets,
+and the remobi-migration trap are there too.
+
+Voice capture needs a secure context (HTTPS on a phone; `localhost` is fine).
+A plain HTTP LAN address is not — herdweb hides the control rather than showing
+a dead mic.
 
 ## CLI reference
 
@@ -94,355 +184,20 @@ herdweb --version
 herdweb --help
 ```
 
-Short flags: `-c` (`--config`), `-p` (`--port`). Legacy deprecated flags: `-o` (`--output`), `-n` (`--dry-run`).
-
-The `--` escape hatch after `serve` overrides the command only in single mode, for example
-`herdweb serve -- bash --norc` for debugging without herdr. Explicit `targets` configs must not use a
-trailing command after `--`.
-
-### Config resolution
-
-When `--config` is not specified, herdweb searches:
-
-1. `herdweb.config.ts` / `.js` in the current directory
-2. `~/.config/herdweb/herdweb.config.ts` / `.js` (XDG fallback)
-3. Legacy upstream config paths (automatic fallback for migration)
-
-Resolution is first-hit-wins and all-or-nothing: once a config file is found, later locations are never read. This includes `.local` override files, which are only looked up in the same directory as the resolved config. So if you create `~/.config/herdweb/herdweb.config.ts` but leave old settings (e.g. `mobile.keyboardMode: 'manual'`, ASR provider keys) in the legacy `~/.config/remobi/` directory, they silently fall back to defaults — symptoms like the soft keyboard popping up on every tap (`keyboardMode` back to `auto`) or the voice input button disappearing (ASR key lost). When migrating, move all settings and the `.local` file into the new directory together; don't split them across both.
-
-## Configuration
-
-Create `herdweb.config.ts` (or run `herdweb init`):
-
-```typescript
-export default {
-  name: 'herdr',
-  font: {
-    family: 'JetBrainsMono NFM, monospace',
-    mobileSizeDefault: 13,
-    sizeRange: [8, 32],
-  },
-  toolbar: {
-    // Single row by default: Esc, C-c, ✥ dpad-toggle, ⏎ Enter, 🎤 voice-input,
-    // 🖼 image-upload, ⌨ keyboard-toggle, ☰ drawer-toggle
-    row1: [
-      { id: 'esc', label: 'Esc', description: 'Send Escape key', action: { type: 'send', data: '\x1b' } },
-      { id: 'ctrl-c', label: 'C-c', description: 'Send Ctrl-C interrupt', action: { type: 'send', data: '\x03' } },
-      // ...
-    ],
-    row2: [],
-  },
-  drawer: {
-    buttons: [
-      { id: 'herdr-new-window', label: '+ Win', description: 'Create herdr tab', action: { type: 'send', data: '\x02c' } },
-      { id: 'herdr-split-v', label: 'Split |', description: 'Split pane side-by-side', action: { type: 'send', data: '\x02v' } },
-      { id: 'herdr-split-h', label: 'Split —', description: 'Split pane stacked', action: { type: 'send', data: '\x02-' } },
-      { id: 'herdr-zoom', label: 'Zoom', description: 'Toggle pane zoom', action: { type: 'send', data: '\x02z' } },
-      { id: 'herdr-workspaces', label: 'Spaces', description: 'Workspace picker', action: { type: 'send', data: '\x02w' } },
-      { id: 'herdr-sidebar', label: 'Sidebar', description: 'Toggle agent sidebar', action: { type: 'send', data: '\x02b' } },
-      { id: 'herdr-scrollback', label: 'Scroll', description: 'Edit scrollback', action: { type: 'send', data: '\x02e' } },
-      { id: 'herdr-kill-pane', label: 'Kill', description: 'Kill pane', action: { type: 'send', data: '\x02x' } },
-      { id: 'herdr-help', label: 'Help', description: 'Show herdr help', action: { type: 'send', data: '\x02?' } },
-      { id: 'herdr-prefix', label: 'Prefix', description: 'Send herdr prefix (Ctrl-B)', action: { type: 'send', data: '\x02' } },
-      // ...
-    ],
-  },
-  gestures: {
-    swipe: {
-      enabled: true,
-      left: '\x02n',
-      right: '\x02p',
-      leftLabel: 'Next herdr tab',
-      rightLabel: 'Previous herdr tab',
-    },
-    scroll: {
-      enabled: true,
-      strategy: 'wheel',
-      speedMultiplier: 1,
-      linesPerWheel: 1,
-      momentum: { enabled: true, friction: 0.95, minVelocity: 0.02 },
-      maxLinesPerSend: 24,
-      sendIntervalMs: 33,
-    },
-    pinch: { enabled: true },
-  },
-  mobile: {
-    initData: '\x02z',
-    widthThreshold: 768,
-    keyboardMode: 'auto',
-  },
-  floatingButtons: [
-    {
-      position: 'top-left',
-      buttons: [
-        { id: 'zoom', label: 'Zoom', description: 'Toggle pane zoom', action: { type: 'send', data: '\x02z' } },
-      ],
-    },
-  ],
-  scrollButtons: {
-    enabled: false,
-  },
-}
-```
-
-All fields are optional — the CLI fills in defaults internally when it loads the config.
-
-### Targets and switching
-
-Without a `targets` override, the config is **single** mode: the default target is implicit and
-`-- <command...>` supplies its command. With `targets`, the config is **explicit** mode and
-must also set `defaultTargetId` to one of the unique target ids. The picker is created only when
-`targets.length > 1`, not because the config is explicit; one explicit target is valid and still
-hides the picker. Each target is a flat "device + herdr session/server command" row — two sessions
-on the same device are two targets, not a device→Server submenu. Each target declares its own
-command and image capability:
-
-```typescript
-export default {
-  defaultTargetId: 'local-dev',
-  targets: [
-    { id: 'local-dev', name: 'Local · Dev', command: ['herdr', '--session', 'herdweb-dev'], imageDrop: 'local-path' },
-    { id: 'local', name: 'Local · Default', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
-    { id: 'workbox', name: 'Workbox', command: ['herdr', '--remote', 'workbox'], imageDrop: 'disabled' },
-  ],
-}
-```
-
-When more than one target is configured, a coarse-pointer / phone badge is a direct child of the
-bottom `#wt-toolbar`; a fine-pointer / desktop badge stays top-right. Tapping the badge opens the
-flat target list.
-
-The browser still has one `/ws` and one committed attachment. Selecting a target first closes input,
-then waits for its snapshot and buffered xterm writes; only `attach-committed` reopens input and persists
-the explicit target. An unknown or stale id shows a restore error instead of silently attaching another
-target. On reconnect, explicit mode restores only a still-valid committed target; single mode always uses
-its default target.
-
-The server keeps target commands private. `herdr --remote` proves only the local PTY/SSH thin-client
-process and its local exit facts; it is not evidence that a remote pane is healthy.
-
-### Target-scoped image insertion
-
-The target summary advertises `imageDrop: 'local-path'` or `'disabled'`. Uploads use the current committed
-attachment capability; a switch, detach, disconnect, or stale attachment invalidates the upload and cannot
-insert its path. A successful upload inserts the temporary path into the current agent input without
-sending Enter. Disabled targets fail visibly.
-
-### Voice composer input
-
-Voice input is disabled by default. It is a browser-direct Doubao SAUC connection: microphone audio
-and the API key stay in the browser-to-provider path, so enable it only for a trusted single-user
-self-hosted deployment. Keep the key in the `.local` config file; it is necessarily delivered to
-the browser when voice input is enabled.
-
-```typescript
-// herdweb.config.ts — shared settings, no secret
-export default {
-  asr: {
-    enabled: true,
-    autoEnter: true,
-  },
-}
-```
-
-```typescript
-// herdweb.config.local.ts — keep this file private
-export default {
-  asr: {
-    doubao: {
-      apiKey: 'your-volcengine-api-key',
-      resourceId: 'volc.seedasr.sauc.duration',
-    },
-  },
-}
-```
-
-The `voice-input` action is toolbar-only; putting it in `drawer.buttons` or `floatingButtons` is
-rejected by config validation.
-
-### Push notifications
-
-herdweb can push Web Push notifications to your phone when agents need attention, when output
-goes quiet, or when the service restarts. Subscribe from the in-app panel — no separate app install.
-
-Notification identity follows the target mode: single mode accepts v1 events without `targetId`; explicit
-mode accepts v2 events only when `targetId` names a configured target. History, deduplication, notification
-tags, and notification-click target selection use the same identity. A click focuses the open herdweb page
-and requests that target, or opens a URL carrying the target when no page is open.
-
-**Prerequisites**
-
-- **Android**: Chrome (or another browser with Web Push + service workers).
-- **iOS**: herdweb must be **added to the Home Screen** as a standalone PWA (iOS 16.4+). Safari
-  tabs do not expose the Push API — subscription will not work in a normal browser tab.
-- **HTTPS** on phones (Tailscale Serve, reverse proxy, etc.). `localhost` / `127.0.0.1` work for
-  local dev only.
-
-**Subscribe and test**
-
-1. Open herdweb on your phone.
-2. Tap **☰** (drawer) in the toolbar, then **🔔** in the drawer grid.
-3. In the **Notifications** panel, enable **Push notifications** and accept the browser permission prompt.
-4. Tap **Send test notification** — a system notification should arrive within a few seconds.
-5. Tap the notification — herdweb should focus (or open) in the browser/PWA.
-
-On iPhone, if you are not in standalone mode, the panel shows a hint to add herdweb to the Home
-Screen first.
-
-**Outbound notification channels**
-
-Web Push and outbound channels run in parallel. Channels are disabled by default; configure one or
-more fixed-shape webhook destinations under `notify.channels` when a device cannot reach its push
-provider. Each event is posted once to every configured channel. A failed channel is logged with
-its type, host, and status/error name, but does not block Web Push or another channel; there is no
-retry queue in v1.
-
-```ts
-export default {
-  notify: {
-    channels: [
-      {
-        type: 'message-pusher',
-        url: 'https://push.example.com',
-        user: 'someone',
-        token: 'token-placeholder',
-      },
-      {
-        type: 'wecom',
-        url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder',
-      },
-      {
-        type: 'webhook',
-        url: 'https://example.com/hook',
-        headers: { 'x-source': 'herdweb' },
-      },
-    ],
-  },
-}
-```
-
-`message-pusher` posts JSON to `{url}/push/{user}` with `{ title, desp, content, token }`.
-`wecom` posts `{ msgtype: 'text', text: { content } }` to the configured URL. `webhook` posts the
-event object itself and applies the configured headers. All requests are JSON and time out after
-10 seconds. Keep webhook query keys, tokens, and custom header values in a local, uncommitted
-config file.
-
-**What gets notified (and how fast)**
-
-| Lane | Source | Typical delay | v1 status |
-|------|--------|---------------|-----------|
-| Silence | herdweb (PTY output stops after busy period) | ~3–5 minutes after agent output stops | Available |
-| Health | herdweb (PTY exit / service restart) | Seconds after exit or restart | Available |
-| Test | Panel **Send test notification** button | Immediate | Available |
-| asking / done / ci-red | External `POST /api/events` (badge lane from agent-config) | ~60–90 seconds when wired | **Not available yet** — requires [agent-config#495](https://github.com/zlxlabs/agent-config/issues/495) on the machine running herdweb |
-
-The silence lane cannot distinguish “waiting for you” from “running a long task” — titles use
-“may be done / stuck” wording. A `202` response from `POST /api/events` means the event was
-accepted and queued for push — not that the phone has already displayed it.
-
-**Known limitations**
-
-Some Android devices cannot receive any Web Push notification when the device's long-lived
-connection from Google Play services to FCM is unreachable. This is not a herdweb-specific issue:
-the official Google push demo is also unable to deliver in that environment. A browser being able
-to browse the web does not imply that FCM is reachable; Web Push depends on Google Play services
-maintaining a long-lived connection to `mtalk.google.com` on ports `5228`, `5229`, or `5230`.
-Configure an outbound channel above as the workaround for those devices; message-pusher and the
-WeCom webhook do not depend on the device's FCM connection.
-
-**State directory (per port)**
-
-Runtime files live under `~/.local/state/herdweb/{port}/` (or `$XDG_STATE_HOME/herdweb/{port}/`).
-Production (`7681`) and debug (`7691`) instances use separate directories so VAPID keys,
-subscriptions, and event history do not collide.
-
-| File | Purpose |
-|------|---------|
-| `vapid.json` | VAPID keys (mode `0600`). Auto-generated on first `herdweb serve` if missing; startup logs a one-line hint. |
-| `push-subscriptions.json` | Registered device endpoints |
-| `events.jsonl` | Event history (`kind=test` events are not persisted) |
-| `last-session.json` | Per target identity — used for restart / exit health notifications |
-
-Rotate VAPID keys via `notify.vapid.*` in config (see skill / config reference). Old subscriptions
-become invalid after a key change — users must re-subscribe.
-
-Apple Push Notification service validates the VAPID JWT `sub` claim strictly: the subject must be
-a format-legal `mailto:` contact (e.g. `mailto:you@yourdomain.com`). Reserved or non-deliverable
-domains such as `mailto:herdweb@localhost` are rejected with `403 BadJwtToken` — iOS devices
-receive no push and stale subscriptions may be removed server-side, with no obvious error in the
-herdweb UI. Google/FCM does not enforce this check. For production, set
-`notify.vapid.subject: 'mailto:<your-email>'` in config (subject changes do not invalidate
-existing subscriptions).
-
-**Local events API**
-
-`POST {basePath}/api/events` accepts events from **loopback only** (`127.0.0.1` / `::1` /
-`localhost`). Optional `notify.token` in config requires matching `Authorization: Bearer …` on
-the request. External event sources (e.g. agent-config badge outbound) must run on the **same
-machine** as herdweb — cross-host posting is not supported in v1.
-
-Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on a device; **single-only**):
-
-```bash
-curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
-  -H 'content-type: application/json' \
-  -d '{"v":1,"id":"smoke-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
-```
-
-Expect HTTP `202` only when the service is in single mode. If `notify.token` is set, add
-`-H 'authorization: Bearer <token>'`.
-
-For an explicit-mode service whose config contains target id `local`, use the v2 event shape instead:
-
-```bash
-curl -sS -X POST 'http://127.0.0.1:7681/api/events' \
-  -H 'content-type: application/json' \
-  -d '{"v":2,"targetId":"local","id":"smoke-v2-1","kind":"test","title":"curl smoke","body":"from loopback","ts":'"$(date +%s000)"'}'
-```
-
-Expect HTTP `202`; `targetId` must name a configured target. If `notify.token` is set, add the same
-Bearer header.
-
-**Restart behaviour**
-
-When herdweb or the PTY session restarts, the health lane sends **one** notification per incident:
-exit notifications on PTY shutdown; a separate “service restarted” notification only if the new
-session starts more than 120 seconds after the previous exit (crash-loops inside that window
-collapse to a single exit notification).
-
-`gestures.scroll.strategy` controls touch scroll behaviour:
-
-- `wheel` (default): sends SGR mouse wheel events with touch-mapped terminal coordinates.
-- `keys`: sends `PageUp` / `PageDown` for app-level paging when preferred.
-
-At runtime, herdweb validates the config object shape and rejects unknown keys with clear path-based errors.
-
-## Guides
-
-- [Mobile pane navigation](.agents/skills/herdweb-setup/references/mobile-panes.md) — zoom-aware swipe, auto-zoom on load, floating buttons
-- [Tailscale Serve](.agents/skills/herdweb-setup/references/tailscale-serve.md) — expose over your tailnet with HTTPS
-- [Keeping your Mac awake](.agents/skills/herdweb-setup/references/keep-awake.md) — prevent sleep during remote sessions
-
-## Architecture docs
-
-- [How herdweb works](docs/architecture/how-herdweb-works.md) — runtime overview, shared session model, and boot path
-- [Networking and WebSocket flow](docs/architecture/networking-and-websockets.md) — request lifecycle, protocol, and network boundary
-
-## Architecture
-
-Pure TypeScript + DOM API — no framework. The build bundles the browser client via esbuild, serves it from Node, and bridges browser input/output to a local PTY via `node-pty`. `xterm.js` handles terminal rendering in the browser; herdweb layers the mobile controls on top.
-
-Key modules:
-
-| Module | Purpose |
-|--------|---------|
-| `src/toolbar/` | Touch toolbar (single row by default, optional second row) |
-| `src/drawer/` | Command drawer with grid layout |
-| `src/gestures/` | Swipe, pinch, scroll detection |
-| `src/controls/` | Help overlay, combo picker, scroll buttons, floating d-pad |
-| `src/theme/` | Catppuccin Mocha + theme application |
-| `src/viewport/` | Height management, landscape detection |
-| `src/util/` | DOM helpers, terminal, keyboard, haptics |
+Short flags: `-c` (`--config`), `-p` (`--port`). Legacy deprecated flags:
+`-o` (`--output`), `-n` (`--dry-run`).
+
+The `--` escape hatch after `serve` overrides the command only in single mode,
+for example `herdweb serve -- bash --norc`. Explicit `targets` configs must not
+use a trailing command after `--`.
+
+## Docs
+
+| Kind | Where |
+| --- | --- |
+| Start | This README |
+| How-to | [Deploy](docs/deploy-herdr.md) · [Configuration](docs/configuration.md) · [Tailscale Serve](.agents/skills/herdweb-setup/references/tailscale-serve.md) · [Mobile panes](.agents/skills/herdweb-setup/references/mobile-panes.md) · [Keep awake](.agents/skills/herdweb-setup/references/keep-awake.md) |
+| Explain | [How herdweb works](docs/architecture/how-herdweb-works.md) · [Networking](docs/architecture/networking-and-websockets.md) · [Herdr concepts](https://herdr.dev/docs/concepts/) |
 
 ## Development
 
@@ -452,19 +207,10 @@ pnpm install
 git config core.hooksPath .hk-hooks
 ```
 
-### Running locally
-
-From source (bundles the browser client on the fly via esbuild — no build step needed):
+From source (bundles the browser client on the fly via esbuild — no build step):
 
 ```bash
 pnpm exec tsx cli.ts serve              # localhost:7681, default herdr session
-```
-
-Or build first, then run from dist/:
-
-```bash
-pnpm run build:dist
-node dist/cli.mjs serve
 ```
 
 ### Checks
@@ -481,24 +227,55 @@ pnpm run check       # biome lint + format
 - `dev` publishes prereleases
 - merge `dev` into `main` to promote an experimental line to stable
 
-This fork does not publish to npm. Versioning and changelog are driven by semantic-release on push to `main` and `dev`.
+This fork does not publish to npm. Versioning and changelog are driven by
+semantic-release on push to `main` and `dev`.
 
 ## FAQ
 
+**What is a target?**
+One spawn command that attaches to one Herdr server. Local named sessions and
+`herdr --remote` hosts are all targets. See [Three shapes](#three-shapes).
+
+**Does `herdr --remote` mean the remote pane is healthy?**
+No. It only proves the local thin-client process. See
+[How to work with Herdr](https://herdr.dev/docs/how-to-work/).
+
+**Can a phone and a laptop share the same server?**
+Yes. Open the same herdweb URL. They share that target's live session. Switching
+targets in one browser does not switch the other.
+
 **Is this secure?**
-herdweb doesn't handle auth — it's a UI overlay. Use a tunnel or VPN you trust. See [Deploying herdweb](docs/deploy-herdr.md) and [Tailscale Serve](.agents/skills/herdweb-setup/references/tailscale-serve.md). Security is your responsibility.
+herdweb doesn't handle auth — it's a UI overlay. Use a tunnel or VPN you trust.
+See [Deploying herdweb](docs/deploy-herdr.md) and
+[Tailscale Serve](.agents/skills/herdweb-setup/references/tailscale-serve.md).
+Security is your responsibility.
 
 **Why not Termux / Termius / SSH apps?**
-They work, but you're managing SSH keys and fighting a UI that wasn't built for touch. herdweb keeps your herdr workflow and adds touch controls on top.
+They work, but you're managing SSH keys and fighting a UI that wasn't built for
+touch. herdweb keeps your herdr workflow and adds touch controls on top.
 
 **Why not chat-based mobile apps?**
-Those tools change your workflow. herdweb gives you the raw terminal — full power, self-hosted, works with every agent herdr can host.
+Those tools change your workflow. herdweb gives you the raw terminal — full
+power, self-hosted, works with every agent herdr can host.
 
 **Is this production-ready?**
 It's early. The author uses it daily. Feedback welcome.
 
 **Android shows no install prompt when herdweb is behind Cloudflare Access?**
-Chromium's PWA installability check fetches `manifest.json` separately, and the `<link rel="manifest">` fetch sends no cookies by default. Behind Cloudflare Access (or any authenticating proxy) that fetch gets redirected to the login page, the check fails, and no install UI appears. Since v1.6.1 the manifest link carries `crossorigin="use-credentials"` so the fetch includes cookies — but only if the proxy lets credentialed requests through. The reliable fix is to bypass auth for these five paths at the proxy (Cloudflare Access: create a self-hosted application matching the paths with a Bypass + Everyone policy; Access matches the most specific path first, so the rest of the site still requires login): `/manifest.json`, `/sw.js`, `/icon-192.png`, `/icon-512.png`, `/apple-touch-icon.png`. These paths only expose the app name and icons. If you serve with `--base-path`, prefix the paths accordingly. iOS "Add to Home Screen" never validates the manifest or service worker, which is why only Android is affected.
+Chromium's PWA installability check fetches `manifest.json` separately, and the
+`<link rel="manifest">` fetch sends no cookies by default. Behind Cloudflare
+Access (or any authenticating proxy) that fetch gets redirected to the login
+page, the check fails, and no install UI appears. Since v1.6.1 the manifest
+link carries `crossorigin="use-credentials"` so the fetch includes cookies —
+but only if the proxy lets credentialed requests through. The reliable fix is
+to bypass auth for these five paths at the proxy (Cloudflare Access: create a
+self-hosted application matching the paths with a Bypass + Everyone policy;
+Access matches the most specific path first, so the rest of the site still
+requires login): `/manifest.json`, `/sw.js`, `/icon-192.png`, `/icon-512.png`,
+`/apple-touch-icon.png`. These paths only expose the app name and icons. If
+you serve with `--base-path`, prefix the paths accordingly. iOS "Add to Home
+Screen" never validates the manifest or service worker, which is why only
+Android is affected.
 
 ## Licence
 

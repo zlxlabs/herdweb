@@ -16,6 +16,10 @@
 
 ## 选择配置模式
 
+用户向的三种形态（单设备单 Server / 单设备多 Server / 多设备）见仓库
+[README · Three shapes](../README.md#three-shapes)。按钮、语音、通知等配置见
+[Configuration](configuration.md)。
+
 ### Single：命令行 `--` 覆盖默认 target
 
 不配置 `targets` 时是 single 模式；配置文件最小可以是 `export default { name: 'herdr' }`。最小启动方式仍是：
