@@ -1191,12 +1191,16 @@ body.wt-composer-open .wt-target-badge {
 
 /* Image drop: status panel for the image-upload toolbar action.
    Success is a bare toast (status text only, auto-hides); failure states also
-   show the selectable path and the retry/copy/close buttons. */
+   show the selectable path and the retry/copy/close buttons.
+   max-width keeps the failure panel a narrow centered strip on desktop while
+   left/right: 12px keep it near full-width on phones. */
 #wt-image-drop {
 	display: none;
 	position: fixed;
 	left: 12px;
 	right: 12px;
+	max-width: 480px;
+	margin: 0 auto;
 	bottom: var(--wt-toolbar-height, 64px);
 	flex-direction: column;
 	gap: 8px;

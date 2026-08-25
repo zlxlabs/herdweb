@@ -3,6 +3,7 @@ import { X_HERDWEB_ATTACHMENT_ID_HEADER } from '../session-protocol'
 import type { InputActionResult, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
+import { showToast } from '../util/toast'
 
 const IMAGE_DROP_ACCEPT = 'image/png,image/jpeg,image/webp,image/gif'
 const IMAGE_DROP_ACK_TIMEOUT_MS = 15_000
@@ -22,6 +23,7 @@ interface ImageDropControllerDeps {
 	readonly createActionId?: () => string
 	readonly ackTimeoutMs?: number
 	readonly pasteTarget?: HTMLElement
+	readonly showToastFn?: (message: string) => void
 }
 
 export interface ImageDropController {
@@ -35,6 +37,7 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 	const clipboard = deps.clipboard ?? navigator.clipboard
 	const newActionId = deps.createActionId ?? (() => crypto.randomUUID())
 	const ackTimeoutMs = deps.ackTimeoutMs ?? IMAGE_DROP_ACK_TIMEOUT_MS
+	const toast = deps.showToastFn ?? showToast
 	const term = deps.term
 
 	const input = el('input', { type: 'file', accept: IMAGE_DROP_ACCEPT, hidden: '' })
@@ -57,9 +60,16 @@ export function createImageDropController(deps: ImageDropControllerDeps): ImageD
 
 	function setState(next: ImageDropState, message: string): void {
 		state = next
-		panel.style.display = next === 'idle' ? 'none' : 'flex'
+		// The full-width panel is the failure-recovery form (error/file-ready).
+		// Transient success-path states never show it — a lightweight toast
+		// carries the user-visible beats (upload started, insert sent, insert
+		// done). 'inserting' must toast too: a manual Retry insert would
+		// otherwise sit silent for the whole ACK timeout.
+		const showPanel = next === 'error' || next === 'file-ready'
+		panel.style.display = showPanel ? 'flex' : 'none'
+		if (next === 'uploading' || next === 'inserting' || next === 'done') toast(message)
 		status.textContent = message
-		const showDetails = path !== null && next !== 'done'
+		const showDetails = showPanel && path !== null
 		pathText.style.display = showDetails ? '' : 'none'
 		actions.style.display = showDetails ? '' : 'none'
 		if (path !== null) pathText.textContent = path
