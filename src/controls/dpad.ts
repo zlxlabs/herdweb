@@ -2,7 +2,7 @@ import type { ButtonAction, ControlButton, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { onAttachmentTap } from '../util/tap'
-import { sendData } from '../util/terminal'
+import { createAttachmentGuard, sendData } from '../util/terminal'
 import { suppressSynthesisedMouse } from './keyboard-controller'
 
 /** Default dpad-toggle button (toolbar row1, between ⏎ and ⌨) */
@@ -175,6 +175,15 @@ interface DpadDeps {
  * the release tap is suppressed. Mutually exclusive with `longPressAction` —
  * longPress wins and repeat is not wired for that key.
  *
+ * Press lifecycle: every press captures the attachment generation at press
+ * start. Deferred sends (long-press callback, repeat first shot and every
+ * tick) re-check it — when the user switches target/attachment mid-press,
+ * the press's timers stop and its release tap is suppressed, so input never
+ * leaks into the newly attached session. Abort paths (touchcancel,
+ * mouseleave, pad close via toggle) clear both timers and hold state, and
+ * every new press resets them, so no path combination leaks state into the
+ * next tap. Plain taps stay synchronous and are unaffected.
+ *
  * Focus safety (hard requirement): every key suppresses the synthesised
  * mousedown after touchend, so tapping a key never steals focus from the
  * terminal textarea — the soft-keyboard state (and the manual-mode input
@@ -284,6 +293,10 @@ export function createDpad(
 
 	let storedPositionApplied = false
 
+	// Abort functions of in-flight key presses, so toggle() can stop their
+	// deferred sends when the pad closes (a hidden pad must not keep sending)
+	const activePressAborts = new Set<() => void>()
+
 	for (const key of keys) {
 		if (key === null) {
 			element.appendChild(el('div', { class: 'wt-dpad-spacer' }))
@@ -303,57 +316,86 @@ export function createDpad(
 			}
 		}
 
+		// Per-press lifecycle state. A press starts on touchstart/mousedown and
+		// captures the attachment generation at that moment; deferred sends
+		// re-check it before dispatching. holdFired is consumed by the tap
+		// callback after release; every abort path (touchcancel, mouseleave, pad
+		// close) clears it, and every new press resets it — no path combination
+		// carries it into the next tap.
 		let holdFired = false
-		const longPressAction = key.longPressAction
-		if (longPressAction) {
-			// longPressAction and repeatOnHold are mutually exclusive — longPress
-			// wins and repeat is never wired for this key.
-			button.classList.add('wt-dpad-has-alt')
-			let longPressTimer: ReturnType<typeof setTimeout> | undefined
-			const cancelLongPressTimer = (): void => {
-				if (longPressTimer !== undefined) clearTimeout(longPressTimer)
-				longPressTimer = undefined
-			}
-			const startLongPressTimer = (): void => {
-				cancelLongPressTimer()
-				longPressTimer = setTimeout(() => {
-					longPressTimer = undefined
+		let pressIsCurrent: (() => boolean) | null = null
+		let delayTimer: ReturnType<typeof setTimeout> | undefined
+		let intervalTimer: ReturnType<typeof setInterval> | undefined
+
+		const clearPressTimers = (): void => {
+			if (delayTimer !== undefined) clearTimeout(delayTimer)
+			delayTimer = undefined
+			if (intervalTimer !== undefined) clearInterval(intervalTimer)
+			intervalTimer = undefined
+		}
+
+		/** Gate a deferred send on the press-time attachment; a stale press stops ticking and its release tap is suppressed */
+		const pressStillCurrent = (): boolean => {
+			if (pressIsCurrent?.()) return true
+			clearPressTimers()
+			pressIsCurrent = null
+			holdFired = true
+			return false
+		}
+
+		/** Abort the press entirely (touchcancel / mouseleave / pad closed): stop timers, drop hold state */
+		const abortPress = (): void => {
+			clearPressTimers()
+			pressIsCurrent = null
+			holdFired = false
+			activePressAborts.delete(abortPress)
+		}
+
+		/** End the press on release, keeping holdFired for the tap callback that follows (click / touchend) */
+		const releasePress = (): void => {
+			clearPressTimers()
+			pressIsCurrent = null
+			activePressAborts.delete(abortPress)
+		}
+
+		const startPress = (): void => {
+			abortPress() // reset any leftover state from a previous, abnormally ended press
+			pressIsCurrent = createAttachmentGuard(term)
+			activePressAborts.add(abortPress)
+			const longPressAction = key.longPressAction
+			if (longPressAction) {
+				delayTimer = setTimeout(() => {
+					delayTimer = undefined
+					if (!pressStillCurrent()) return
 					holdFired = true
 					dispatch(longPressAction)
 				}, DPAD_LONG_PRESS_MS)
-			}
-			button.addEventListener('touchstart', startLongPressTimer)
-			button.addEventListener('touchend', cancelLongPressTimer)
-			button.addEventListener('touchcancel', cancelLongPressTimer)
-			button.addEventListener('mousedown', startLongPressTimer)
-			button.addEventListener('mouseup', cancelLongPressTimer)
-			button.addEventListener('mouseleave', cancelLongPressTimer)
-		} else if (key.repeatOnHold) {
-			let delayTimer: ReturnType<typeof setTimeout> | undefined
-			let intervalTimer: ReturnType<typeof setInterval> | undefined
-			const stopRepeat = (): void => {
-				if (delayTimer !== undefined) clearTimeout(delayTimer)
-				delayTimer = undefined
-				if (intervalTimer !== undefined) clearInterval(intervalTimer)
-				intervalTimer = undefined
-			}
-			const startRepeat = (): void => {
-				stopRepeat()
+			} else if (key.repeatOnHold) {
 				delayTimer = setTimeout(() => {
 					delayTimer = undefined
+					if (!pressStillCurrent()) return
 					holdFired = true
 					// Haptic once when repeat engages, not on every 100ms tick
 					dispatch(key.action)
-					intervalTimer = setInterval(() => dispatch(key.action, false), DPAD_REPEAT_INTERVAL_MS)
+					intervalTimer = setInterval(() => {
+						if (!pressStillCurrent()) return
+						dispatch(key.action, false)
+					}, DPAD_REPEAT_INTERVAL_MS)
 				}, DPAD_REPEAT_DELAY_MS)
 			}
-			button.addEventListener('touchstart', startRepeat)
-			button.addEventListener('touchend', stopRepeat)
-			button.addEventListener('touchcancel', stopRepeat)
-			button.addEventListener('mousedown', startRepeat)
-			button.addEventListener('mouseup', stopRepeat)
-			button.addEventListener('mouseleave', stopRepeat)
 		}
+
+		if (key.longPressAction) {
+			// longPressAction and repeatOnHold are mutually exclusive — longPress
+			// wins and repeat is never wired for this key.
+			button.classList.add('wt-dpad-has-alt')
+		}
+		button.addEventListener('touchstart', startPress)
+		button.addEventListener('touchend', releasePress)
+		button.addEventListener('touchcancel', abortPress)
+		button.addEventListener('mousedown', startPress)
+		button.addEventListener('mouseup', releasePress)
+		button.addEventListener('mouseleave', abortPress)
 
 		onAttachmentTap(term, button, () => {
 			if (holdFired) {
@@ -367,9 +409,16 @@ export function createDpad(
 
 	function toggle(): void {
 		element.classList.toggle('open')
+		if (!element.classList.contains('open')) {
+			// Closing the pad aborts any in-flight press: stop its timers and
+			// clear its hold state so a hidden pad never keeps sending.
+			// Each abort removes itself from the set — safe mid-iteration.
+			for (const abort of activePressAborts) abort()
+			return
+		}
 		// Apply the persisted position on first open — only then is the pad
 		// measurable, so the clamp can account for its real size.
-		if (!element.classList.contains('open') || storedPositionApplied) return
+		if (storedPositionApplied) return
 		storedPositionApplied = true
 		const stored = readDpadPosition(localStorage)
 		if (!stored) return

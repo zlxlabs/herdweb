@@ -481,6 +481,134 @@ describe('hold-to-repeat (← ↑ ↓ → ⌫)', () => {
 	})
 })
 
+describe('press lifecycle (attachment binding + abort paths)', () => {
+	function keyByLabel(element: HTMLElement, label: string): HTMLButtonElement {
+		const button = dpadKeys(element).find((b) => b.textContent === label)
+		if (!button) throw new Error(`no ${label} key`)
+		return button
+	}
+
+	function mockSwitchableAttachment(): ReturnType<typeof mockTerminalWithSent> & {
+		switchTo(id: string): void
+	} {
+		let attachment: string | null = 'session-a'
+		const term = {
+			...mockTerminalWithSent(),
+			getAttachmentId: () => attachment,
+		}
+		return Object.assign(term, {
+			switchTo(id: string) {
+				attachment = id
+			},
+		})
+	}
+
+	test('switching attachment mid-repeat stops the repeat and suppresses the release tap', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockSwitchableAttachment()
+			const { dpad } = createTestDpad(term)
+			const down = keyByLabel(dpad.element, '↓')
+
+			down.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(500) // first shot at 300ms, ticks at 400/500ms
+			expect(term.sent).toEqual(['\x1b[B', '\x1b[B', '\x1b[B'])
+
+			term.switchTo('session-b')
+			vi.advanceTimersByTime(1000)
+			expect(term.sent).toHaveLength(3) // repeat stopped — nothing leaks into session-b
+
+			down.dispatchEvent(new MouseEvent('mouseup'))
+			down.click()
+			expect(term.sent).toHaveLength(3) // the tainted press's release tap is suppressed too
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('switching attachment mid-long-press sends neither the hold nor the tap action', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockSwitchableAttachment()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(300)
+			term.switchTo('session-b')
+			vi.advanceTimersByTime(400) // past the 500ms long-press threshold
+			expect(term.sent).toEqual([])
+
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual([])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('mouseleave after a fired long-press does not eat the next tap', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(600)
+			enter.dispatchEvent(new MouseEvent('mouseleave')) // aborted press: no click follows
+			expect(term.sent).toEqual(['\n'])
+
+			// A fresh short tap must still send \r
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(100)
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\n', '\r'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('closing the pad mid-repeat stops the repeat immediately', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const down = keyByLabel(dpad.element, '↓')
+
+			dpad.toggle() // open
+			down.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(500)
+			expect(term.sent).toHaveLength(3)
+
+			dpad.toggle() // close while the press is still held
+			vi.advanceTimersByTime(1000)
+			expect(term.sent).toHaveLength(3)
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('closing the pad mid-long-press cancels the pending hold action', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			dpad.toggle() // open
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(300)
+			dpad.toggle() // close before the 500ms threshold
+			vi.advanceTimersByTime(500)
+			expect(term.sent).toEqual([])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+})
+
 describe('draggable pad with persisted position', () => {
 	function dragHandle(element: HTMLElement): HTMLButtonElement {
 		const handle = element.querySelector<HTMLButtonElement>('.wt-dpad-handle')
