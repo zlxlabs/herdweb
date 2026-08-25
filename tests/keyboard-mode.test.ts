@@ -531,6 +531,15 @@ describe('base.css keyboard rules', () => {
 	test('keyboard indicator style exists', () => {
 		expect(css).toContain('#wt-toolbar button.wt-keyboard-toggle.wt-kb-active')
 	})
+
+	test('fixed bottom consumers use toolbar height without duplicating bottom safe-area', () => {
+		const dpadBlock = css.match(/#wt-dpad\s*\{([^}]*)\}/)?.[1] ?? ''
+		const imageDropBlock = css.match(/#wt-image-drop\s*\{([^}]*)\}/)?.[1] ?? ''
+		expect(dpadBlock).toContain('var(--wt-toolbar-height, 64px)')
+		expect(dpadBlock).not.toContain('safe-area-inset-bottom')
+		expect(imageDropBlock).toContain('var(--wt-toolbar-height, 64px)')
+		expect(imageDropBlock).not.toContain('safe-area-inset-bottom')
+	})
 })
 
 describe('init lifecycle (P2-1)', () => {

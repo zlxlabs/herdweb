@@ -1,10 +1,13 @@
 import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import targetSingleConfig from './target-single.config'
 import targetSwitchConfig from './target-switch.config'
 
 // Imported so knip treats the config file as used (same pattern as session-exit).
 void targetSwitchConfig
+void targetSingleConfig
 const explicitConfigPath = join(import.meta.dirname, 'target-switch.config.ts')
+const explicitSingleConfigPath = join(import.meta.dirname, 'target-single.config.ts')
 
 test.describe('explicit target picker (T5)', () => {
 	test.use({ serveOptions: { configPath: explicitConfigPath, command: [] } })
@@ -81,5 +84,16 @@ test.describe('single mode (T5)', () => {
 		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
 		await expect.poll(() => page.evaluate(() => Boolean(window.term))).toBe(true)
 		await expect(page.locator('button.wt-target-badge')).toHaveCount(0)
+	})
+})
+
+test.describe('explicit single target (R1)', () => {
+	test.use({ serveOptions: { configPath: explicitSingleConfigPath, command: [] } })
+
+	test('does not render badge or picker for one explicit target', async ({ page, serve }) => {
+		await page.goto(serve.url)
+		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		await expect(page.locator('button.wt-target-badge')).toHaveCount(0)
+		await expect(page.locator('.wt-target-picker')).toHaveCount(0)
 	})
 })
