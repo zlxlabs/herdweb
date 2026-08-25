@@ -1,3 +1,15 @@
+# [1.13.0](https://github.com/zlxlabs/herdweb/compare/v1.12.0...v1.13.0) (2026-08-25)
+
+
+### Bug Fixes
+
+* **image-drop:** narrow DataTransferItem for noUncheckedIndexedAccess ([1ac061f](https://github.com/zlxlabs/herdweb/commit/1ac061f919dde365cd92e1828d8c7cbb60a715a1))
+
+
+### Features
+
+* **image-drop:** insert clipboard images via paste (Ctrl+V) ([b97ac7e](https://github.com/zlxlabs/herdweb/commit/b97ac7e9ab7ff3a6be369d8a1ef1edd7bac95aae)), closes [#113](https://github.com/zlxlabs/herdweb/issues/113)
+
 # [1.12.0](https://github.com/zlxlabs/herdweb/compare/v1.11.0...v1.12.0) (2026-08-25)
 
 
