@@ -28,10 +28,11 @@ herdweb serve --host 127.0.0.1 --port 7681 -- herdr --session default
 默认 target，不持久化目标选择。也可以省略 `--`，使用内置的
 `herdr --session default`。
 
-### Explicit：配置多个 target
+### Explicit：配置 1–8 个 target
 
 显式 targets 使配置进入 explicit 模式；每个 target 必须有唯一的 `id`、名称和 command，且
-`defaultTargetId` 必须指向其中一个。图片能力按 target 声明，未声明时为 `disabled`：
+`defaultTargetId` 必须指向其中一个。1 个 target 合法且 picker 隐藏；2–8 个才显示 picker。
+图片能力按 target 声明，未声明时为 `disabled`：
 
 ```typescript
 export default {
@@ -133,6 +134,15 @@ systemctl --user stop herdweb-debug.service
 调试 unit 使用 `/home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts`，密钥只放该本地
 配置或本机环境中，不写入 git。
 
+本机多目标调试实例（临时真机验收入口，不替换上面的 `herdweb-debug.service` 安装说明）：
+
+- unit：`herdweb-debug-multitarget.service`，指向主仓 `/home/zlx/projects/oss/herdweb`，
+  `127.0.0.1:7691`，`--base-path /herdweb`。生产 `herdweb.service` / `7681` 未动。
+- 配置：主仓 ignored `.omo/herdweb-debug.config.ts`。默认 `local-dev`。三条扁平 target：
+  - `local-dev` / `Local · Dev` / `herdr --session herdweb-dev`
+  - `local` / `Local · Default` / `herdr --session default`
+  - `mac-studio` / `Mac Studio · Default` / `herdr --remote mac-studio`
+
 ## 通知状态目录（按端口隔离）
 
 状态写在 `~/.local/state/herdweb/{port}/`（或 `$XDG_STATE_HOME/herdweb/{port}/`）。生产 `7681`
@@ -188,6 +198,15 @@ ss -ltn | grep -E '127\.0\.0\.1:(7681|7691)'
 | 临时 explicit `17682` | target 列表 `one,two`；同一 WS committed `one → two`；single-v1=`202`、v2=`400`；explicit-v2=`202`、v1=`400` |
 | image capability | 无 header=`400`；stale header=`403`；当前 committed PNG=`200`、`0600`；探针文件已不在工作区 |
 | SSH | `mac-studio` round-trip marker=`0`、远端 `herdr 0.7.5`、SSH marker 故意退出=`37`；临时 `17683` 的实际 argv 是 `herdr --remote mac-studio`，WS 有 protocol 2/sessionId，但 snapshot 为 0 bytes，未据此宣称远端 pane 健康；T0 原始 pane 重连见 [PR #71](https://github.com/zlxlabs/herdweb/pull/71) |
-| Android/iOS PWA | **blocked**：本次无真实手机入口，未声称 target 列表/切换恢复/误输入保护、single-v1/explicit-v2 通知或 image capability 手机交付完成 |
+| Android/iOS PWA | 当时 **blocked**：该次无真实手机入口；后续 Android 见下方。未声称 iOS、通知或 image capability 手机交付完成 |
 
 探针只记录状态码、协议类型、SHA、退出码和 capability 等结构化结果；不记录生产日志、响应体或凭据。
+
+### 2026-08-25 Android 后续验收
+
+记录时间：2026-08-25（Asia/Shanghai）。入口：Tailscale 调试 `127.0.0.1:7691` + `/herdweb`，
+功能 merge `5e8b0d8`（PR #108，完成移动位置与单目标隐藏）；随后发布为 1.11.0。
+
+- Android 真机：目标 badge 不再遮挡 herdr 右上按钮，切换正常。
+- HTTP `GET /herdweb/` = 200；WebSocket protocol 2 返回上述 3 targets。
+- 未验收：iOS、通知、image capability、远端 pane 健康。生产 `herdweb.service` / 7681 未动。

@@ -17,7 +17,7 @@ flowchart LR
     A[Target A<br/>SharedTerminalSession + PTY]
     B[Target B<br/>SharedTerminalSession + PTY]
     Cmd[herdr or custom command]
-    Overlay[herdweb overlay<br/>target picker + controls]
+    Overlay[herdweb overlay<br/>conditional target picker + controls]
     Xterm[xterm.js<br/>one committed attachment]
 
     Phone --> Tunnel --> Server
@@ -34,15 +34,17 @@ flowchart LR
 
 | Piece | Role |
 | --- | --- |
-| Browser client | Opens one `/ws`, lists targets, and controls its committed attachment |
-| herdweb overlay | Adds target picker, restore state, controls, reconnect handling, and mobile viewport behaviour |
+| Browser client | Opens one `/ws` and controls its committed attachment |
+| herdweb overlay | Adds a target picker when projected `targetCount > 1`, restore state, controls, reconnect handling, and mobile viewport behaviour |
 | Hono server | Serves `/`, `/ws`, PWA assets, image-drop, and notification routes |
 | `TargetRegistry` | Keeps configured targets and starts each target session lazily; one target exit does not end the server |
 | `SharedTerminalSession` | Owns one PTY, mirrors terminal state, and fans output to attachment clients |
 | `node-pty` | Spawns the target command on the herdweb host |
 
-Commands and credentials remain server-side. The browser receives target names, process state, and an
-allowlisted capability summary, not target argv.
+Commands and credentials remain server-side. The HTML config projection is allowlisted and includes
+`targetCount` so the page can decide whether to create a picker; it does not inject full targets or
+argv. Live names, process state, and capability summaries arrive later on the WebSocket `targets`
+message, not as part of that projection.
 
 ## Runtime boot path
 
@@ -75,7 +77,9 @@ flowchart TD
 - A configured target owns one session and can be reused by multiple browsers.
 - Each browser has one WebSocket and at most one committed attachment; switching invalidates the old one.
 - A new attachment receives a snapshot, drains pending output into xterm, then commits before input opens.
-- Target picker choice, drafts, reconnect UI, and viewport state remain local to the browser.
+- When a picker exists, the coarse-pointer / phone badge is a direct child of the bottom `#wt-toolbar`;
+  the fine-pointer / desktop badge stays top-right. Target picker choice, drafts, reconnect UI, and
+  viewport state remain local to the browser.
 
 ## Where the code lives
 

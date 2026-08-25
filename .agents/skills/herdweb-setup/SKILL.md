@@ -113,10 +113,12 @@ See [Config reference](#config-reference) below.
 
 - If the generated config omits `targets`, it is **single** mode. `herdweb serve` uses the default
   `herdr --session default`; `herdweb serve -- <command...>` replaces that single command for a local
-  probe or custom session. The target picker and target persistence stay off.
-- If the user needs more than one session, generate **explicit** mode with 1–8 unique target ids and a
-  `defaultTargetId` that names one of them. Do not add a trailing command after `--`; explicit commands
-  belong in the config.
+  probe or custom session. Target persistence stays off.
+- If the user needs one or more named sessions, generate **explicit** mode with 1–8 unique target ids
+  and a `defaultTargetId` that names one of them. One explicit target is valid. Do not add a trailing
+  command after `--`; explicit commands belong in the config.
+- The target picker appears only when the configured target count is `> 1`. Single mode and explicit
+  with one target both hide it.
 - Every explicit target has `id`, `name`, and `command`. Add `imageDrop: 'local-path'` only when that
   target should receive uploaded local paths; otherwise use `imageDrop: 'disabled'`.
 
@@ -185,8 +187,9 @@ Tell the user:
 2. How to start: `herdweb serve` (default command: `herdr --session default`)
 3. How to access from their phone
 4. PWA install: Add to Home Screen (required on iOS for push)
-5. Built-in controls: target picker (explicit mode), font size, scroll, combo picker, help overlay, d-pad,
-   keyboard sovereignty, voice composer, target-scoped image upload, and push notifications (☰ → 🔔)
+5. Built-in controls: target picker (only when more than one target is configured), font size, scroll,
+   combo picker, help overlay, d-pad, keyboard sovereignty, voice composer, target-scoped image upload,
+   and push notifications (☰ → 🔔)
 6. This is a starting point — run this skill again to tweak
 
 ---
@@ -369,7 +372,8 @@ Start with `herdweb serve` (default: `herdr --session default`).
 - **`floatingButtons` is an array of groups** — `{ position, buttons }`
 - **`mobile.initData`** is `string | null`
 - **`targets` switches to explicit mode**; pair it with a valid `defaultTargetId`, and do not combine it
-  with a trailing command after `serve --`
+  with a trailing command after `serve --`. One explicit target is valid. The picker appears only when
+  the configured target count is `> 1`.
 - **`imageDrop` is per target**: `'local-path'` or `'disabled'`
 
 ## Validation

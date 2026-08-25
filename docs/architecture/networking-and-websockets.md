@@ -98,5 +98,7 @@ attachment and never sends Enter as part of the upload.
 
 The client reconnects the same `/ws`, receives a fresh target list, and repeats the attach handshake. In
 explicit mode, a URL/local-storage target is durable only after `attach-committed`; missing or invalid
-ids show a restore-blocked state instead of silently attaching another target. Single mode has no picker
-or durable target choice and attaches its default target.
+ids show a restore-blocked state instead of silently attaching another target. Single mode has no
+durable target choice and attaches its default target. Whether a picker exists depends only on the
+projected `targetCount` injected by `build.ts`: it is created when that count is `> 1`. An explicit
+config with one target also hides it.
