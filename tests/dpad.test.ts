@@ -571,6 +571,51 @@ describe('press lifecycle (attachment binding + abort paths)', () => {
 		}
 	})
 
+	test('switching attachment between mousedown and click sends nothing (mouse click is guarded)', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockSwitchableAttachment()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			term.switchTo('session-b')
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual([])
+
+			// The next clean press still works — no state leaked from the stale one
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\r'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('a click trailing an aborted press (mouseleave) is suppressed', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockTerminalWithSent()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			enter.dispatchEvent(new MouseEvent('mouseleave'))
+			enter.click() // residual click after the abort — must not dispatch
+			expect(term.sent).toEqual([])
+
+			// A fresh short tap is unaffected
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\r'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
 	test('closing the pad mid-repeat stops the repeat immediately', () => {
 		vi.useFakeTimers()
 		try {

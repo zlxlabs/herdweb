@@ -183,12 +183,14 @@ interface DpadDeps {
  *
  * Press lifecycle: every press captures the attachment generation at press
  * start. Deferred sends (long-press callback, repeat first shot and every
- * tick) re-check it — when the user switches target/attachment mid-press,
- * the press's timers stop and its release tap is suppressed, so input never
- * leaks into the newly attached session. Abort paths (touchcancel,
- * mouseleave, pad close via toggle) clear both timers and hold state, and
- * every new press resets them, so no path combination leaks state into the
- * next tap. Plain taps stay synchronous and are unaffected.
+ * tick) and the trailing mouse click all re-check it — when the user
+ * switches target/attachment mid-press, the press's timers stop and its
+ * release tap is suppressed, so input never leaks into the newly attached
+ * session. Abort paths (touchcancel, mouseleave, pad close via toggle) fail
+ * closed: timers and hold state are cleared and a residual click is
+ * suppressed. Every new press resets all of it, so no path combination
+ * leaks state into the next tap. Touch taps are guarded per-touch inside
+ * onAttachmentTap and keep their existing semantics.
  *
  * Focus safety (hard requirement): every key suppresses the synthesised
  * mousedown after touchend, so tapping a key never steals focus from the
@@ -331,12 +333,15 @@ export function createDpad(
 		}
 
 		// Per-press lifecycle state. A press starts on touchstart/mousedown and
-		// captures the attachment generation at that moment; deferred sends
-		// re-check it before dispatching. holdFired is consumed by the tap
-		// callback after release; every abort path (touchcancel, mouseleave, pad
-		// close) clears it, and every new press resets it — no path combination
-		// carries it into the next tap.
+		// captures the attachment generation at that moment; every send derived
+		// from the press (deferred callbacks AND the trailing mouse click)
+		// re-checks it before dispatching. The tap callback after release
+		// consumes holdFired and the guard; every abort path (touchcancel,
+		// mouseleave, pad close) marks the press aborted so a residual click is
+		// suppressed, and every new press resets all of it — no path
+		// combination carries state into the next tap.
 		let holdFired = false
+		let pressAborted = false
 		let pressIsCurrent: (() => boolean) | null = null
 		let delayTimer: ReturnType<typeof setTimeout> | undefined
 		let intervalTimer: ReturnType<typeof setInterval> | undefined
@@ -357,24 +362,33 @@ export function createDpad(
 			return false
 		}
 
-		/** Abort the press entirely (touchcancel / mouseleave / pad closed): stop timers, drop hold state */
+		/** Abort the press entirely (touchcancel / mouseleave / pad closed): stop timers and fail closed — a trailing click must not dispatch */
 		const abortPress = (): void => {
 			clearPressTimers()
 			pressIsCurrent = null
 			holdFired = false
+			pressAborted = true
 			activePressAborts.delete(abortPress)
 		}
 
-		/** End the press on release, keeping holdFired for the tap callback that follows (click / touchend) */
+		/**
+		 * End the press on release: stop timers, but keep the guard, holdFired
+		 * and pressAborted for the tap callback that follows (click / touchend)
+		 * — the trailing mouse click still has to pass the press-time
+		 * attachment check before it may dispatch.
+		 */
 		const releasePress = (): void => {
 			clearPressTimers()
-			pressIsCurrent = null
 			activePressAborts.delete(abortPress)
 		}
 
 		const startPress = (): void => {
-			abortPress() // reset any leftover state from a previous, abnormally ended press
+			// Reset any leftover state from a previous, abnormally ended press
+			clearPressTimers()
+			holdFired = false
+			pressAborted = false
 			pressIsCurrent = createAttachmentGuard(term)
+			activePressAborts.delete(abortPress)
 			activePressAborts.add(abortPress)
 			const longPressAction = key.longPressAction
 			if (longPressAction) {
@@ -411,11 +425,22 @@ export function createDpad(
 		button.addEventListener('mouseup', releasePress)
 		button.addEventListener('mouseleave', abortPress)
 
-		onAttachmentTap(term, button, () => {
+		onAttachmentTap(term, button, (event) => {
+			// This tap consumes the press: snapshot, then reset its lifecycle state
+			const aborted = pressAborted
+			const guard = pressIsCurrent
+			pressIsCurrent = null
+			pressAborted = false
 			if (holdFired) {
 				holdFired = false
 				return
 			}
+			// Touch taps (touchend) are already guarded per-touch with press-time
+			// capture inside onAttachmentTap — skip re-checking here. Mouse clicks
+			// are not covered there, so the trailing click re-checks the guard its
+			// mousedown captured (mouseup keeps it alive for exactly this click).
+			// Fail closed: an aborted or stale press never dispatches.
+			if (event.type === 'click' && (aborted || (guard !== null && !guard()))) return
 			dispatch(key.action)
 		})
 		element.appendChild(button)
