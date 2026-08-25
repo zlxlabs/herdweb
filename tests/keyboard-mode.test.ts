@@ -595,7 +595,8 @@ describe('init lifecycle (P2-1)', () => {
 		window.term = term
 
 		const { init } = await import('../src/index')
-		init(defineConfig({ mobile: { keyboardMode: 'manual' } }))
+		const config = defineConfig({ mobile: { keyboardMode: 'manual' } })
+		init({ ...config, targetCount: config.targets.length })
 
 		// Wait until init has rendered the toolbar (controller created before it)
 		await vi.waitFor(

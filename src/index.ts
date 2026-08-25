@@ -145,7 +145,7 @@ function attachVoiceComposerMic(controller: MicController | undefined): void {
  * Config is embedded at build time.
  */
 export function init(
-	projectedConfig: ClientConfigProjection | HerdwebConfig,
+	projectedConfig: ClientConfigProjection,
 	hooks: HookRegistry = createHookRegistry(),
 	version?: string,
 	deps?: { openImageDrop?: () => void; basePath?: string },
@@ -153,7 +153,7 @@ export function init(
 	// Existing client consumers share the full-config shape for their UI hooks;
 	// only the allowlisted projection reaches this boundary at runtime.
 	/* oxlint-disable-next-line typescript/consistent-type-assertions -- client consumers only read projection fields */
-	const config = projectedConfig as ClientConfigProjection & HerdwebConfig
+	const config = projectedConfig as HerdwebConfig
 	void waitForTerm()
 		// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: mobile overlay bootstrap is intentionally sequential
 		.then(async (term) => {
@@ -198,7 +198,7 @@ export function init(
 
 				document.title = `${config.name} · ${location.hostname.replace(/\..*/, '')}`
 
-				const targetPicker = config.targetCount > 1 ? createTargetPicker(term) : null
+				const targetPicker = projectedConfig.targetCount > 1 ? createTargetPicker(term) : null
 				if (targetPicker) {
 					document.body.appendChild(targetPicker.element)
 				}
