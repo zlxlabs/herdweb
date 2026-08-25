@@ -1,5 +1,16 @@
 # HANDOFF · 多目标控制台夜间实现
 
+> **已完成 / 历史执行单，请勿重复执行。**
+>
+> - 产品落地：PR #108 / merge `5e8b0d8`；release `1.11.0` / `0a39414`。
+>   `targets.length <= 1` 不创建 picker；`> 1` 时手机 badge 在底部 toolbar，桌面仍在右上。
+> - 真机：2026-08-25 Android 经 Tailscale 调试入口验收；HTTP 200，WS protocol 2 返回 3 targets。
+>   未验收 iOS / 通知 / image / 远端 pane 健康。
+> - 现行文档：`README.md` Targets and switching、`docs/deploy-herdr.md`、
+>   `docs/architecture/how-herdweb-works.md`、`.agents/skills/herdweb-setup/SKILL.md`。
+>
+> 下方旧夜间 prompt 仅作历史原文保留。
+
 > CEO 与 Eng review 均 CLEAR；本文件给一个全新 Codex session 执行 reviewed design。
 > 当前基线为 `main@3d1b144`，工作树干净。本文自包含，持久参考见文末。
 

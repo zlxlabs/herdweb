@@ -189,20 +189,28 @@ All fields are optional — the CLI fills in defaults internally when it loads t
 
 ### Targets and switching
 
-Without a `targets` override, the config is **single** mode: the default target is implicit, the picker is
-hidden, and `-- <command...>` supplies its command. With `targets`, the config is **explicit** mode and
-must also set `defaultTargetId` to one of the unique target ids. Each target declares its own command and
-image capability:
+Without a `targets` override, the config is **single** mode: the default target is implicit and
+`-- <command...>` supplies its command. With `targets`, the config is **explicit** mode and
+must also set `defaultTargetId` to one of the unique target ids. The picker is created only when
+`targets.length > 1`, not because the config is explicit; one explicit target is valid and still
+hides the picker. Each target is a flat "device + herdr session/server command" row — two sessions
+on the same device are two targets, not a device→Server submenu. Each target declares its own
+command and image capability:
 
 ```typescript
 export default {
-  defaultTargetId: 'local',
+  defaultTargetId: 'local-dev',
   targets: [
-    { id: 'local', name: 'Local', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
+    { id: 'local-dev', name: 'Local · Dev', command: ['herdr', '--session', 'herdweb-dev'], imageDrop: 'local-path' },
+    { id: 'local', name: 'Local · Default', command: ['herdr', '--session', 'default'], imageDrop: 'local-path' },
     { id: 'workbox', name: 'Workbox', command: ['herdr', '--remote', 'workbox'], imageDrop: 'disabled' },
   ],
 }
 ```
+
+When more than one target is configured, a coarse-pointer / phone badge is a direct child of the
+bottom `#wt-toolbar`; a fine-pointer / desktop badge stays top-right. Tapping the badge opens the
+flat target list.
 
 The browser still has one `/ws` and one committed attachment. Selecting a target first closes input,
 then waits for its snapshot and buffered xterm writes; only `attach-committed` reopens input and persists

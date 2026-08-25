@@ -98,6 +98,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/controls/dpad.ts` — moshi-style floating arrow-key pad (← ↑ ↓ → ⌫ ⏎ ⇥ ⇧⇥), toggled by the ✥ `dpad-toggle` action; keys are focus-safe (touchend guard) and send via `sendData`
 - `src/controls/image-drop-controller.ts` — `createImageDropController`: POSTs the picked image to `{basePath}/api/image-drop`, then inserts ` ${path} ` into the agent input (never Enter) once the session is unchanged and synced; success is a transient toast (auto-hides after ~2.5s), only failure states show the retry/copy/close panel
 - `src/controls/notify-panel.ts` — push notification settings panel (subscribe toggle, test button, iOS standalone hint, event history list); opened via drawer `notify-panel` action (☰ → 🔔)
+- `src/controls/target-picker.ts` — target badge + flat picker list; created only when projected `targetCount > 1`. Coarse-pointer badge is a direct child of `#wt-toolbar`; fine-pointer stays top-right.
 - `src/theme/` — catppuccin-mocha + apply
 - `src/viewport/` — height management, landscape detection
 - `src/startup-resize.ts` — schedules the initial terminal resize on load (rAF + fonts-ready)
@@ -160,7 +161,7 @@ CLI + build:
 - Config resolution: `--config` flag → cwd → `~/.config/herdweb/` (XDG fallback; legacy upstream config paths auto-fallback)
 - Drawer takes a flat `readonly ControlButton[]` — rendered as a single grid, with a heading row inserted whenever adjacent buttons' `section` changes
 - Help overlay is config-driven and must be fail-safe (never break core controls if help fails)
-- Mobile viewport handling: lock document scroll and compute height from visual viewport (keyboard-aware); viewport meta uses `interactive-widget=resizes-content`, bottom chrome lifts above the soft keyboard via `--kb-inset`, and viewport-driven terminal resizes are debounced in `src/viewport/height.ts`
+- Mobile viewport handling: lock document scroll and compute height from visual viewport (keyboard-aware); viewport meta uses `interactive-widget=resizes-content`, bottom chrome lifts above the soft keyboard via `--kb-inset`, `--wt-toolbar-height` is the measured toolbar height, and viewport-driven terminal resizes are debounced in `src/viewport/height.ts`. Target picker: `targets.length <= 1` does not create the picker or consume layout height; `> 1` puts the phone/coarse badge in the bottom toolbar and keeps the desktop/fine badge top-right.
 - Changelog and versioning are fully automated by semantic-release — do not manually edit `CHANGELOG.md`. Use conventional commit types to control releases: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major. Non-release types: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`
 - All DOM creation in `util/dom.ts` helpers
 - Keyboard state preserved: capture `isKeyboardOpen()` before action, use `conditionalFocus()` after
