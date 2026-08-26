@@ -6,7 +6,7 @@
 
 **Web UI for [herdr](https://herdr.dev/) — drive Herdr servers from your phone.**
 
-<img width="1200" height="2608" alt="c9dfaa317676eae66a65f6b079013daa" src="https://github.com/user-attachments/assets/b670da43-5799-44cc-b1a9-82a8bed9aefc" />
+<img width="300" height="652" alt="c9dfaa317676eae66a65f6b079013daa" src="https://github.com/user-attachments/assets/b670da43-5799-44cc-b1a9-82a8bed9aefc" />
 
 
 One herdweb process attaches to Herdr [servers](https://herdr.dev/docs/concepts/#client-and-server):
