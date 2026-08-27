@@ -69,6 +69,9 @@ function errorCode(error: unknown): AsrErrorCode {
 	if (error instanceof Error && error.name === 'WorkletLoadError') {
 		return 'worklet-load-failed'
 	}
+	if (error instanceof Error && error.name === 'AudioInterruptedError') {
+		return 'audio-interrupted'
+	}
 	return 'connection-failed'
 }
 
@@ -249,8 +252,14 @@ class BrowserPcmCapture implements PcmCapture {
 		let source: MediaStreamAudioSourceNode | undefined
 		let node: AudioWorkletNode | undefined
 		try {
-			if (context.state === 'suspended') await context.resume()
+			const state: string = context.state
+			if (state !== 'running') await context.resume()
 			if (epoch !== this.epoch) return
+			if (context.state !== 'running') {
+				const error = new Error('AudioContext did not resume')
+				error.name = 'AudioInterruptedError'
+				throw error
+			}
 			try {
 				await context.audioWorklet.addModule(this.workletUrl)
 			} catch (error) {
@@ -317,7 +326,7 @@ class BrowserPcmCapture implements PcmCapture {
 	): boolean {
 		if (!stream || !context || context.state === 'closed') return false
 		const tracks = stream.getTracks()
-		return tracks.length > 0 && tracks.every((track) => track.readyState === 'live')
+		return tracks.length > 0 && tracks.every((track) => track.readyState === 'live' && !track.muted)
 	}
 
 	private teardownGraph(
