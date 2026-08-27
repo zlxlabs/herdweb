@@ -310,7 +310,11 @@ class FakePort {
 		this.closeCalls++
 	}
 
-	triggerMessage(data: { readonly type: string }): void {
+	triggerMessage(data: {
+		readonly type: string
+		readonly samples?: Int16Array
+		readonly posted?: number
+	}): void {
 		this.onmessage?.({ data })
 	}
 }

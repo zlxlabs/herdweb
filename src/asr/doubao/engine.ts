@@ -37,7 +37,6 @@ interface PcmCapture {
 	start(onSamples: (samples: Int16Array) => void, onError: AsrErrorHandler): Promise<void>
 	stop(): Promise<void>
 	getPcmInFlightBytes(): number
-	release?(): Promise<void>
 }
 
 interface DoubaoEngineOptions {
@@ -518,6 +517,7 @@ export class DoubaoEngine implements AsrEngine {
 	private readonly errorHandlers = new Set<AsrErrorHandler>()
 	private readonly websocketFactory: WebSocketFactory
 	private readonly capture: PcmCapture
+	private readonly ownedCapture: BrowserPcmCapture | undefined
 	private socket: WebSocketLike | undefined
 	private state: EngineState = 'idle'
 	private epoch = 0
@@ -537,15 +537,23 @@ export class DoubaoEngine implements AsrEngine {
 	constructor(options: DoubaoEngineOptions) {
 		this.options = options
 		this.websocketFactory = options.websocketFactory ?? browserWebSocketFactory
-		this.capture =
-			options.capture ??
-			new BrowserPcmCapture(options.workletUrl ?? DEFAULT_WORKLET_URL, options.keepAlive === true)
+		if (options.capture) {
+			this.capture = options.capture
+			this.ownedCapture = undefined
+		} else {
+			const owned = new BrowserPcmCapture(
+				options.workletUrl ?? DEFAULT_WORKLET_URL,
+				options.keepAlive === true,
+			)
+			this.ownedCapture = owned
+			this.capture = owned
+		}
 	}
 
 	/** Release keep-alive capture resources. Idle stop() is a no-op; this always tears down. */
 	async dispose(): Promise<void> {
 		await this.stop()
-		await this.capture.release?.()
+		await this.ownedCapture?.release()
 	}
 
 	isSupported(): boolean {

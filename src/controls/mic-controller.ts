@@ -66,7 +66,8 @@ export function isVoiceInputSupported(): boolean {
 
 /** iOS Home Screen PWA only; other platforms leave `navigator.standalone` undefined. */
 function isIosStandalonePwa(): boolean {
-	return (globalThis.navigator as Navigator & { readonly standalone?: boolean }).standalone === true
+	const standalone: unknown = Reflect.get(globalThis.navigator, 'standalone')
+	return standalone === true
 }
 
 /** Keep terminal-safe printable text and U+0020 space; strip controls and format separators. */
