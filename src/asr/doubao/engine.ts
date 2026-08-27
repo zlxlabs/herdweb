@@ -176,7 +176,7 @@ class BrowserPcmCapture implements PcmCapture {
 		if (!globalThis.navigator?.mediaDevices?.getUserMedia || !globalThis.AudioContext) {
 			throw new Error('AudioWorklet capture is not supported')
 		}
-		if (this.keepAlive && this.hasReusableCapture(this.stream, this.context)) {
+		if (this.keepAlive && this.canReuseHeldCapture(this.stream, this.context)) {
 			await this.restartHeldCapture(epoch, onSamples, onError)
 			return
 		}
@@ -320,13 +320,21 @@ class BrowserPcmCapture implements PcmCapture {
 		}
 	}
 
-	private hasReusableCapture(
+	private hasPausableCapture(
+		stream: MediaStream | undefined,
+		context: AudioContext | undefined,
+	): boolean {
+		if (!stream || !context || context.state === 'closed') return false
+		return stream.getTracks().some((track) => track.readyState === 'live')
+	}
+
+	private canReuseHeldCapture(
 		stream: MediaStream | undefined,
 		context: AudioContext | undefined,
 	): boolean {
 		if (!stream || !context || context.state === 'closed') return false
 		const tracks = stream.getTracks()
-		return tracks.length > 0 && tracks.every((track) => track.readyState === 'live' && !track.muted)
+		return tracks.length > 0 && tracks.every((track) => track.readyState === 'live')
 	}
 
 	private teardownGraph(
@@ -381,6 +389,7 @@ class BrowserPcmCapture implements PcmCapture {
 				this.muteTimers.set(track, setTimeout(reportInterruption, 5_000))
 			}
 			track.onunmute = () => this.clearMuteTimer(track)
+			if (track.muted) this.muteTimers.set(track, setTimeout(reportInterruption, 5_000))
 		}
 		context.onstatechange = () => {
 			const state: string = context.state
@@ -416,7 +425,7 @@ class BrowserPcmCapture implements PcmCapture {
 		const stream = this.stream
 		const node = this.node
 		const context = this.context
-		const pause = this.keepAlive && this.hasReusableCapture(stream, context)
+		const pause = this.keepAlive && this.hasPausableCapture(stream, context)
 		this.source = undefined
 		this.node = undefined
 		this.onSamples = undefined
