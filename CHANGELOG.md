@@ -1,3 +1,16 @@
+# [1.14.0](https://github.com/zlxlabs/herdweb/compare/v1.13.1...v1.14.0) (2026-08-27)
+
+
+### Bug Fixes
+
+* **asr:** resume interrupted capture and fail loud if not running ([19f631b](https://github.com/zlxlabs/herdweb/commit/19f631b909593d2f6eb3ce4c1698d752e1d83b00))
+* **asr:** split pause and reuse capture predicates ([5613ed2](https://github.com/zlxlabs/herdweb/commit/5613ed2fa3205ccf4411d957bf79780020ff84f7))
+
+
+### Features
+
+* **asr:** keep microphone capture alive in iOS standalone PWA ([f5259d0](https://github.com/zlxlabs/herdweb/commit/f5259d0ee71466013385eda98e278c8278ad301a))
+
 ## [1.13.1](https://github.com/zlxlabs/herdweb/compare/v1.13.0...v1.13.1) (2026-08-25)
 
 
