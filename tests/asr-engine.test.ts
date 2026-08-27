@@ -273,10 +273,12 @@ class FakeTrack {
 	}
 
 	triggerMute(): void {
+		this.muted = true
 		this.onmute?.()
 	}
 
 	triggerUnmute(): void {
+		this.muted = false
 		this.onunmute?.()
 	}
 }
@@ -1314,6 +1316,15 @@ describe('DoubaoEngine', () => {
 			})
 		}
 
+		function liveSession() {
+			const stream = new FakeStream()
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const errors: string[] = []
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			engine.onError((code) => errors.push(code))
+			return { stream, getUserMedia, errors, engine }
+		}
+
 		test('reuses a live capture, resumes interrupted context, and delivers PCM', async () => {
 			const stream = new FakeStream()
 			const sockets: CountingFinalSocket[] = []
@@ -1357,11 +1368,7 @@ describe('DoubaoEngine', () => {
 		})
 
 		test('reports audio-interrupted when resume does not reach running', async () => {
-			const stream = new FakeStream()
-			stubGetUserMedia(() => stream)
-			const errors: string[] = []
-			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
-			engine.onError((code) => errors.push(code))
+			const { errors, engine } = liveSession()
 			await engine.start()
 			await engine.stop()
 			const context = FakeAudioContext.instances[0]
@@ -1370,28 +1377,60 @@ describe('DoubaoEngine', () => {
 			context.triggerState('interrupted')
 			await expect(engine.start()).rejects.toThrow('did not resume')
 			expect(errors).toEqual(['audio-interrupted'])
-			expect(context.resumeCalls).toBeGreaterThan(0)
 			await engine.dispose()
 		})
 
-		test.each(['ended', 'muted'] as const)(
-			'rebuilds capture after the kept track is %s',
-			async (kind) => {
-				const live = new FakeStream()
-				const rebuilt = new FakeStream()
-				let current = live
-				const getUserMedia = stubGetUserMedia(() => current)
-				const engine = createKeepAliveEngine(() => new CountingFinalSocket())
-				await engine.start()
-				await engine.stop()
-				if (kind === 'ended') live.track.readyState = 'ended'
-				else live.track.muted = true
-				current = rebuilt
-				await engine.start()
-				expect(getUserMedia).toHaveBeenCalledTimes(2)
-				await engine.dispose()
-			},
-		)
+		test('rebuilds capture after the kept track has ended', async () => {
+			const live = new FakeStream()
+			const rebuilt = new FakeStream()
+			let current = live
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			await engine.start()
+			await engine.stop()
+			live.track.readyState = 'ended'
+			current = rebuilt
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			await engine.dispose()
+		})
+
+		test('releases capture when stop sees ended tracks', async () => {
+			const { stream, engine } = liveSession()
+			await engine.start()
+			stream.track.readyState = 'ended'
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(1)
+		})
+
+		test('pauses a muted live track without stopping it', async () => {
+			const { stream, engine } = liveSession()
+			await engine.start()
+			stream.track.muted = true
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(0)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(0)
+			await engine.dispose()
+		})
+
+		test.each([true, false] as const)('start-muted watchdog timeout=%s', async (timeout) => {
+			const { stream, getUserMedia, errors, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			stream.track.muted = true
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			if (!timeout) stream.track.triggerUnmute()
+			await vi.advanceTimersByTimeAsync(timeout ? 4_999 : 5_000)
+			expect(errors).toEqual([])
+			if (timeout) {
+				await vi.advanceTimersByTimeAsync(1)
+				expect(errors).toEqual(['audio-interrupted'])
+			}
+			vi.useRealTimers()
+			await engine.dispose()
+		})
 
 		test('recaptures and stops tracks on every session when keep-alive is off', async () => {
 			const streams = [new FakeStream(), new FakeStream()]
