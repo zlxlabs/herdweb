@@ -65,7 +65,7 @@ export function isVoiceInputSupported(): boolean {
 }
 
 /** iOS Home Screen PWA only; other platforms leave `navigator.standalone` undefined. */
-function isIosStandalonePwa(): boolean {
+export function isIosStandalonePwa(): boolean {
 	const standalone: unknown = Reflect.get(globalThis.navigator, 'standalone')
 	return standalone === true
 }
