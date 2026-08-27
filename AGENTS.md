@@ -114,7 +114,7 @@ Browser overlay (bundled to the client via esbuild):
 - `src/config-schema.ts` — Valibot validation schemas
 - `src/config-resolve.ts` — button array resolution
 - `src/config-validate.ts` — config assertions
-- `src/asr/` — provider-independent ASR contract, PCM pipeline, AudioWorklet, and Doubao SAUC engine
+- `src/asr/` — provider-independent ASR contract, PCM pipeline, AudioWorklet, and Doubao SAUC engine. iOS standalone PWA (`navigator.standalone === true`) keeps the microphone MediaStream alive between `start()`/`stop()` sessions; other environments still fully release on stop. Release happens on controller dispose, page unload, or a dead track (next `start()` rebuilds).
 - `src/pwa/` — PWA manifest, meta-tags, icons
 - `src/notify/` — Web Push pipeline: event schema, `/api/events` + push subscribe routes, silence/health lanes, per-port state files
 - `src/sw-entry.ts` — service worker source (push display, notificationclick focus/openWindow, pushsubscriptionchange); served as `{basePath}/sw.js`, no fetch handler
