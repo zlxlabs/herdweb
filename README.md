@@ -6,6 +6,9 @@
 
 **Web UI for [herdr](https://herdr.dev/) — drive Herdr servers from your phone.**
 
+<img width="300" height="652" alt="c9dfaa317676eae66a65f6b079013daa" src="https://github.com/user-attachments/assets/b670da43-5799-44cc-b1a9-82a8bed9aefc" />
+
+
 One herdweb process attaches to Herdr [servers](https://herdr.dev/docs/concepts/#client-and-server):
 the default server on this machine, other named servers on the same machine, and
 servers on other machines via [`herdr --remote`](https://herdr.dev/docs/how-to-work/).
