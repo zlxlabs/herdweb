@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 import { DoubaoEngine, type WebSocketLike } from '../src/asr/doubao/engine'
 import { decodeFrame } from '../src/asr/doubao/protocol'
@@ -255,15 +255,18 @@ class RejectingStopCapture extends FakeCapture {
 
 class FakeTrack {
 	stopCalls = 0
+	readyState: MediaStreamTrackState = 'live'
 	onended: (() => void) | null = null
 	onmute: (() => void) | null = null
 	onunmute: (() => void) | null = null
 
 	stop(): void {
 		this.stopCalls++
+		this.readyState = 'ended'
 	}
 
 	triggerEnded(): void {
+		this.readyState = 'ended'
 		this.onended?.()
 	}
 
@@ -354,6 +357,7 @@ class FakeAudioContext {
 	readonly audioWorklet = { addModule: async (_url: string) => {} }
 	readonly sources: FakeSource[] = []
 	closeCalls = 0
+	suspendCalls = 0
 	onstatechange: (() => void) | null = null
 
 	constructor(_options: { readonly sampleRate: number }) {
@@ -362,6 +366,13 @@ class FakeAudioContext {
 
 	resume(): Promise<void> {
 		this.state = 'running'
+		return Promise.resolve()
+	}
+
+	suspend(): Promise<void> {
+		this.suspendCalls++
+		this.state = 'suspended'
+		this.onstatechange?.()
 		return Promise.resolve()
 	}
 
@@ -389,6 +400,15 @@ class FinalSocket extends EpochSocket {
 		if (frame.kind === 'audio' && frame.flags === 3) {
 			queueMicrotask(() => this.triggerMessage(serverResponse({ result: { text: 'done' } }, true)))
 		}
+	}
+}
+
+class CountingFinalSocket extends FinalSocket {
+	readonly sentFrames: Uint8Array[] = []
+
+	override send(data: Uint8Array): void {
+		this.sentFrames.push(data)
+		super.send(data)
 	}
 }
 
@@ -1257,5 +1277,159 @@ describe('DoubaoEngine', () => {
 		} finally {
 			vi.unstubAllGlobals()
 		}
+	})
+
+	describe('keep-alive BrowserPcmCapture', () => {
+		afterEach(() => {
+			FakeAudioNode.ackFlush = true
+			FakeAudioContext.initialState = 'running'
+			vi.useRealTimers()
+			vi.unstubAllGlobals()
+		})
+
+		function stubGetUserMedia(getStream: () => FakeStream) {
+			FakeAudioContext.instances.length = 0
+			FakeAudioNode.instances.length = 0
+			const getUserMedia = vi.fn(async () => getStream())
+			vi.stubGlobal('AudioContext', FakeAudioContext)
+			vi.stubGlobal('AudioWorkletNode', FakeAudioNode)
+			vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+			return getUserMedia
+		}
+
+		function createKeepAliveEngine(websocketFactory: () => WebSocketLike): DoubaoEngine {
+			return new DoubaoEngine({
+				apiKey: 'test-api-key',
+				resourceId: 'volc.seedasr.sauc.duration',
+				keepAlive: true,
+				websocketFactory,
+			})
+		}
+
+		test('reuses a live capture across start-stop-start without ending the track', async () => {
+			const stream = new FakeStream()
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const errors: string[] = []
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			engine.onError((code) => errors.push(code))
+
+			await engine.start()
+			await engine.stop()
+
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(stream.track.stopCalls).toBe(0)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(0)
+			expect(FakeAudioContext.instances[0]?.suspendCalls).toBe(1)
+			expect(errors).toEqual([])
+
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(FakeAudioContext.instances).toHaveLength(1)
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(0)
+			expect(errors).toEqual([])
+			await engine.dispose()
+		})
+
+		test('does not recapture or emit PCM after an idle gap', async () => {
+			const stream = new FakeStream()
+			const sockets: CountingFinalSocket[] = []
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const engine = createKeepAliveEngine(() => {
+				const socket = new CountingFinalSocket()
+				sockets.push(socket)
+				return socket
+			})
+
+			await engine.start()
+			const node = FakeAudioNode.instances[0]
+			const firstSocket = sockets[0]
+			if (!firstSocket) throw new Error('keep-alive engine did not open a socket')
+			await engine.stop()
+			const sentAfterStop = firstSocket.sentFrames.length
+			node?.port.triggerMessage({
+				type: 'pcm',
+				samples: new Int16Array(1600),
+				posted: 1,
+			})
+			expect(firstSocket.sentFrames).toHaveLength(sentAfterStop)
+
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(stream.track.stopCalls).toBe(0)
+			await engine.stop()
+			await engine.dispose()
+		})
+
+		test('rebuilds capture with getUserMedia after the kept track ends', async () => {
+			const live = new FakeStream()
+			const rebuilt = new FakeStream()
+			let current = live
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+
+			await engine.start()
+			await engine.stop()
+			live.track.readyState = 'ended'
+			current = rebuilt
+			await engine.start()
+
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			expect(FakeAudioContext.instances).toHaveLength(2)
+			expect(rebuilt.track.stopCalls).toBe(0)
+			await engine.stop()
+			await engine.dispose()
+		})
+
+		test('releases the kept track and audio context on dispose', async () => {
+			const stream = new FakeStream()
+			stubGetUserMedia(() => stream)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+
+			await engine.start()
+			await engine.stop()
+			const context = FakeAudioContext.instances[0]
+			expect(stream.track.stopCalls).toBe(0)
+			expect(context?.closeCalls).toBe(0)
+
+			await engine.dispose()
+			expect(stream.track.stopCalls).toBe(1)
+			expect(context?.closeCalls).toBe(1)
+		})
+
+		test('recaptures and stops tracks on every session when keep-alive is off', async () => {
+			const streams = [new FakeStream(), new FakeStream()]
+			let gumCalls = 0
+			FakeAudioContext.instances.length = 0
+			FakeAudioNode.instances.length = 0
+			vi.stubGlobal('AudioContext', FakeAudioContext)
+			vi.stubGlobal('AudioWorkletNode', FakeAudioNode)
+			vi.stubGlobal('navigator', {
+				mediaDevices: {
+					getUserMedia: async () => {
+						const stream = streams[gumCalls]
+						gumCalls++
+						if (!stream) throw new Error('unexpected getUserMedia')
+						return stream
+					},
+				},
+			})
+			const engine = new DoubaoEngine({
+				apiKey: 'test-api-key',
+				resourceId: 'volc.seedasr.sauc.duration',
+				websocketFactory: () => new CountingFinalSocket(),
+			})
+
+			await engine.start()
+			await engine.stop()
+			expect(streams[0]?.track.stopCalls).toBe(1)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(1)
+
+			await engine.start()
+			await engine.stop()
+			expect(gumCalls).toBe(2)
+			expect(streams[1]?.track.stopCalls).toBe(1)
+			expect(FakeAudioContext.instances[1]?.closeCalls).toBe(1)
+		})
 	})
 })
