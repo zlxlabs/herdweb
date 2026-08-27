@@ -64,6 +64,12 @@ export function isVoiceInputSupported(): boolean {
 	)
 }
 
+/** iOS Home Screen PWA only; other platforms leave `navigator.standalone` undefined. */
+export function isIosStandalonePwa(): boolean {
+	const standalone: unknown = Reflect.get(globalThis.navigator, 'standalone')
+	return standalone === true
+}
+
 /** Keep terminal-safe printable text and U+0020 space; strip controls and format separators. */
 export function sanitizeVoiceText(text: string): string {
 	let result = ''
@@ -93,12 +99,18 @@ export function createMicController(options: MicControllerOptions): MicControlle
 	if (!options.config.asr.enabled) return undefined
 	if (!options.engine && !isVoiceInputSupported()) return undefined
 
-	const engine =
-		options.engine ??
-		new DoubaoEngine({
+	let createdEngine: DoubaoEngine | undefined
+	let engine: AsrEngine
+	if (options.engine) {
+		engine = options.engine
+	} else {
+		createdEngine = new DoubaoEngine({
 			apiKey: options.config.asr.doubao.apiKey,
 			resourceId: options.config.asr.doubao.resourceId,
+			keepAlive: isIosStandalonePwa(),
 		})
+		engine = createdEngine
+	}
 	if (!engine.isSupported()) return undefined
 
 	const preview = createAsrPreview({ defaultTargetId: options.config.defaultTargetId })
@@ -734,7 +746,13 @@ export function createMicController(options: MicControllerOptions): MicControlle
 			generation++
 			clearTimers()
 			clearResultDeadline()
-			stopEngine()
+			if (createdEngine) {
+				void createdEngine.dispose().catch((error: unknown) => {
+					console.error('herdweb: ASR dispose failed', error)
+				})
+			} else {
+				stopEngine()
+			}
 			for (const disposeButton of buttonDisposers.values()) disposeButton()
 			buttonDisposers.clear()
 			micButtons.clear()

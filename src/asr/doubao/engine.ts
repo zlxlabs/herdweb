@@ -47,6 +47,8 @@ interface DoubaoEngineOptions {
 	readonly workletUrl?: string
 	readonly websocketFactory?: WebSocketFactory
 	readonly capture?: PcmCapture
+	/** When true, stop() pauses capture without ending tracks or closing AudioContext. */
+	readonly keepAlive?: boolean
 }
 
 function unsubscribe<T>(handlers: Set<T>, handler: T): AsrUnsubscribe {
@@ -66,6 +68,9 @@ function errorCode(error: unknown): AsrErrorCode {
 	}
 	if (error instanceof Error && error.name === 'WorkletLoadError') {
 		return 'worklet-load-failed'
+	}
+	if (error instanceof Error && error.name === 'AudioInterruptedError') {
+		return 'audio-interrupted'
 	}
 	return 'connection-failed'
 }
@@ -137,6 +142,7 @@ function browserWebSocketFactory(url: string): WebSocketLike {
 
 class BrowserPcmCapture implements PcmCapture {
 	private readonly workletUrl: string
+	private readonly keepAlive: boolean
 	private context: AudioContext | undefined
 	private stream: MediaStream | undefined
 	private source: MediaStreamAudioSourceNode | undefined
@@ -148,9 +154,14 @@ class BrowserPcmCapture implements PcmCapture {
 	private workletPosted = 0
 	private workletReceived = 0
 	private readonly muteTimers = new Map<MediaStreamTrack, ReturnType<typeof setTimeout>>()
+	private readonly onPageHide = (): void => {
+		void this.release()
+	}
 
-	constructor(workletUrl: string) {
+	constructor(workletUrl: string, keepAlive = false) {
 		this.workletUrl = workletUrl
+		this.keepAlive = keepAlive
+		if (keepAlive) globalThis.addEventListener('pagehide', this.onPageHide)
 	}
 
 	async start(onSamples: (samples: Int16Array) => void, onError: AsrErrorHandler): Promise<void> {
@@ -165,6 +176,11 @@ class BrowserPcmCapture implements PcmCapture {
 		if (!globalThis.navigator?.mediaDevices?.getUserMedia || !globalThis.AudioContext) {
 			throw new Error('AudioWorklet capture is not supported')
 		}
+		if (this.keepAlive && this.canReuseHeldCapture(this.stream, this.context)) {
+			await this.restartHeldCapture(epoch, onSamples, onError)
+			return
+		}
+		if (this.stream || this.context) await this.releaseHeldResources()
 		const stream = await globalThis.navigator.mediaDevices.getUserMedia({ audio: true })
 		if (epoch !== this.epoch) {
 			await this.disposeStartResources(stream, undefined, undefined, undefined)
@@ -201,33 +217,7 @@ class BrowserPcmCapture implements PcmCapture {
 				return
 			}
 			node = new AudioWorkletNode(context, WORKLET_PROCESSOR_NAME)
-			node.port.onmessage = (
-				event: MessageEvent<
-					| { type: 'pcm'; samples: Int16Array; posted: number }
-					| { type: 'flush-ack' }
-					| { type: 'error'; error: string }
-				>,
-			) => {
-				if (event.data.type === 'flush-ack') {
-					const waiter = this.flushWaiter
-					if (waiter?.epoch === epoch) {
-						this.flushWaiter = undefined
-						waiter.resolve()
-					}
-					return
-				}
-				if (event.data.type === 'error') {
-					if (epoch === this.epoch) onError('audio-context')
-					return
-				}
-				if (epoch !== this.epoch) return
-				this.workletPosted = Math.max(this.workletPosted, event.data.posted)
-				this.workletReceived++
-				this.onSamples?.(event.data.samples)
-			}
-			node.onprocessorerror = () => {
-				if (epoch === this.epoch) onError('audio-context')
-			}
+			this.bindWorkletNode(node, epoch, onError)
 			source = context.createMediaStreamSource(stream)
 			source.connect(node)
 			node.connect(context.destination)
@@ -244,14 +234,131 @@ class BrowserPcmCapture implements PcmCapture {
 			this.node = node
 		} catch (error) {
 			this.clearCaptureSignals(stream, context)
-			if (node) node.onprocessorerror = null
-			source?.disconnect()
-			node?.port.close()
-			node?.disconnect()
+			this.teardownGraph(source, node)
 			for (const track of stream.getTracks()) track.stop()
-			if (context) await context.close()
+			if (context && context.state !== 'closed') await context.close()
 			throw error
 		}
+	}
+
+	private async restartHeldCapture(
+		epoch: number,
+		onSamples: (samples: Int16Array) => void,
+		onError: AsrErrorHandler,
+	): Promise<void> {
+		const stream = this.stream
+		const context = this.context
+		if (!stream || !context) return
+		let source: MediaStreamAudioSourceNode | undefined
+		let node: AudioWorkletNode | undefined
+		try {
+			const state: string = context.state
+			if (state !== 'running') await context.resume()
+			if (epoch !== this.epoch) return
+			if (context.state !== 'running') {
+				const error = new Error('AudioContext did not resume')
+				error.name = 'AudioInterruptedError'
+				throw error
+			}
+			try {
+				await context.audioWorklet.addModule(this.workletUrl)
+			} catch (error) {
+				const failure = new Error('AudioWorklet module failed to load', { cause: error })
+				failure.name = 'WorkletLoadError'
+				throw failure
+			}
+			if (epoch !== this.epoch) return
+			node = new AudioWorkletNode(context, WORKLET_PROCESSOR_NAME)
+			this.bindWorkletNode(node, epoch, onError)
+			source = context.createMediaStreamSource(stream)
+			source.connect(node)
+			node.connect(context.destination)
+			if (epoch !== this.epoch) {
+				this.teardownGraph(source, node)
+				return
+			}
+			this.installCaptureSignals(stream, context, epoch, onError)
+			node.port.postMessage({ type: 'start' })
+			this.onSamples = onSamples
+			this.source = source
+			this.node = node
+		} catch (error) {
+			this.clearCaptureSignals(stream, context)
+			this.teardownGraph(source, node)
+			await this.releaseHeldResources()
+			throw error
+		}
+	}
+
+	private bindWorkletNode(node: AudioWorkletNode, epoch: number, onError: AsrErrorHandler): void {
+		node.port.onmessage = (
+			event: MessageEvent<
+				| { type: 'pcm'; samples: Int16Array; posted: number }
+				| { type: 'flush-ack' }
+				| { type: 'error'; error: string }
+			>,
+		) => {
+			if (event.data.type === 'flush-ack') {
+				const waiter = this.flushWaiter
+				if (waiter?.epoch === epoch) {
+					this.flushWaiter = undefined
+					waiter.resolve()
+				}
+				return
+			}
+			if (event.data.type === 'error') {
+				if (epoch === this.epoch) onError('audio-context')
+				return
+			}
+			if (epoch !== this.epoch) return
+			this.workletPosted = Math.max(this.workletPosted, event.data.posted)
+			this.workletReceived++
+			this.onSamples?.(event.data.samples)
+		}
+		node.onprocessorerror = () => {
+			if (epoch === this.epoch) onError('audio-context')
+		}
+	}
+
+	private hasPausableCapture(
+		stream: MediaStream | undefined,
+		context: AudioContext | undefined,
+	): boolean {
+		if (!stream || !context || context.state === 'closed') return false
+		return stream.getTracks().some((track) => track.readyState === 'live')
+	}
+
+	private canReuseHeldCapture(
+		stream: MediaStream | undefined,
+		context: AudioContext | undefined,
+	): boolean {
+		if (!stream || !context || context.state === 'closed') return false
+		const tracks = stream.getTracks()
+		return tracks.length > 0 && tracks.every((track) => track.readyState === 'live')
+	}
+
+	private teardownGraph(
+		source: MediaStreamAudioSourceNode | undefined,
+		node: AudioWorkletNode | undefined,
+	): void {
+		if (node) node.onprocessorerror = null
+		source?.disconnect()
+		node?.port.close()
+		node?.disconnect()
+	}
+
+	private async releaseHeldResources(): Promise<void> {
+		const stream = this.stream
+		const context = this.context
+		const source = this.source
+		const node = this.node
+		this.stream = undefined
+		this.context = undefined
+		this.source = undefined
+		this.node = undefined
+		this.onSamples = undefined
+		if (stream) await this.disposeStartResources(stream, context, source, node)
+		else if (context && context.state !== 'closed') await context.close()
 	}
 
 	private async disposeStartResources(
@@ -261,12 +368,9 @@ class BrowserPcmCapture implements PcmCapture {
 		node: AudioWorkletNode | undefined,
 	): Promise<void> {
 		this.clearCaptureSignals(stream, context)
-		if (node) node.onprocessorerror = null
-		source?.disconnect()
-		node?.port.close()
-		node?.disconnect()
+		this.teardownGraph(source, node)
 		for (const track of stream.getTracks()) track.stop()
-		if (context) await context.close()
+		if (context && context.state !== 'closed') await context.close()
 	}
 
 	private installCaptureSignals(
@@ -285,6 +389,7 @@ class BrowserPcmCapture implements PcmCapture {
 				this.muteTimers.set(track, setTimeout(reportInterruption, 5_000))
 			}
 			track.onunmute = () => this.clearMuteTimer(track)
+			if (track.muted) this.muteTimers.set(track, setTimeout(reportInterruption, 5_000))
 		}
 		context.onstatechange = () => {
 			const state: string = context.state
@@ -320,16 +425,21 @@ class BrowserPcmCapture implements PcmCapture {
 		const stream = this.stream
 		const node = this.node
 		const context = this.context
+		const pause = this.keepAlive && this.hasPausableCapture(stream, context)
 		this.source = undefined
-		this.stream = undefined
 		this.node = undefined
-		this.context = undefined
 		this.onSamples = undefined
+		if (!pause) {
+			this.stream = undefined
+			this.context = undefined
+		}
 		if (stream) this.clearCaptureSignals(stream, context)
 		if (node) node.onprocessorerror = null
 		source?.disconnect()
-		for (const track of stream?.getTracks() ?? []) track.stop()
-		const promise = this.stopCurrentEpoch(epoch, node, context)
+		if (!pause) {
+			for (const track of stream?.getTracks() ?? []) track.stop()
+		}
+		const promise = this.stopCurrentEpoch(epoch, node, context, pause)
 		this.stopPromise = promise
 		void promise.then(
 			() => {
@@ -342,10 +452,22 @@ class BrowserPcmCapture implements PcmCapture {
 		return promise
 	}
 
+	async release(): Promise<void> {
+		if (this.keepAlive) globalThis.removeEventListener('pagehide', this.onPageHide)
+		const previousStop = this.stopPromise
+		if (previousStop) {
+			await previousStop
+			if (this.stopPromise === previousStop) this.stopPromise = undefined
+		}
+		this.epoch++
+		await this.releaseHeldResources()
+	}
+
 	private async stopCurrentEpoch(
 		epoch: number,
 		node: AudioWorkletNode | undefined,
 		context: AudioContext | undefined,
+		pause: boolean,
 	): Promise<void> {
 		try {
 			if (node) {
@@ -374,7 +496,11 @@ class BrowserPcmCapture implements PcmCapture {
 			if (this.flushWaiter?.epoch === epoch) this.flushWaiter = undefined
 			node?.port.close()
 			node?.disconnect()
-			if (context) await context.close()
+			if (context && pause && context.state !== 'closed' && context.state !== 'suspended') {
+				await context.suspend()
+			} else if (context && !pause && context.state !== 'closed') {
+				await context.close()
+			}
 		}
 	}
 }
@@ -390,7 +516,8 @@ class BrowserPcmCapture implements PcmCapture {
  *   and never publish the stale resource.
  * starting + provider/protocol failure -> failing: report once, invalidate epoch, cleanup -> idle.
  * recording + stop -> stopping: stop monitor/capture, flush queued PCM, send tail, await final/3s,
- *   cleanup -> idle.
+ *   cleanup -> idle. keep-alive capture pauses (no track.stop / context.close) and the next
+ *   start reuses a live stream; dispose()/pagehide/ended tracks fully release.
  * recording + WS/provider/protocol/backpressure failure -> failing: report once, stop/close, idle.
  * stopping + provider/WS/protocol/stop failure -> stopping: report once, resolve final waiter,
  *   keep the shared stop promise, then cleanup -> idle.
@@ -408,6 +535,7 @@ export class DoubaoEngine implements AsrEngine {
 	private readonly errorHandlers = new Set<AsrErrorHandler>()
 	private readonly websocketFactory: WebSocketFactory
 	private readonly capture: PcmCapture
+	private readonly ownedCapture: BrowserPcmCapture | undefined
 	private socket: WebSocketLike | undefined
 	private state: EngineState = 'idle'
 	private epoch = 0
@@ -427,8 +555,23 @@ export class DoubaoEngine implements AsrEngine {
 	constructor(options: DoubaoEngineOptions) {
 		this.options = options
 		this.websocketFactory = options.websocketFactory ?? browserWebSocketFactory
-		this.capture =
-			options.capture ?? new BrowserPcmCapture(options.workletUrl ?? DEFAULT_WORKLET_URL)
+		if (options.capture) {
+			this.capture = options.capture
+			this.ownedCapture = undefined
+		} else {
+			const owned = new BrowserPcmCapture(
+				options.workletUrl ?? DEFAULT_WORKLET_URL,
+				options.keepAlive === true,
+			)
+			this.ownedCapture = owned
+			this.capture = owned
+		}
+	}
+
+	/** Release keep-alive capture resources. Idle stop() is a no-op; this always tears down. */
+	async dispose(): Promise<void> {
+		await this.stop()
+		await this.ownedCapture?.release()
 	}
 
 	isSupported(): boolean {

@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
-import { describe, expect, test, vi } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import WebSocket from 'ws'
 import { DoubaoEngine, type WebSocketLike } from '../src/asr/doubao/engine'
 import { decodeFrame } from '../src/asr/doubao/protocol'
+import { isIosStandalonePwa } from '../src/controls/mic-controller'
 import { createMockVolcServer } from './fixtures/asr/mock-volc-server'
 
 const ASR_FIXTURE_DIR = resolve(
@@ -255,23 +256,29 @@ class RejectingStopCapture extends FakeCapture {
 
 class FakeTrack {
 	stopCalls = 0
+	muted = false
+	readyState: MediaStreamTrackState = 'live'
 	onended: (() => void) | null = null
 	onmute: (() => void) | null = null
 	onunmute: (() => void) | null = null
 
 	stop(): void {
 		this.stopCalls++
+		this.readyState = 'ended'
 	}
 
 	triggerEnded(): void {
+		this.readyState = 'ended'
 		this.onended?.()
 	}
 
 	triggerMute(): void {
+		this.muted = true
 		this.onmute?.()
 	}
 
 	triggerUnmute(): void {
+		this.muted = false
 		this.onunmute?.()
 	}
 }
@@ -307,7 +314,11 @@ class FakePort {
 		this.closeCalls++
 	}
 
-	triggerMessage(data: { readonly type: string }): void {
+	triggerMessage(data: {
+		readonly type: string
+		readonly samples?: Int16Array
+		readonly posted?: number
+	}): void {
 		this.onmessage?.({ data })
 	}
 }
@@ -354,6 +365,9 @@ class FakeAudioContext {
 	readonly audioWorklet = { addModule: async (_url: string) => {} }
 	readonly sources: FakeSource[] = []
 	closeCalls = 0
+	suspendCalls = 0
+	resumeCalls = 0
+	stayInterruptedOnResume = false
 	onstatechange: (() => void) | null = null
 
 	constructor(_options: { readonly sampleRate: number }) {
@@ -361,7 +375,15 @@ class FakeAudioContext {
 	}
 
 	resume(): Promise<void> {
-		this.state = 'running'
+		this.resumeCalls++
+		if (!this.stayInterruptedOnResume) this.state = 'running'
+		return Promise.resolve()
+	}
+
+	suspend(): Promise<void> {
+		this.suspendCalls++
+		this.state = 'suspended'
+		this.onstatechange?.()
 		return Promise.resolve()
 	}
 
@@ -389,6 +411,15 @@ class FinalSocket extends EpochSocket {
 		if (frame.kind === 'audio' && frame.flags === 3) {
 			queueMicrotask(() => this.triggerMessage(serverResponse({ result: { text: 'done' } }, true)))
 		}
+	}
+}
+
+class CountingFinalSocket extends FinalSocket {
+	readonly sentFrames: Uint8Array[] = []
+
+	override send(data: Uint8Array): void {
+		this.sentFrames.push(data)
+		super.send(data)
 	}
 }
 
@@ -1257,5 +1288,181 @@ describe('DoubaoEngine', () => {
 		} finally {
 			vi.unstubAllGlobals()
 		}
+	})
+
+	describe('keep-alive BrowserPcmCapture', () => {
+		afterEach(() => {
+			FakeAudioNode.ackFlush = true
+			FakeAudioContext.initialState = 'running'
+			vi.unstubAllGlobals()
+		})
+
+		function stubGetUserMedia(getStream: () => FakeStream) {
+			FakeAudioContext.instances.length = 0
+			FakeAudioNode.instances.length = 0
+			const getUserMedia = vi.fn(async () => getStream())
+			vi.stubGlobal('AudioContext', FakeAudioContext)
+			vi.stubGlobal('AudioWorkletNode', FakeAudioNode)
+			vi.stubGlobal('navigator', { mediaDevices: { getUserMedia } })
+			return getUserMedia
+		}
+
+		function createKeepAliveEngine(websocketFactory: () => WebSocketLike): DoubaoEngine {
+			return new DoubaoEngine({
+				apiKey: 'test-api-key',
+				resourceId: 'volc.seedasr.sauc.duration',
+				keepAlive: true,
+				websocketFactory,
+			})
+		}
+
+		function liveSession() {
+			const stream = new FakeStream()
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const errors: string[] = []
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			engine.onError((code) => errors.push(code))
+			return { stream, getUserMedia, errors, engine }
+		}
+
+		test('reuses a live capture, resumes interrupted context, and delivers PCM', async () => {
+			const stream = new FakeStream()
+			const sockets: CountingFinalSocket[] = []
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const errors: string[] = []
+			const engine = createKeepAliveEngine(() => {
+				const socket = new CountingFinalSocket()
+				sockets.push(socket)
+				return socket
+			})
+			engine.onError((code) => errors.push(code))
+			await engine.start()
+			const firstNode = FakeAudioNode.instances[0]
+			const firstSocket = sockets[0]
+			if (!firstNode || !firstSocket) throw new Error('missing first session')
+			await engine.stop()
+			const context = FakeAudioContext.instances[0]
+			if (!context) throw new Error('missing context')
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(stream.track.stopCalls).toBe(0)
+			expect(context.closeCalls).toBe(0)
+			const idleSent = firstSocket.sentFrames.length
+			firstNode.port.triggerMessage({ type: 'pcm', samples: new Int16Array(1600), posted: 1 })
+			expect(firstSocket.sentFrames).toHaveLength(idleSent)
+			context.triggerState('interrupted')
+			expect(errors).toEqual([])
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(context.resumeCalls).toBeGreaterThan(0)
+			const node = FakeAudioNode.instances[1]
+			const socket = sockets[1]
+			if (!node || !socket) throw new Error('missing second session')
+			const sent = socket.sentFrames.length
+			node.port.triggerMessage({ type: 'pcm', samples: new Int16Array(1600), posted: 1 })
+			expect(socket.sentFrames.length).toBeGreaterThan(sent)
+			expect(errors).toEqual([])
+			await engine.stop()
+			await engine.dispose()
+			expect(stream.track.stopCalls).toBe(1)
+			expect(context.closeCalls).toBe(1)
+		})
+
+		test('reports audio-interrupted when resume does not reach running', async () => {
+			const { errors, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			const context = FakeAudioContext.instances[0]
+			if (!context) throw new Error('missing context')
+			context.stayInterruptedOnResume = true
+			context.triggerState('interrupted')
+			await expect(engine.start()).rejects.toThrow('did not resume')
+			expect(errors).toEqual(['audio-interrupted'])
+			await engine.dispose()
+		})
+
+		test('rebuilds capture after the kept track has ended', async () => {
+			const live = new FakeStream()
+			const rebuilt = new FakeStream()
+			let current = live
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			await engine.start()
+			await engine.stop()
+			live.track.readyState = 'ended'
+			current = rebuilt
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			await engine.dispose()
+		})
+
+		test('releases capture when stop sees ended tracks', async () => {
+			const { stream, engine } = liveSession()
+			await engine.start()
+			stream.track.readyState = 'ended'
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(1)
+		})
+
+		test('pauses a muted live track without stopping it', async () => {
+			const { stream, engine } = liveSession()
+			await engine.start()
+			stream.track.muted = true
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(0)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(0)
+			await engine.dispose()
+		})
+
+		test.each([true, false] as const)('start-muted watchdog timeout=%s', async (timeout) => {
+			const { stream, getUserMedia, errors, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			stream.track.muted = true
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			if (!timeout) stream.track.triggerUnmute()
+			await vi.advanceTimersByTimeAsync(timeout ? 4_999 : 5_000)
+			expect(errors).toEqual([])
+			if (timeout) {
+				await vi.advanceTimersByTimeAsync(1)
+				expect(errors).toEqual(['audio-interrupted'])
+			}
+			vi.useRealTimers()
+			await engine.dispose()
+		})
+
+		test('recaptures and stops tracks on every session when keep-alive is off', async () => {
+			const streams = [new FakeStream(), new FakeStream()]
+			let gumCalls = 0
+			const getUserMedia = stubGetUserMedia(() => {
+				const stream = streams[gumCalls]
+				gumCalls++
+				if (!stream) throw new Error('unexpected getUserMedia')
+				return stream
+			})
+			const engine = new DoubaoEngine({
+				apiKey: 'test-api-key',
+				resourceId: 'volc.seedasr.sauc.duration',
+				websocketFactory: () => new CountingFinalSocket(),
+			})
+			await engine.start()
+			await engine.stop()
+			expect(streams[0]?.track.stopCalls).toBe(1)
+			await engine.start()
+			await engine.stop()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			expect(streams[1]?.track.stopCalls).toBe(1)
+		})
+	})
+
+	test.each([
+		[true, true],
+		[false, false],
+		[undefined, false],
+	] as const)('isIosStandalonePwa(%s) is %s', (value, expected) => {
+		vi.stubGlobal('navigator', { standalone: value })
+		expect(isIosStandalonePwa()).toBe(expected)
+		vi.unstubAllGlobals()
 	})
 })
