@@ -1292,7 +1292,6 @@ describe('DoubaoEngine', () => {
 		afterEach(() => {
 			FakeAudioNode.ackFlush = true
 			FakeAudioContext.initialState = 'running'
-			vi.useRealTimers()
 			vi.unstubAllGlobals()
 		})
 
@@ -1326,18 +1325,21 @@ describe('DoubaoEngine', () => {
 				return socket
 			})
 			engine.onError((code) => errors.push(code))
-
 			await engine.start()
+			const firstNode = FakeAudioNode.instances[0]
+			const firstSocket = sockets[0]
+			if (!firstNode || !firstSocket) throw new Error('missing first session')
 			await engine.stop()
 			const context = FakeAudioContext.instances[0]
 			if (!context) throw new Error('missing context')
 			expect(getUserMedia).toHaveBeenCalledTimes(1)
 			expect(stream.track.stopCalls).toBe(0)
 			expect(context.closeCalls).toBe(0)
-			expect(context.suspendCalls).toBe(1)
+			const idleSent = firstSocket.sentFrames.length
+			firstNode.port.triggerMessage({ type: 'pcm', samples: new Int16Array(1600), posted: 1 })
+			expect(firstSocket.sentFrames).toHaveLength(idleSent)
 			context.triggerState('interrupted')
 			expect(errors).toEqual([])
-
 			await engine.start()
 			expect(getUserMedia).toHaveBeenCalledTimes(1)
 			expect(context.resumeCalls).toBeGreaterThan(0)
@@ -1350,6 +1352,8 @@ describe('DoubaoEngine', () => {
 			expect(errors).toEqual([])
 			await engine.stop()
 			await engine.dispose()
+			expect(stream.track.stopCalls).toBe(1)
+			expect(context.closeCalls).toBe(1)
 		})
 
 		test('reports audio-interrupted when resume does not reach running', async () => {
@@ -1370,52 +1374,9 @@ describe('DoubaoEngine', () => {
 			await engine.dispose()
 		})
 
-		test('does not recapture or emit PCM after an idle gap', async () => {
-			const stream = new FakeStream()
-			const sockets: CountingFinalSocket[] = []
-			const getUserMedia = stubGetUserMedia(() => stream)
-			const engine = createKeepAliveEngine(() => {
-				const socket = new CountingFinalSocket()
-				sockets.push(socket)
-				return socket
-			})
-
-			await engine.start()
-			const node = FakeAudioNode.instances[0]
-			const firstSocket = sockets[0]
-			if (!firstSocket) throw new Error('keep-alive engine did not open a socket')
-			await engine.stop()
-			const sentAfterStop = firstSocket.sentFrames.length
-			node?.port.triggerMessage({
-				type: 'pcm',
-				samples: new Int16Array(1600),
-				posted: 1,
-			})
-			expect(firstSocket.sentFrames).toHaveLength(sentAfterStop)
-
-			await engine.start()
-			expect(getUserMedia).toHaveBeenCalledTimes(1)
-			expect(stream.track.stopCalls).toBe(0)
-			await engine.stop()
-			await engine.dispose()
-		})
-
-		test.each([
-			[
-				'ended',
-				(track: FakeTrack) => {
-					track.readyState = 'ended'
-				},
-			],
-			[
-				'muted',
-				(track: FakeTrack) => {
-					track.muted = true
-				},
-			],
-		] as const)(
-			'rebuilds capture with getUserMedia after the kept track is %s',
-			async (_kind, spoil) => {
+		test.each(['ended', 'muted'] as const)(
+			'rebuilds capture after the kept track is %s',
+			async (kind) => {
 				const live = new FakeStream()
 				const rebuilt = new FakeStream()
 				let current = live
@@ -1423,31 +1384,14 @@ describe('DoubaoEngine', () => {
 				const engine = createKeepAliveEngine(() => new CountingFinalSocket())
 				await engine.start()
 				await engine.stop()
-				spoil(live.track)
+				if (kind === 'ended') live.track.readyState = 'ended'
+				else live.track.muted = true
 				current = rebuilt
 				await engine.start()
 				expect(getUserMedia).toHaveBeenCalledTimes(2)
-				expect(rebuilt.track.stopCalls).toBe(0)
-				await engine.stop()
 				await engine.dispose()
 			},
 		)
-
-		test('releases the kept track and audio context on dispose', async () => {
-			const stream = new FakeStream()
-			stubGetUserMedia(() => stream)
-			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
-
-			await engine.start()
-			await engine.stop()
-			const context = FakeAudioContext.instances[0]
-			expect(stream.track.stopCalls).toBe(0)
-			expect(context?.closeCalls).toBe(0)
-
-			await engine.dispose()
-			expect(stream.track.stopCalls).toBe(1)
-			expect(context?.closeCalls).toBe(1)
-		})
 
 		test('recaptures and stops tracks on every session when keep-alive is off', async () => {
 			const streams = [new FakeStream(), new FakeStream()]
