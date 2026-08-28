@@ -181,6 +181,7 @@ describe('POST /api/events', () => {
 
 	test('duplicate id returns 202 without double append', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const body = JSON.stringify({ v: 1, id: 'dup', kind: 'done', title: 'T', ts: 1 })
 		expect(
 			(
@@ -202,6 +203,16 @@ describe('POST /api/events', () => {
 		).toBe(202)
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim().split('\n')
 		expect(lines).toHaveLength(1)
+		const decision = logSpy.mock.calls
+			.map((args) => String(args[0]))
+			.filter((line) => line.startsWith('herdweb: notify decision'))
+		expect(decision.filter((line) => line.includes('accepted') && line.includes('id=dup'))).toEqual(
+			['herdweb: notify decision accepted kind=done id=dup'],
+		)
+		expect(decision.filter((line) => line.includes('reason=duplicate'))).toEqual([
+			'herdweb: notify decision duplicate kind=done id=dup reason=duplicate',
+		])
+		logSpy.mockRestore()
 	})
 
 	test('explicit producer requires v2 and a known target', async () => {
