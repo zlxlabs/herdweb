@@ -1,4 +1,5 @@
 import type { TargetMode } from '../types'
+import { logNotifyDecision } from './decision-log'
 import type { NotifyEvent } from './events'
 
 const DEFAULT_BUSY_BYTES = 1024
@@ -67,10 +68,24 @@ export function createSilenceDetector(deps: SilenceDetectorDeps): SilenceDetecto
 
 		if (ts - quietSince < config.quietMs) return
 
-		if (cooldownUntil !== undefined && ts < cooldownUntil) return
+		if (cooldownUntil !== undefined && ts < cooldownUntil) {
+			logNotifyDecision({
+				outcome: 'skipped',
+				kind: 'silence',
+				reason: 'cooldown',
+				remainingMs: cooldownUntil - ts,
+			})
+			return
+		}
 
 		const lastLaneEvent = deps.lastEventAt(targetId, sessionKey)
 		if (lastLaneEvent !== undefined && ts - lastLaneEvent < config.cooldownMs) {
+			logNotifyDecision({
+				outcome: 'skipped',
+				kind: 'silence',
+				reason: 'lane-cooldown',
+				remainingMs: config.cooldownMs - (ts - lastLaneEvent),
+			})
 			armed = false
 			quietSince = undefined
 			cooldownUntil = ts + config.cooldownMs
@@ -87,6 +102,13 @@ export function createSilenceDetector(deps: SilenceDetectorDeps): SilenceDetecto
 			body: `已 ${config.quietMs / 1000} 秒无输出`,
 			ts,
 		}
+		logNotifyDecision({
+			outcome: 'accepted',
+			kind: 'silence',
+			id: event.id,
+			reason: 'armed-quiet',
+			bytes: trailingBytes,
+		})
 		deps.dispatch(event)
 
 		armed = false

@@ -1,6 +1,7 @@
 import webpush from 'web-push'
 import type { NotifyChannel } from '../types'
 import { sendNotifyChannels } from './channels'
+import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
 import {
 	type NotifyEvent,
 	isRecord,
@@ -205,6 +206,23 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		lastByIdentity.set(`${targetId}\u0000${event.session ?? ''}`, event.ts)
 	}
 
+	function acceptedReasonFor(event: NotifyEvent): NotifyDecisionReason | undefined {
+		if (event.kind === 'silence') return 'armed-quiet'
+		if (event.kind === 'health') {
+			return event.reason !== undefined ? 'session-end' : 'service-restart'
+		}
+		return undefined
+	}
+
+	function logAccepted(event: NotifyEvent): void {
+		logNotifyDecision({
+			outcome: 'accepted',
+			kind: event.kind,
+			id: event.id,
+			reason: acceptedReasonFor(event),
+		})
+	}
+
 	function pruneStaleSubscriptions(): void {
 		if (inFlight.size > 0) return
 		const subs = readSubscriptions(deps.stateDir)
@@ -231,6 +249,12 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 
 			if (normalized.kind !== 'test') {
 				if (dedup.has(dedupKey)) {
+					logNotifyDecision({
+						outcome: 'duplicate',
+						kind: normalized.kind,
+						id: normalized.id,
+						reason: 'duplicate',
+					})
 					return 'duplicate'
 				}
 				dedup.add(dedupKey)
@@ -238,6 +262,9 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
+			if (normalized.kind !== 'silence') {
+				logAccepted(normalized)
+			}
 			const pushPromise = pushToAll(normalized)
 				.catch((error: unknown) => {
 					console.error('herdweb: notify push failed', error)
