@@ -78,6 +78,9 @@ describe('logNotifyDecision', () => {
 			'rate-limited',
 			'invalid-event',
 			'payload-too-large',
+			'not-attention',
+			'child-done',
+			'done-coalesced',
 		])
 		for (const reason of NOTIFY_DECISION_REASONS) {
 			logNotifyDecision({ outcome: 'skipped', reason })
@@ -105,6 +108,9 @@ describe('logNotifyDecision', () => {
 				case 'rate-limited':
 				case 'invalid-event':
 				case 'payload-too-large':
+				case 'not-attention':
+				case 'child-done':
+				case 'done-coalesced':
 					return reason
 			}
 		}

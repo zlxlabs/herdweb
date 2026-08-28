@@ -188,7 +188,7 @@ describe('POST /api/events', () => {
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim()
 		expect(lines).toContain('persist-1')
 		expect(decisionLines(logSpy)).toContain(
-			'herdweb: notify decision accepted kind=done id=persist-1',
+			'herdweb: notify decision skipped kind=done id=persist-1 reason=done-coalesced',
 		)
 		logSpy.mockRestore()
 	})
@@ -295,9 +295,9 @@ describe('POST /api/events', () => {
 		const decision = logSpy.mock.calls
 			.map((args) => String(args[0]))
 			.filter((line) => line.startsWith('herdweb: notify decision'))
-		expect(decision.filter((line) => line.includes('accepted') && line.includes('id=dup'))).toEqual(
-			['herdweb: notify decision accepted kind=done id=dup'],
-		)
+		expect(decision.filter((line) => line.includes('skipped') && line.includes('id=dup'))).toEqual([
+			'herdweb: notify decision skipped kind=done id=dup reason=done-coalesced',
+		])
 		expect(decision.filter((line) => line.includes('reason=duplicate'))).toEqual([
 			'herdweb: notify decision duplicate kind=done id=dup reason=duplicate',
 		])

@@ -11,6 +11,9 @@ export type NotifyDecisionReason =
 	| 'rate-limited'
 	| 'invalid-event'
 	| 'payload-too-large'
+	| 'not-attention'
+	| 'child-done'
+	| 'done-coalesced'
 
 export type NotifyDecisionOutcome = 'accepted' | 'skipped' | 'duplicate' | 'rejected'
 
@@ -27,6 +30,9 @@ export const NOTIFY_DECISION_REASONS = [
 	'rate-limited',
 	'invalid-event',
 	'payload-too-large',
+	'not-attention',
+	'child-done',
+	'done-coalesced',
 ] as const satisfies readonly NotifyDecisionReason[]
 
 export const NOTIFY_DECISION_LOG_PREFIX = 'herdweb: notify decision'

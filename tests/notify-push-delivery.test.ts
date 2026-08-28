@@ -237,7 +237,14 @@ test.each(mergeCases)('$name', async (mergeCase) => {
 
 	notifyService.dispatchEvent(
 		parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'delivery-merge', kind: 'done', title: 'Done', ts: 1 }),
+			JSON.stringify({
+				v: 1,
+				id: 'delivery-merge',
+				kind: 'done',
+				role: 'root',
+				title: 'Done',
+				ts: 1,
+			}),
 		),
 	)
 	await deliveryStarted
