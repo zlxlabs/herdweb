@@ -148,6 +148,29 @@ describe('setupReconnect', () => {
 		reload.mockRestore()
 	})
 
+	test('a connection notice keeps the current overlay layout', () => {
+		const term = mockConnectionTerminal({
+			state: 'synced',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		term.setStatus({
+			state: 'reconnecting',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const overlay = getOverlay()
+		expect(overlay?.dataset.layout).toBe('banner')
+		window.dispatchEvent(
+			new CustomEvent('herdweb-connection-notice', { detail: 'Not sent — still syncing.' }),
+		)
+		expect(overlay?.dataset.layout).toBe('banner')
+		expect(overlay?.style.minHeight).toBe('44px')
+		expect(overlay?.querySelector('div')?.textContent).toBe('Not sent — still syncing.')
+		dispose()
+	})
+
 	test('connection notice replaces the state message without a second overlay', () => {
 		const term = mockConnectionTerminal({
 			state: 'syncing',

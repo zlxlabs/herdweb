@@ -9,20 +9,10 @@ interface ReconnectOverlay {
 	readonly authButton: HTMLButtonElement
 }
 
-const SHARED_OVERLAY_STYLE = [
-	'display:none',
-	'position:fixed',
-	'z-index:10000',
-	'background:rgba(30,30,46,0.92)',
-	'color:#cdd6f4',
-	'font-family:sans-serif',
-	'justify-content:center',
-	'align-items:center',
-	'gap:16px',
-].join(';')
-
 function applyOverlayLayout(overlay: HTMLDivElement, everSynced: boolean): void {
-	overlay.dataset.layout = everSynced ? 'banner' : 'modal'
+	const next = everSynced ? 'banner' : 'modal'
+	if (overlay.dataset.layout === next) return
+	overlay.dataset.layout = next
 	if (everSynced) {
 		overlay.style.inset = ''
 		overlay.style.top = '0'
@@ -54,9 +44,20 @@ function applyOverlayLayout(overlay: HTMLDivElement, everSynced: boolean): void 
 function createOverlay(onReconnect: () => void, onReload: () => void): ReconnectOverlay {
 	const overlay = el('div', {
 		id: 'herdweb-reconnect-overlay',
-		style: `${SHARED_OVERLAY_STYLE};inset:0;flex-direction:column`,
+		style: [
+			'display:none',
+			'position:fixed',
+			'inset:0',
+			'z-index:10000',
+			'background:rgba(30,30,46,0.92)',
+			'color:#cdd6f4',
+			'font-family:sans-serif',
+			'justify-content:center',
+			'align-items:center',
+			'flex-direction:column',
+			'gap:16px',
+		].join(';'),
 	})
-	overlay.dataset.layout = 'modal'
 
 	const message = el('div', {
 		style: 'font-size:1.4rem;font-weight:600',
@@ -163,7 +164,6 @@ export function setupReconnect(term: XTerminal, config: ReconnectConfig): () => 
 		const detail: unknown = event.detail
 		if (typeof detail !== 'string') return
 		notice = detail
-		applyOverlayLayout(overlay, everSynced)
 		message.textContent = detail
 		if (detail === 'Session ended — restart herdweb to start a new one.') {
 			authButton.style.display = 'none'
