@@ -9,11 +9,21 @@ const BASE_CONFIG = {
 	cooldownMs: 600_000,
 }
 
+const DECISION_PREFIX = 'herdweb: notify decision'
+
+let logSpy: ReturnType<typeof vi.spyOn>
+
+function decisionLines(): string[] {
+	return logSpy.mock.calls
+		.map((args) => String(args[0]))
+		.filter((line) => line.startsWith(DECISION_PREFIX))
+}
+
 function makeHarness(
 	overrides: {
 		bytesInWindow?: (windowMs: number) => number
 		lastOutputAt?: () => number | undefined
-		lastEventAt?: (sessionKey: string) => number | undefined
+		lastEventAt?: (targetId: string, sessionKey?: string) => number | undefined
 		enabled?: boolean
 	} = {},
 ) {
@@ -47,9 +57,11 @@ function makeHarness(
 describe('createSilenceDetector', () => {
 	beforeEach(() => {
 		vi.useFakeTimers()
+		logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 	})
 
 	afterEach(() => {
+		logSpy.mockRestore()
 		vi.useRealTimers()
 	})
 
@@ -57,6 +69,7 @@ describe('createSilenceDetector', () => {
 		const h = makeHarness({ bytesInWindow: () => 512 })
 		h.advance(600_000)
 		expect(h.dispatched).toHaveLength(0)
+		expect(decisionLines()).toEqual([])
 		h.dispose()
 	})
 
@@ -76,6 +89,9 @@ describe('createSilenceDetector', () => {
 		expect(h.dispatched[0]?.title).toBe('herdweb · dev 可能完工/卡住')
 		expect(h.dispatched[0]?.body).toBe('已 180 秒无输出')
 		expect(h.dispatched[0]?.session).toBe('dev')
+		expect(decisionLines()).toEqual([
+			'herdweb: notify decision accepted kind=silence id=silence:dev:3 reason=armed-quiet bytes=0',
+		])
 		h.dispose()
 	})
 
@@ -90,8 +106,12 @@ describe('createSilenceDetector', () => {
 		busy = false
 		h.advance(180_000)
 		expect(h.dispatched).toHaveLength(1)
+		expect(decisionLines()).toEqual([
+			'herdweb: notify decision accepted kind=silence id=silence:dev:3 reason=armed-quiet bytes=0',
+		])
 		h.advance(600_000)
 		expect(h.dispatched).toHaveLength(1)
+		expect(decisionLines().filter((line) => line.includes('skipped'))).toEqual([])
 		h.dispose()
 	})
 
@@ -115,6 +135,8 @@ describe('createSilenceDetector', () => {
 		lastOut = firstTs + 30_000
 		h.advance(180_000)
 		expect(h.dispatched).toHaveLength(2)
+		expect(decisionLines().filter((line) => line.includes('reason=cooldown'))).toEqual([])
+		expect(decisionLines().filter((line) => line.includes('accepted'))).toHaveLength(2)
 		h.dispose()
 	})
 
@@ -130,6 +152,9 @@ describe('createSilenceDetector', () => {
 		busy = false
 		h.advance(180_000)
 		expect(h.dispatched).toHaveLength(0)
+		expect(decisionLines()).toEqual([
+			'herdweb: notify decision skipped kind=silence reason=lane-cooldown remainingMs=390000',
+		])
 		h.dispose()
 	})
 
@@ -137,6 +162,23 @@ describe('createSilenceDetector', () => {
 		const h = makeHarness({ enabled: false, bytesInWindow: () => 9999 })
 		h.advance(600_000)
 		expect(h.dispatched).toHaveLength(0)
+		expect(decisionLines()).toEqual([])
+		h.dispose()
+	})
+
+	test('quiet not yet full — no decision log', () => {
+		let busy = true
+		let lastOut = 0
+		const h = makeHarness({
+			bytesInWindow: () => (busy ? 1500 : 0),
+			lastOutputAt: () => lastOut,
+		})
+		h.advance(30_000)
+		busy = false
+		lastOut = 30_000
+		h.advance(150_000)
+		expect(h.dispatched).toHaveLength(0)
+		expect(decisionLines()).toEqual([])
 		h.dispose()
 	})
 

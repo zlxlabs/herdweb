@@ -16,6 +16,12 @@ function routeVariants(basePath: string, path: string): readonly string[] {
 	return basePath === '/' ? [path] : [path, `${basePath}${path}`]
 }
 
+function decisionLines(spy: ReturnType<typeof vi.spyOn>): string[] {
+	return spy.mock.calls
+		.map((args) => String(args[0]))
+		.filter((line) => line.startsWith('herdweb: notify decision'))
+}
+
 interface TestHarness {
 	readonly port: number
 	readonly stateDir: string
@@ -136,6 +142,7 @@ describe('POST /api/events', () => {
 
 	test('accepts valid event with 202 and persists', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -144,16 +151,27 @@ describe('POST /api/events', () => {
 		expect(response.status).toBe(202)
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim()
 		expect(lines).toContain('persist-1')
+		expect(decisionLines(logSpy)).toContain(
+			'herdweb: notify decision accepted kind=done id=persist-1',
+		)
+		logSpy.mockRestore()
 	})
 
 	test('requires bearer token when configured', async () => {
 		harness = await createHarness('secret')
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const deniedBody = JSON.stringify({ v: 1, id: 'auth-1', kind: 'done', title: 'T', ts: 1 })
 		const denied = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ v: 1, id: 'auth-1', kind: 'done', title: 'T', ts: 1 }),
+			body: deniedBody,
 		})
 		expect(denied.status).toBe(401)
+		expect(decisionLines(logSpy)).toEqual([
+			'herdweb: notify decision rejected reason=unauthorized status=401',
+		])
+		expect(decisionLines(logSpy).join('\n')).not.toContain(deniedBody)
+		expect(decisionLines(logSpy).join('\n')).not.toContain('auth-1')
 		const allowed = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: {
@@ -163,10 +181,12 @@ describe('POST /api/events', () => {
 			body: JSON.stringify({ v: 1, id: 'auth-2', kind: 'done', title: 'T', ts: 1 }),
 		})
 		expect(allowed.status).toBe(202)
+		logSpy.mockRestore()
 	})
 
 	test('returns 429 after 60 events per minute', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		let lastStatus = 202
 		for (let i = 0; i < 61; i++) {
 			const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
@@ -177,10 +197,15 @@ describe('POST /api/events', () => {
 			lastStatus = response.status
 		}
 		expect(lastStatus).toBe(429)
+		const rejected = decisionLines(logSpy).filter((line) => line.includes('rejected'))
+		expect(rejected).toEqual(['herdweb: notify decision rejected reason=rate-limited status=429'])
+		expect(rejected.join('\n')).not.toContain('rate-60')
+		logSpy.mockRestore()
 	})
 
 	test('duplicate id returns 202 without double append', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const body = JSON.stringify({ v: 1, id: 'dup', kind: 'done', title: 'T', ts: 1 })
 		expect(
 			(
@@ -202,28 +227,46 @@ describe('POST /api/events', () => {
 		).toBe(202)
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim().split('\n')
 		expect(lines).toHaveLength(1)
+		const decision = logSpy.mock.calls
+			.map((args) => String(args[0]))
+			.filter((line) => line.startsWith('herdweb: notify decision'))
+		expect(decision.filter((line) => line.includes('accepted') && line.includes('id=dup'))).toEqual(
+			['herdweb: notify decision accepted kind=done id=dup'],
+		)
+		expect(decision.filter((line) => line.includes('reason=duplicate'))).toEqual([
+			'herdweb: notify decision duplicate kind=done id=dup reason=duplicate',
+		])
+		logSpy.mockRestore()
 	})
 
 	test('explicit producer requires v2 and a known target', async () => {
 		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const v1Body = { ...validBase, id: 'v1-explicit' }
 		const post = (body: object) =>
 			fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(body),
 			})
-		expect((await post({ ...validBase, id: 'v1-explicit' })).status).toBe(400)
+		expect((await post(v1Body)).status).toBe(400)
+		expect(decisionLines(logSpy)).toContain(
+			'herdweb: notify decision rejected reason=invalid-event status=400',
+		)
+		expect(decisionLines(logSpy).join('\n')).not.toContain('v1-explicit')
 		const v2 = { v: 2, targetId: 'workbox', id: 'v2-explicit', kind: 'done', title: 'Done', ts: 1 }
 		await post(v2)
 		expect(readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8')).toContain(
 			'"targetId":"workbox"',
 		)
 		expect((await post({ ...v2, targetId: 'missing' })).status).toBe(400)
+		logSpy.mockRestore()
 	})
 
 	test('kind=test bypasses dedup and disk', async () => {
 		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-test-kind-'))
 		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		writeSubscriptions(stateDir, [
 			{
 				endpoint: 'https://push.example/device',
@@ -238,12 +281,18 @@ describe('POST /api/events', () => {
 		expect(() => readFileSync(join(stateDir, 'events.jsonl'))).toThrow()
 		await notifyService.awaitInFlight(1000)
 		expect(sendPush).toHaveBeenCalledTimes(2)
+		expect(decisionLines(logSpy).filter((line) => line.includes('kind=test'))).toEqual([
+			'herdweb: notify decision accepted kind=test id=test:1',
+			'herdweb: notify decision accepted kind=test id=test:2',
+		])
 		notifyService.dispose()
 		rmSync(stateDir, { recursive: true, force: true })
+		logSpy.mockRestore()
 	})
 
 	test('FIFO dedup eviction allows reuse after capacity', () => {
 		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-fifo-'))
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
 		for (let i = 0; i < 1001; i++) {
 			const event = parseNotifyEvent(
@@ -257,6 +306,52 @@ describe('POST /api/events', () => {
 		expect(notifyService.dispatchEvent(replay)).toBe('accepted')
 		notifyService.dispose()
 		rmSync(stateDir, { recursive: true, force: true })
+		logSpy.mockRestore()
+	})
+
+	test('rejects non-loopback POST with decision log and no body', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const body = JSON.stringify({ v: 1, id: 'remote-1', kind: 'done', title: 'T', ts: 1 })
+		const response = await harness.fetchApp(
+			new Request('http://term.example.ts.net/api/events', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body,
+			}),
+		)
+		expect(response.status).toBe(403)
+		expect(decisionLines(logSpy)).toEqual([
+			'herdweb: notify decision rejected reason=not-loopback status=403',
+		])
+		expect(decisionLines(logSpy).join('\n')).not.toContain(body)
+		expect(decisionLines(logSpy).join('\n')).not.toContain('remote-1')
+		logSpy.mockRestore()
+	})
+
+	test('rejects oversized payload with decision log and no body', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const body = JSON.stringify({
+			v: 1,
+			id: 'huge-1',
+			kind: 'done',
+			title: 'T',
+			ts: 1,
+			body: 'x'.repeat(5000),
+		})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body,
+		})
+		expect(response.status).toBe(413)
+		expect(decisionLines(logSpy)).toEqual([
+			'herdweb: notify decision rejected reason=payload-too-large status=413',
+		])
+		expect(decisionLines(logSpy).join('\n')).not.toContain(body)
+		expect(decisionLines(logSpy).join('\n')).not.toContain('huge-1')
+		logSpy.mockRestore()
 	})
 })
 
@@ -297,6 +392,7 @@ describe('POST /api/push/test', () => {
 
 	test('returns 202 and dispatches kind=test with matching Origin', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
 		const host = `127.0.0.1:${harness.port}`
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/push/test`, {
@@ -314,6 +410,7 @@ describe('POST /api/push/test', () => {
 				body: 'Test notification from panel',
 			}),
 		)
+		logSpy.mockRestore()
 	})
 
 	test('returns 403 without Origin on non-loopback Host', async () => {
@@ -326,6 +423,7 @@ describe('POST /api/push/test', () => {
 
 	test('returns 429 after 60 requests per minute', async () => {
 		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const host = `127.0.0.1:${harness.port}`
 		let lastStatus = 202
 		for (let i = 0; i < 61; i++) {
@@ -339,10 +437,12 @@ describe('POST /api/push/test', () => {
 			lastStatus = response.status
 		}
 		expect(lastStatus).toBe(429)
+		logSpy.mockRestore()
 	})
 
 	test('explicit mode uses validated targetId query for v2 test events', async () => {
 		harness = await createHarness(undefined, 'explicit', ['local', 'workbox'])
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const dispatchSpy = vi.spyOn(harness.notifyService, 'dispatchEvent')
 		const post = (query = '') =>
 			fetch(`http://127.0.0.1:${harness.port}/api/push/test${query}`, {
@@ -358,5 +458,6 @@ describe('POST /api/push/test', () => {
 		)
 		expect((await post()).status).toBe(400)
 		expect((await post('?targetId=nope')).status).toBe(400)
+		logSpy.mockRestore()
 	})
 })

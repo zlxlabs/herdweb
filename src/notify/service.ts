@@ -1,6 +1,7 @@
 import webpush from 'web-push'
 import type { NotifyChannel } from '../types'
 import { sendNotifyChannels } from './channels'
+import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
 import {
 	type NotifyEvent,
 	isRecord,
@@ -53,6 +54,23 @@ interface SubscriptionDelta {
 	readonly snapshot: PushSubscriptionRecord
 	readonly lastSuccessAt?: number
 	readonly remove: boolean
+}
+
+function acceptedReasonFor(event: NotifyEvent): NotifyDecisionReason | undefined {
+	if (event.kind === 'silence') return 'armed-quiet'
+	if (event.kind === 'health') {
+		return event.reason !== undefined ? 'session-end' : 'service-restart'
+	}
+	return undefined
+}
+
+function logAcceptedDecision(event: NotifyEvent): void {
+	logNotifyDecision({
+		outcome: 'accepted',
+		kind: event.kind,
+		id: event.id,
+		reason: acceptedReasonFor(event),
+	})
 }
 
 function sameSubscriptionRecord(
@@ -231,6 +249,12 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 
 			if (normalized.kind !== 'test') {
 				if (dedup.has(dedupKey)) {
+					logNotifyDecision({
+						outcome: 'duplicate',
+						kind: normalized.kind,
+						id: normalized.id,
+						reason: 'duplicate',
+					})
 					return 'duplicate'
 				}
 				dedup.add(dedupKey)
@@ -238,6 +262,9 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
+			if (normalized.kind !== 'silence') {
+				logAcceptedDecision(normalized)
+			}
 			const pushPromise = pushToAll(normalized)
 				.catch((error: unknown) => {
 					console.error('herdweb: notify push failed', error)

@@ -1,5 +1,6 @@
 import { basename } from 'node:path'
 import type { TargetMode } from '../types'
+import { logNotifyDecision } from './decision-log'
 import type { NotifyEvent } from './events'
 import type { LastSessionEntry } from './state'
 
@@ -49,6 +50,28 @@ export function shouldAnnounceRestart(
 	if (prev === undefined) return false
 	if (prev.sessionId === currentSessionId) return false
 	return now - prev.exitedAt > RESTART_ANNOUNCE_GAP_MS
+}
+
+/** Log a restart-gap skip at the call site; keeps `shouldAnnounceRestart` pure. */
+export function considerRestartAnnouncement(input: {
+	readonly prev: LastSessionEntry | undefined
+	readonly currentSessionId: string
+	readonly now: number
+	readonly announce: () => void
+}): void {
+	if (shouldAnnounceRestart(input.prev, input.currentSessionId, input.now)) {
+		input.announce()
+		return
+	}
+	if (input.prev === undefined || input.prev.sessionId === input.currentSessionId) {
+		return
+	}
+	logNotifyDecision({
+		outcome: 'skipped',
+		kind: 'health',
+		reason: 'restart-gap',
+		remainingMs: RESTART_ANNOUNCE_GAP_MS - (input.now - input.prev.exitedAt),
+	})
 }
 
 export function formatExitReason(exitCode: number, signal: number | null): string {
