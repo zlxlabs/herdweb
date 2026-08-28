@@ -1,3 +1,11 @@
+# [1.15.0](https://github.com/zlxlabs/herdweb/compare/v1.14.0...v1.15.0) (2026-08-28)
+
+
+### Features
+
+* **notify:** add decision log formatter and silence skip/accept lines ([befe154](https://github.com/zlxlabs/herdweb/commit/befe15431e7b52608078ef0c65f3721f9be459e3))
+* **notify:** log inbound rejects, channel kind/id, and wecom errcode ([01c6efb](https://github.com/zlxlabs/herdweb/commit/01c6efbcef95b98f9be4419faf0321eb64472bfe))
+
 # [1.14.0](https://github.com/zlxlabs/herdweb/compare/v1.13.1...v1.14.0) (2026-08-27)
 
 
