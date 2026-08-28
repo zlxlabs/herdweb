@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
 	DONE_COALESCE_MS,
+	type NotifyTaskRole,
 	type OutboundDecision,
 	coalesceSessionKey,
 	decideOutbound,
 } from '../src/notify/attention-policy'
-import type { NotifyEvent, NotifyKind, NotifyTaskRole } from '../src/notify/events'
+import type { NotifyEvent, NotifyKind } from '../src/notify/events'
 import { parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
