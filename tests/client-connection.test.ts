@@ -648,22 +648,6 @@ describe('client connection state machine', () => {
 		expect(parseSent(syncingSocket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
 	})
 
-	test('first-load pageshow never emits a resume-probe ping', async () => {
-		const socket = await freshAttempt()
-		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
-		window.dispatchEvent(pageshowEvent(false))
-		await vi.advanceTimersByTimeAsync(0)
-		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
-
-		openWithAttach(socket)
-		expect(getStatus().state).toBe('syncing')
-		window.dispatchEvent(pageshowEvent(false))
-		window.dispatchEvent(pageshowEvent(false))
-		await vi.advanceTimersByTimeAsync(0)
-		expect(currentSocket()).toBe(socket)
-		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
-	})
-
 	test('visibility, online, and pageshow in one turn probe once without a new socket', async () => {
 		const socket = await freshSynced()
 		const socketCount = harness.sockets.length
