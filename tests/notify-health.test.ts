@@ -249,7 +249,8 @@ describe('health event builders', () => {
 		await service.awaitInFlight(1000)
 		expect(
 			sendPush.mock.calls.map(([, payload]) => JSON.parse(payload as string).targetId),
-		).toEqual(['a', 'b', 'b'])
+		).toEqual(['a', 'b'])
+		expect(readFileSync(join(stateDir, 'events.jsonl'), 'utf-8')).toContain('"kind":"silence"')
 		detector.dispose()
 		service.dispose()
 		rmSync(stateDir, { recursive: true, force: true })

@@ -237,12 +237,13 @@ herdweb to the Home Screen first.
 
 **Outbound notification channels**
 
-Web Push and outbound channels run in parallel. Channels are disabled by
-default; configure one or more fixed-shape webhook destinations under
-`notify.channels` when a device cannot reach its push provider. Each event is
-posted once to every configured channel. A failed channel is logged with its
-type, host, and status/error name, but does not block Web Push or another
-channel; there is no retry queue in v1.
+Web Push and outbound channels run in parallel, but only after the attention
+gate (see **What gets notified** below). Channels are disabled by default;
+configure one or more fixed-shape webhook destinations under `notify.channels`
+when a device cannot reach its push provider. Each outbound event is posted
+once to every configured channel. A failed channel is logged with its type,
+host, and status/error name, but does not block Web Push or another channel;
+there is no retry queue in v1.
 
 ```ts
 export default {
@@ -290,21 +291,39 @@ journalctl --user -u herdweb.service --grep 'herdweb: notify channel'
 
 `reason=` is one of: `armed-quiet`, `session-end`, `service-restart`,
 `cooldown`, `lane-cooldown`, `restart-gap`, `duplicate`, `not-loopback`,
-`unauthorized`, `rate-limited`, `invalid-event`, `payload-too-large`.
+`unauthorized`, `rate-limited`, `invalid-event`, `payload-too-large`,
+`not-attention`, `child-done`, `done-coalesced`.
 
 **What gets notified (and how fast)**
 
-| Lane | Source | Typical delay | v1 status |
-|------|--------|---------------|-----------|
-| Silence | herdweb (PTY output stops after busy period) | ~3–5 minutes after agent output stops | Available |
-| Health | herdweb (PTY exit / service restart) | Seconds after exit or restart | Available |
-| Test | Panel **Send test notification** button | Immediate | Available |
-| asking / done / ci-red | External `POST /api/events` (badge lane from agent-config) | ~60–90 seconds when wired | **Not available yet** — requires [agent-config#495](https://github.com/zlxlabs/agent-config/issues/495) on the machine running herdweb |
+Event history (`events.jsonl` and the panel list) records every accepted
+fact. Web Push and `notify.channels` are a separate outbound gate: they
+fire only when a human should intervene (you must answer, or the service
+died) or when the original long-running task finishes.
+
+| kind | History | Outbound (Web Push / channels) |
+|------|---------|--------------------------------|
+| `asking` | written | immediate |
+| `health` | written | immediate |
+| `test` | not written | immediate |
+| `ci-red` | written | immediate (producer not wired yet; treated as blocking if it arrives) |
+| `silence` | written | never (`not-attention`; the detector may still log `armed-quiet`) |
+| `done` + `role=root` | written | immediate |
+| `done` + `role=child` | written | never (`child-done`) |
+| `done` with no `role` | written | last event per `session` (missing session uses `default`) after 600s of quiet (`done-coalesced`; each new unlabeled done resets the timer). v1 merge key is session-only — parallel repos that share a session name can swallow each other's unlabeled completions. |
+
+`role` is `root` or `child` (optional). `parentId` and `startedAt` are
+optional inbound fields stored in history; they do not change the gate.
+Until producers send `role`, unlabeled `done` events coalesce. Producer
+labeling is tracked in [agent-config#843](https://github.com/zlxlabs/agent-config/issues/843).
+A process drain (`awaitInFlight` / `dispose`) flushes a still-pending
+unlabeled `done` so shutdown does not drop the last completion.
 
 The silence lane cannot distinguish “waiting for you” from “running a long
-task” — titles use “may be done / stuck” wording. A `202` response from
-`POST /api/events` means the event was accepted and queued for push — not that
-the phone has already displayed it.
+task” — titles use “may be done / stuck” wording, and that guess is kept
+in history only. A `202` response from `POST /api/events` means the event
+was accepted into history (and de-duplicated) — not that it will be
+pushed, and not that the phone has already displayed it.
 
 **Known limitations**
 

@@ -1,5 +1,6 @@
 export const NOTIFY_KINDS = ['asking', 'done', 'ci-red', 'silence', 'health', 'test'] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
+export type NotifyTaskRole = 'root' | 'child'
 
 interface NotifyEventFields {
 	readonly id: string
@@ -9,6 +10,9 @@ interface NotifyEventFields {
 	readonly body?: string
 	readonly reason?: string
 	readonly ts: number
+	readonly role?: NotifyTaskRole
+	readonly parentId?: string
+	readonly startedAt?: number
 }
 
 export interface NotifyEventV1 extends NotifyEventFields {
@@ -32,7 +36,15 @@ const ALLOWED_FIELDS = new Set([
 	'body',
 	'reason',
 	'ts',
+	'role',
+	'parentId',
+	'startedAt',
 ])
+const NOTIFY_TASK_ROLES = ['root', 'child'] as const
+
+function isNotifyTaskRole(value: unknown): value is NotifyTaskRole {
+	return typeof value === 'string' && NOTIFY_TASK_ROLES.some((role) => role === value)
+}
 const MAX_RAW_BYTES = 4 * 1024
 const TITLE_MAX = 120
 const BODY_MAX = 200
@@ -125,6 +137,24 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('reason must be a string', 400)
 	}
 
+	if (obj.role !== undefined && !isNotifyTaskRole(obj.role)) {
+		throw new NotifyEventError('invalid role', 400)
+	}
+
+	if (
+		obj.parentId !== undefined &&
+		(typeof obj.parentId !== 'string' || obj.parentId.length === 0)
+	) {
+		throw new NotifyEventError('parentId must be a non-empty string', 400)
+	}
+
+	if (
+		obj.startedAt !== undefined &&
+		(typeof obj.startedAt !== 'number' || !Number.isFinite(obj.startedAt))
+	) {
+		throw new NotifyEventError('startedAt must be a finite number', 400)
+	}
+
 	const id = typeof obj.id === 'string' && obj.id.length > 0 ? obj.id : undefined
 	if (obj.kind !== 'test' && id === undefined) {
 		throw new NotifyEventError('id is required', 400)
@@ -141,6 +171,13 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		...(obj.session !== undefined ? { session: obj.session } : {}),
 		...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
 		...(obj.reason !== undefined ? { reason: truncate(obj.reason, REASON_MAX) } : {}),
+		...(isNotifyTaskRole(obj.role) ? { role: obj.role } : {}),
+		...(typeof obj.parentId === 'string' && obj.parentId.length > 0
+			? { parentId: obj.parentId }
+			: {}),
+		...(typeof obj.startedAt === 'number' && Number.isFinite(obj.startedAt)
+			? { startedAt: obj.startedAt }
+			: {}),
 	}
 
 	return obj.v === 2

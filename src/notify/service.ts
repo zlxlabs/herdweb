@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import type { NotifyChannel } from '../types'
+import { DONE_COALESCE_MS, coalesceSessionKey, decideOutbound } from './attention-policy'
 import { sendNotifyChannels } from './channels'
 import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
 import {
@@ -145,6 +146,10 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 	const lastByIdentity = new Map<string, number>()
 	let vapid: VapidKeys | undefined
 	let staleScanTimer: ReturnType<typeof setInterval> | undefined
+	const pendingCoalesce = new Map<
+		string,
+		{ event: NotifyEvent; timer: ReturnType<typeof setTimeout> }
+	>()
 
 	function ensureVapid(): VapidKeys {
 		vapid ??= ensureVapidKeys(deps.stateDir, deps.vapidOverride)
@@ -241,6 +246,59 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		staleScanTimer.unref()
 	}
 
+	function unrefTimer(timer: ReturnType<typeof setTimeout>): void {
+		if (typeof timer === 'object' && 'unref' in timer) timer.unref()
+	}
+
+	function deliverOutbound(event: NotifyEvent): void {
+		logAcceptedDecision(event)
+		const pushPromise = pushToAll(event)
+			.catch((error: unknown) => {
+				console.error('herdweb: notify push failed', error)
+			})
+			.finally(() => {
+				inFlight.delete(pushPromise)
+			})
+		inFlight.add(pushPromise)
+		if (deps.channels !== undefined && deps.channels.length > 0) {
+			const channelPromise = sendNotifyChannels(deps.channels, event).finally(() => {
+				inFlight.delete(channelPromise)
+			})
+			inFlight.add(channelPromise)
+		}
+	}
+
+	function queueCoalesce(event: NotifyEvent): void {
+		logNotifyDecision({
+			outcome: 'skipped',
+			kind: event.kind,
+			id: event.id,
+			reason: 'done-coalesced',
+		})
+		const key = coalesceSessionKey(event)
+		const existing = pendingCoalesce.get(key)
+		if (existing !== undefined) {
+			clearTimeout(existing.timer)
+		}
+		const timer = setTimeout(() => {
+			const current = pendingCoalesce.get(key)
+			if (current === undefined) return
+			pendingCoalesce.delete(key)
+			deliverOutbound(current.event)
+		}, DONE_COALESCE_MS)
+		unrefTimer(timer)
+		pendingCoalesce.set(key, { event, timer })
+	}
+
+	function flushAllCoalesced(): void {
+		const pending = [...pendingCoalesce.values()]
+		pendingCoalesce.clear()
+		for (const item of pending) {
+			clearTimeout(item.timer)
+			deliverOutbound(item.event)
+		}
+	}
+
 	return {
 		dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate' {
 			validateNotifyEventForMode(event, targetMode, targetIds)
@@ -262,27 +320,26 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
-			if (normalized.kind !== 'silence') {
-				logAcceptedDecision(normalized)
+			const decision = decideOutbound(normalized)
+			if (decision.action === 'withhold') {
+				logNotifyDecision({
+					outcome: 'skipped',
+					kind: normalized.kind,
+					id: normalized.id,
+					reason: decision.reason,
+				})
+				return 'accepted'
 			}
-			const pushPromise = pushToAll(normalized)
-				.catch((error: unknown) => {
-					console.error('herdweb: notify push failed', error)
-				})
-				.finally(() => {
-					inFlight.delete(pushPromise)
-				})
-			inFlight.add(pushPromise)
-			if (deps.channels !== undefined && deps.channels.length > 0) {
-				const channelPromise = sendNotifyChannels(deps.channels, normalized).finally(() => {
-					inFlight.delete(channelPromise)
-				})
-				inFlight.add(channelPromise)
+			if (decision.action === 'coalesce') {
+				queueCoalesce(normalized)
+				return 'accepted'
 			}
+			deliverOutbound(normalized)
 			return 'accepted'
 		},
 
 		async awaitInFlight(timeoutMs: number): Promise<void> {
+			flushAllCoalesced()
 			const pending = [...inFlight]
 			if (pending.length === 0) return
 			let timer: ReturnType<typeof setTimeout> | undefined
@@ -307,6 +364,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		},
 
 		dispose(): void {
+			flushAllCoalesced()
 			if (staleScanTimer !== undefined) {
 				clearInterval(staleScanTimer)
 				staleScanTimer = undefined
