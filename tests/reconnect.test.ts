@@ -224,6 +224,8 @@ describe('setupReconnect', () => {
 		expect(overlay?.style.top).toBe('0px')
 		expect(overlay?.style.bottom).toBe('auto')
 		expect(overlay?.style.inset).toBe('')
+		expect(overlay?.style.minHeight).toBe('44px')
+		expect(overlay?.style.borderBottom).toBe('1px solid #cba6f7')
 		expect(overlay?.querySelector('div')?.textContent).toBe('Reconnecting…')
 		expect(overlay?.querySelectorAll('button')[0]?.textContent).toBe('Retry now')
 		dispose()

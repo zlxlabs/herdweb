@@ -29,8 +29,12 @@ function applyOverlayLayout(overlay: HTMLDivElement, everSynced: boolean): void 
 		overlay.style.left = '0'
 		overlay.style.right = '0'
 		overlay.style.bottom = 'auto'
+		overlay.style.height = 'auto'
+		overlay.style.minHeight = '44px'
 		overlay.style.flexDirection = 'row'
+		overlay.style.flexWrap = 'wrap'
 		overlay.style.padding = '10px 16px'
+		overlay.style.borderBottom = '1px solid #cba6f7'
 		overlay.style.pointerEvents = 'auto'
 		return
 	}
@@ -38,9 +42,13 @@ function applyOverlayLayout(overlay: HTMLDivElement, everSynced: boolean): void 
 	overlay.style.left = ''
 	overlay.style.right = ''
 	overlay.style.bottom = ''
+	overlay.style.height = ''
+	overlay.style.minHeight = ''
 	overlay.style.inset = '0'
 	overlay.style.flexDirection = 'column'
+	overlay.style.flexWrap = ''
 	overlay.style.padding = ''
+	overlay.style.borderBottom = ''
 }
 
 function createOverlay(onReconnect: () => void, onReload: () => void): ReconnectOverlay {

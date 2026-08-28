@@ -264,6 +264,7 @@ test('killing the socket while hidden reconnects behind a banner that keeps the 
 	const overlay = page.locator('#herdweb-reconnect-overlay')
 	await expect(overlay).toBeVisible({ timeout: 15_000 })
 	await expect(overlay).toHaveAttribute('data-layout', 'banner')
+	await expect(overlay).toContainText(/Reconnecting|Syncing|Disconnected/)
 	await expect(page.locator('#terminal .xterm')).toBeVisible()
 	await expect(page.locator('body')).toContainText(marker)
 	await page.screenshot({ path: 'test-results/reconnect-banner-after-sync.png' })
