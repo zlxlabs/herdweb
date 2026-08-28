@@ -532,10 +532,10 @@ describe('client render backlog (T4c)', () => {
 		if (!staleCallback) throw new Error('no held callback')
 
 		// Reconnect: new epoch, fresh ledger. Old callback fires late (twice).
-		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
-		document.dispatchEvent(new Event('visibilitychange'))
+		// visibility hidden now starts a 60s grace; freeze still suspends immediately.
+		document.dispatchEvent(new Event('freeze'))
 		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
-		document.dispatchEvent(new Event('visibilitychange'))
+		document.dispatchEvent(new Event('resume'))
 		await vi.advanceTimersByTimeAsync(0)
 		const nextSocket = harness.sockets.at(-1)
 		if (!nextSocket || nextSocket === socket) throw new Error('no new socket')

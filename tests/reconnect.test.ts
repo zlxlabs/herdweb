@@ -81,6 +81,7 @@ describe('setupReconnect', () => {
 		expect(overlay?.dataset.connectionState).toBe(state)
 		expect(overlay?.querySelector('div')?.textContent).toBe(text)
 		expect(overlay?.style.display).toBe(state === 'synced' ? 'none' : 'flex')
+		expect(overlay?.dataset.layout).toBe(state === 'synced' ? 'banner' : 'modal')
 		dispose()
 	})
 
@@ -147,6 +148,29 @@ describe('setupReconnect', () => {
 		reload.mockRestore()
 	})
 
+	test('a connection notice keeps the current overlay layout', () => {
+		const term = mockConnectionTerminal({
+			state: 'synced',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		term.setStatus({
+			state: 'reconnecting',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const overlay = getOverlay()
+		expect(overlay?.dataset.layout).toBe('banner')
+		window.dispatchEvent(
+			new CustomEvent('herdweb-connection-notice', { detail: 'Not sent — still syncing.' }),
+		)
+		expect(overlay?.dataset.layout).toBe('banner')
+		expect(overlay?.style.minHeight).toBe('44px')
+		expect(overlay?.querySelector('div')?.textContent).toBe('Not sent — still syncing.')
+		dispose()
+	})
+
 	test('connection notice replaces the state message without a second overlay', () => {
 		const term = mockConnectionTerminal({
 			state: 'syncing',
@@ -188,6 +212,125 @@ describe('setupReconnect', () => {
 		dispose()
 		reload.mockRestore()
 	})
+
+	test('first-load non-synced states use a fullscreen modal overlay', () => {
+		const term = mockConnectionTerminal({
+			state: 'syncing',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		const overlay = getOverlay()
+		expect(overlay?.dataset.layout).toBe('modal')
+		expect(overlay?.style.display).toBe('flex')
+		expect(overlay?.style.inset).toBe('0')
+		expect(overlay?.style.flexDirection).toBe('column')
+		dispose()
+	})
+
+	test('after a prior sync, reconnecting uses a non-blocking banner', () => {
+		const term = mockConnectionTerminal({
+			state: 'synced',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		const overlay = getOverlay()
+		expect(overlay?.style.display).toBe('none')
+		term.setStatus({
+			state: 'reconnecting',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		expect(overlay?.dataset.layout).toBe('banner')
+		expect(overlay?.style.display).toBe('flex')
+		expect(overlay?.style.top).toBe('0px')
+		expect(overlay?.style.bottom).toBe('auto')
+		expect(overlay?.style.inset).toBe('')
+		expect(overlay?.style.minHeight).toBe('44px')
+		expect(overlay?.style.borderBottom).toBe('1px solid #cba6f7')
+		expect(overlay?.querySelector('div')?.textContent).toBe('Reconnecting…')
+		expect(overlay?.querySelectorAll('button')[0]?.textContent).toBe('Retry now')
+		dispose()
+	})
+
+	test('banner keeps the four status messages and hides on synced', () => {
+		const term = mockConnectionTerminal({
+			state: 'synced',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		const overlay = getOverlay()
+		for (const [state, text] of [
+			['disconnected', 'Disconnected'],
+			['reconnecting', 'Reconnecting…'],
+			['syncing', 'Syncing…'],
+		] as const) {
+			term.setStatus({ state, consecutivePreSyncFailures: 0, lastFailureReason: null })
+			expect(overlay?.dataset.layout).toBe('banner')
+			expect(overlay?.querySelector('div')?.textContent).toBe(text)
+			expect(overlay?.style.display).toBe('flex')
+		}
+		term.setStatus({ state: 'synced', consecutivePreSyncFailures: 0, lastFailureReason: null })
+		expect(overlay?.style.display).toBe('none')
+		dispose()
+	})
+
+	test('banner after three failures shows auth and only reloads from that button', () => {
+		const reload = vi.spyOn(window.location, 'reload').mockImplementation(() => {})
+		const term = mockConnectionTerminal({
+			state: 'synced',
+			consecutivePreSyncFailures: 0,
+			lastFailureReason: null,
+		})
+		const dispose = setupReconnect(term, { enabled: true })
+		term.setStatus({
+			state: 'reconnecting',
+			consecutivePreSyncFailures: 3,
+			lastFailureReason: 'socket-closed',
+		})
+		const overlay = getOverlay()
+		expect(overlay?.dataset.layout).toBe('banner')
+		expect(overlay?.querySelector('div')?.textContent).toBe(
+			'Connection failed — you may need to re-authenticate.',
+		)
+		const buttons = [...(overlay?.querySelectorAll('button') ?? [])]
+		expect(buttons[1]?.style.display).toBe('block')
+		buttons[1]?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+		expect(reload).toHaveBeenCalledTimes(1)
+		expect(term.reconnectCalls).toBe(0)
+		dispose()
+		reload.mockRestore()
+	})
+
+	test.each(['button', 'backdrop', 'message'] as const)(
+		'banner click on %s forwards immediate retry once',
+		(target) => {
+			const term = mockConnectionTerminal({
+				state: 'synced',
+				consecutivePreSyncFailures: 0,
+				lastFailureReason: null,
+			})
+			const dispose = setupReconnect(term, { enabled: true })
+			term.setStatus({
+				state: 'reconnecting',
+				consecutivePreSyncFailures: 0,
+				lastFailureReason: null,
+			})
+			const overlay = getOverlay()
+			expect(overlay?.dataset.layout).toBe('banner')
+			const targetElement =
+				target === 'button'
+					? overlay?.querySelector('button')
+					: target === 'message'
+						? overlay?.querySelector('div')
+						: overlay
+			targetElement?.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+			expect(term.reconnectCalls).toBe(1)
+			dispose()
+		},
+	)
 
 	test('synced clears an explicit session-ended notice', () => {
 		const term = mockConnectionTerminal({
