@@ -12,17 +12,7 @@ Pure TypeScript + DOM API — no framework. Transpiles to JS via tsdown. Bundles
 
 ## Stack
 
-- **Node 22+** — runtime
-- **pnpm** — package manager
-- **esbuild** — browser client bundle
-- **tsdown** — transpile TS → JS for npm publish
-- **vitest** — test runner
-- **TypeScript (strict)** — no `any`, discriminated unions for actions
-- **Biome** — lint + format
-- **happy-dom** — DOM testing
-- **Hono** — HTTP + WebSocket server (`herdweb serve`)
-- **node-pty** — PTY bridge for `herdweb serve`
-- **xterm.js** — browser terminal rendering
+See `docs/architecture/stack.md`.
 
 ## Key Commands
 
@@ -40,22 +30,7 @@ pnpm run build:dist    # Transpile for publishing (tsdown)
 
 ## Local Development
 
-From source (bundles overlay on the fly, no build step):
-
-```bash
-pnpm exec tsx cli.ts serve                                # localhost:7681, default herdr session
-pnpm exec tsx cli.ts serve --port 8080 -- bash --norc     # custom port, escape hatch without herdr
-```
-
-From a local build:
-
-```bash
-pnpm run build:dist && node dist/cli.mjs serve
-```
-
-### Production / Debug
-
-See [docs/deploy-herdr.md](docs/deploy-herdr.md) for systemd unit setup, install scripts, and production/debug deployment.
+See `docs/architecture/local-development.md`.
 
 ## Conventional Commits
 
@@ -82,76 +57,11 @@ Commits must follow [Conventional Commits](https://www.conventionalcommits.org/)
 
 ## Module Layout
 
-Browser overlay (bundled to the client via esbuild):
-
-- `src/client-entry.ts` — IIFE entry point esbuild bundles into the served client (wires xterm + WebSocket to the overlay; term bridge implements keyboard suppression via `inputmode="none"`)
-- `src/overlay-entry.ts` — alternate IIFE entry that re-exports `init`/`createHookRegistry` from `index` (embedding/coverage entry, not the bundle entry)
-- `src/index.ts` — overlay bootstrap: waitForTerm then init overlay
-- `src/config.ts` — defaults, defineConfig, deepMerge
-- `src/types.ts` — all shared types
-- `src/toolbar/` — toolbar DOM + button definitions
-- `src/drawer/drawer.ts` — command drawer with sectioned grid (optional `section` headings)
-- `src/drawer/commands.ts` — re-exports defaultDrawerButtons from config
-- `src/gestures/` — swipe, pinch, scroll detection + gesture lock
-- `src/controls/` — help overlay, combo picker, floating buttons, scroll buttons, keyboard controller, d-pad
-- `src/controls/keyboard-controller.ts` — keyboard sovereignty: three-signal state controller (`inputPermission`/`textareaFocus`/`keyboardVisible`), escape hatch, fail-loud overlay; also exports the shared touchend focus-steal guard
-- `src/controls/dpad.ts` — moshi-style floating key pad (⌫ ↑ 📋 / ← ⏎ → / ⇥ ↓ ⇧⇥), toggled by the ✥ `dpad-toggle` action; keys come from `config.dpad.keys` (null = spacer cell), are focus-safe (touchend guard), and `send` keys go via `sendData` while other action types dispatch through the action registry. Keys with `longPressAction` (default: ⏎ → `'\n'`, newline without submit) fire it on a 500ms hold and suppress the tap; they carry the `wt-dpad-has-alt` corner badge. Keys with `repeatOnHold` (default: ← ↑ ↓ → ⌫) repeat their action after a 300ms hold every 100ms until release (mutually exclusive with `longPressAction` — longPress wins). The slim `⠿` handle above the grid drags the pad (pointer capture, `wt-dpad-floating` switches right/bottom to inline left/top); the position persists in `localStorage` key `herdweb:dpadPosition` (viewport-clamped on apply), and double-tapping the handle docks it back
-- `src/controls/image-drop-controller.ts` — `createImageDropController`: two entries — the `image-upload` action's hidden file input and a capture-phase `paste` listener on the terminal textarea (optional `pasteTarget` dep) — POST the image to `{basePath}/api/image-drop`, then insert ` ${path} ` into the agent input (never Enter) once the session is unchanged and synced; text-only pastes fall through to xterm untouched; success is a transient toast (auto-hides after ~2.5s), only failure states show the retry/copy/close panel
-- `src/controls/notify-panel.ts` — push notification settings panel (subscribe toggle, test button, iOS standalone hint, event history list); opened via drawer `notify-panel` action (☰ → 🔔)
-- `src/controls/target-picker.ts` — target badge + flat picker list; created only when projected `targetCount > 1`. Coarse-pointer badge is a direct child of `#wt-toolbar`; fine-pointer stays top-right.
-- `src/theme/` — catppuccin-mocha + apply
-- `src/viewport/` — height management, landscape detection
-- `src/startup-resize.ts` — schedules the initial terminal resize on load (rAF + fonts-ready)
-- `src/reconnect.ts` — connection loss overlay + auto-reload
-- `src/util/dom.ts` — element creation helpers
-- `src/util/terminal.ts` — sendData, resizeTerm, waitForTerm
-- `src/util/haptic.ts` — vibration feedback
-- `src/util/keyboard.ts` — isKeyboardOpen, conditionalFocus
-- `src/util/toast.ts` — showToast: transient inline-styled status toast (auto-hide ~2.5s); wired into the action registry for fail-loud paste errors
-- `src/util/tap.ts` — onTap: touch + click handler for iOS Safari compatibility
-- `src/actions/registry.ts` — action dispatch + clipboard
-- `src/hooks/registry.ts` — lifecycle hook system
-- `src/config-schema.ts` — Valibot validation schemas
-- `src/config-resolve.ts` — button array resolution
-- `src/config-validate.ts` — config assertions
-- `src/asr/` — provider-independent ASR contract, PCM pipeline, AudioWorklet, and Doubao SAUC engine. iOS standalone PWA (`navigator.standalone === true`) keeps the microphone MediaStream alive between `start()`/`stop()` sessions; other environments still fully release on stop. Release happens on controller dispose, page unload, or a dead track (next `start()` rebuilds).
-- `src/pwa/` — PWA manifest, meta-tags, icons
-- `src/notify/` — Web Push pipeline: event schema, `/api/events` + push subscribe routes, silence/health lanes, per-port state files
-- `src/sw-entry.ts` — service worker source (push display, notificationclick focus/openWindow, pushsubscriptionchange); served as `{basePath}/sw.js`, no fetch handler
-
-Server runtime (`herdweb serve`, Node):
-
-- `src/serve.ts` — Hono HTTP + WS server: routes, CSP/origin/host-header checks, icon serving, caffeinate, shutdown
-- `src/session.ts` — SharedTerminalSession: node-pty spawn, xterm headless mirror, multi-client broadcast + snapshot
-- `src/session-protocol.ts` — client/server message types, parse/serialise, input + resize bounds
-- `src/base-path.ts` — URL prefix mounting (`--base-path`), shared by server routes and client
-- `src/util/node-compat.ts` — sleep, spawnProcess, collectStream
-- `src/util/spawn-helper.ts` — restore node-pty's macOS spawn-helper execute bit at runtime
-
-CLI + build:
-
-- `cli.ts` — CLI: serve, init, deprecated build/inject, --version; config loading (cwd → XDG) + .local overrides
-- `src/cli/args.ts` — CLI argument parsing
-- `build.ts` — source-runtime overlay bundling (esbuild) + HTML rendering; reads prebuilt `dist/` assets for published installs
-- `scripts/build-overlay.ts` — writes the prebuilt `dist/client.iife.js` + `dist/client.css` for publish (`build:overlay`)
-- `src/release/commit-message.ts` — conventional-commit parsing (release classification, breaking-footer check)
-- `styles/base.css` — all CSS
+See `docs/architecture/module-layout.md`.
 
 ## Publishing
 
-- Post-fork (2026-08-20): **no npm publishing**. The semantic-release `release` job still maintains version/changelog/GitHub Releases, but npm publish is expected to no-op/fail harmlessly until a new package name is chosen (if ever). Distribution for now = run from source.
-- Transpiles to JS via tsdown: `bin` → `dist/cli.mjs`, `exports` → `dist/*.mjs` + `dist/*.d.mts`
-- `files` array controls what would be published: `dist/`, `styles/`, `src/pwa/icons/`, `README.md`, `CHANGELOG.md`, `LICENSE`
-- CI: `.github/workflows/ci.yml` — pnpm test + biome check
-- Release: `release` job in `.github/workflows/ci.yml` — semantic-release on push to `main` and `dev`, gated on `check` job
-  - Versioning, changelog, and GitHub Release are automated; npm publish is disabled in practice (fork)
-  - `npx semantic-release --dry-run` for local verification
-  - Stable channel: `main` → GitHub Release
-  - Prerelease channel: `dev` → GitHub prereleases
-  - Promote experimental releases by merging `dev` into `main`
-  - Release triggers: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major
-  - No release: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`
-- See **Local Development** above for running from source
+See `docs/architecture/publishing.md`.
 
 ## Conventions
 
@@ -162,7 +72,7 @@ CLI + build:
 - Config resolution: `--config` flag → cwd → `~/.config/herdweb/` (XDG fallback; legacy upstream config paths auto-fallback)
 - Drawer takes a flat `readonly ControlButton[]` — rendered as a single grid, with a heading row inserted whenever adjacent buttons' `section` changes
 - Help overlay is config-driven and must be fail-safe (never break core controls if help fails)
-- Mobile viewport handling: lock document scroll and compute height from visual viewport (keyboard-aware); viewport meta uses `interactive-widget=resizes-content`, bottom chrome lifts above the soft keyboard via `--kb-inset`, `--wt-toolbar-height` is the measured toolbar height, and viewport-driven terminal resizes are debounced in `src/viewport/height.ts`. Target picker: `targets.length <= 1` does not create the picker or consume layout height; `> 1` puts the phone/coarse badge in the bottom toolbar and keeps the desktop/fine badge top-right.
+- Mobile viewport handling: see `docs/architecture/mobile-viewport.md`.
 - Changelog and versioning are fully automated by semantic-release — do not manually edit `CHANGELOG.md`. Use conventional commit types to control releases: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major. Non-release types: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`
 - All DOM creation in `util/dom.ts` helpers
 - Keyboard state preserved: capture `isKeyboardOpen()` before action, use `conditionalFocus()` after
