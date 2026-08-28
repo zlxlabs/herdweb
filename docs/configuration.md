@@ -274,6 +274,24 @@ export default {
 requests are JSON and time out after 10 seconds. Keep webhook query keys,
 tokens, and custom header values in a local, uncommitted config file.
 
+**Decision logs**
+
+Each send and each intentional skip writes one `console.log` line starting with
+`herdweb: notify decision`. Idle ticks do not: never armed, `enabled=false`,
+quiet period not elapsed, no previous session, or the same `sessionId`. Channel
+HTTP results stay on `herdweb: notify channel` and include `kind=` and `id=` so
+they can be joined to the decision line. WeCom HTTP 2xx with JSON `errcode` not
+equal to `0` is logged as `failed`, not `delivered`.
+
+```bash
+journalctl --user -u herdweb.service --grep 'herdweb: notify decision'
+journalctl --user -u herdweb.service --grep 'herdweb: notify channel'
+```
+
+`reason=` is one of: `armed-quiet`, `session-end`, `service-restart`,
+`cooldown`, `lane-cooldown`, `restart-gap`, `duplicate`, `not-loopback`,
+`unauthorized`, `rate-limited`, `invalid-event`, `payload-too-large`.
+
 **What gets notified (and how fast)**
 
 | Lane | Source | Typical delay | v1 status |

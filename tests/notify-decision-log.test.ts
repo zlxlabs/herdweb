@@ -2,6 +2,8 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
 	NOTIFY_DECISION_LOG_PREFIX,
 	NOTIFY_DECISION_REASONS,
+	type NotifyDecisionLog,
+	type NotifyDecisionOutcome,
 	type NotifyDecisionReason,
 	logNotifyDecision,
 } from '../src/notify/decision-log'
@@ -19,13 +21,14 @@ describe('logNotifyDecision', () => {
 
 	test('prefixes every line with the journal grep token', () => {
 		logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-		logNotifyDecision({
+		const entry: NotifyDecisionLog = {
 			outcome: 'accepted',
 			kind: 'silence',
 			id: 'silence:dev:3',
 			reason: 'armed-quiet',
 			bytes: 0,
-		})
+		}
+		logNotifyDecision(entry)
 		expect(loggedLines()).toEqual([
 			'herdweb: notify decision accepted kind=silence id=silence:dev:3 reason=armed-quiet bytes=0',
 		])
@@ -34,6 +37,8 @@ describe('logNotifyDecision', () => {
 
 	test('formats skip, duplicate, and reject lines in stable field order', () => {
 		logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const outcomes: readonly NotifyDecisionOutcome[] = ['skipped', 'duplicate', 'rejected']
+		expect(outcomes).toEqual(['skipped', 'duplicate', 'rejected'])
 		logNotifyDecision({
 			outcome: 'skipped',
 			kind: 'silence',
