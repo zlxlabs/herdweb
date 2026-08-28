@@ -1,5 +1,6 @@
 export const NOTIFY_KINDS = ['asking', 'done', 'ci-red', 'silence', 'health', 'test'] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
+export type NotifyTaskRole = 'root' | 'child'
 
 interface NotifyEventFields {
 	readonly id: string
@@ -9,6 +10,9 @@ interface NotifyEventFields {
 	readonly body?: string
 	readonly reason?: string
 	readonly ts: number
+	readonly role?: NotifyTaskRole
+	readonly parentId?: string
+	readonly startedAt?: number
 }
 
 export interface NotifyEventV1 extends NotifyEventFields {
