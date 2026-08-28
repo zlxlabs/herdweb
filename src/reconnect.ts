@@ -9,23 +9,46 @@ interface ReconnectOverlay {
 	readonly authButton: HTMLButtonElement
 }
 
+const SHARED_OVERLAY_STYLE = [
+	'display:none',
+	'position:fixed',
+	'z-index:10000',
+	'background:rgba(30,30,46,0.92)',
+	'color:#cdd6f4',
+	'font-family:sans-serif',
+	'justify-content:center',
+	'align-items:center',
+	'gap:16px',
+].join(';')
+
+function applyOverlayLayout(overlay: HTMLDivElement, everSynced: boolean): void {
+	overlay.dataset.layout = everSynced ? 'banner' : 'modal'
+	if (everSynced) {
+		overlay.style.inset = ''
+		overlay.style.top = '0'
+		overlay.style.left = '0'
+		overlay.style.right = '0'
+		overlay.style.bottom = 'auto'
+		overlay.style.flexDirection = 'row'
+		overlay.style.padding = '10px 16px'
+		overlay.style.pointerEvents = 'auto'
+		return
+	}
+	overlay.style.top = ''
+	overlay.style.left = ''
+	overlay.style.right = ''
+	overlay.style.bottom = ''
+	overlay.style.inset = '0'
+	overlay.style.flexDirection = 'column'
+	overlay.style.padding = ''
+}
+
 function createOverlay(onReconnect: () => void, onReload: () => void): ReconnectOverlay {
 	const overlay = el('div', {
 		id: 'herdweb-reconnect-overlay',
-		style: [
-			'display:none',
-			'position:fixed',
-			'inset:0',
-			'z-index:10000',
-			'background:rgba(30,30,46,0.92)',
-			'color:#cdd6f4',
-			'font-family:sans-serif',
-			'justify-content:center',
-			'align-items:center',
-			'flex-direction:column',
-			'gap:16px',
-		].join(';'),
+		style: `${SHARED_OVERLAY_STYLE};inset:0;flex-direction:column`,
 	})
+	overlay.dataset.layout = 'modal'
 
 	const message = el('div', {
 		style: 'font-size:1.4rem;font-weight:600',
@@ -108,9 +131,14 @@ export function setupReconnect(term: XTerminal, config: ReconnectConfig): () => 
 	)
 	document.body.appendChild(overlay)
 	let notice: string | null = null
+	let everSynced = false
 
 	function render(status: ConnectionStatus): void {
-		if (status.state === 'synced') notice = null
+		if (status.state === 'synced') {
+			notice = null
+			everSynced = true
+		}
+		applyOverlayLayout(overlay, everSynced)
 		message.textContent = notice ?? statusMessage(status)
 		overlay.dataset.connectionState = status.state
 		authButton.style.display =
@@ -127,6 +155,7 @@ export function setupReconnect(term: XTerminal, config: ReconnectConfig): () => 
 		const detail: unknown = event.detail
 		if (typeof detail !== 'string') return
 		notice = detail
+		applyOverlayLayout(overlay, everSynced)
 		message.textContent = detail
 		if (detail === 'Session ended — restart herdweb to start a new one.') {
 			authButton.style.display = 'none'
