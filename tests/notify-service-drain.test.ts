@@ -123,4 +123,61 @@ describe('notify service awaitInFlight drain', () => {
 		expect(drained).toBe(true)
 		notifyService.dispose()
 	})
+
+	test('awaitInFlight flushes a pending unlabeled done before waiting', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/ok',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: 0,
+			},
+		])
+		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const notifyService = createNotifyService({
+			stateDir,
+			historyLimit: 200,
+			sendPush,
+		})
+		notifyService.dispatchEvent(
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'drain-flush', kind: 'done', title: 'T', ts: 1 }),
+			),
+		)
+		expect(sendPush).not.toHaveBeenCalled()
+		await notifyService.awaitInFlight(1000)
+		expect(sendPush).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'drain-flush' })
+		notifyService.dispose()
+	})
+
+	test('dispose flushes the last pending unlabeled done', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/ok',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: 0,
+			},
+		])
+		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const notifyService = createNotifyService({
+			stateDir,
+			historyLimit: 200,
+			sendPush,
+		})
+		notifyService.dispatchEvent(
+			parseNotifyEvent(JSON.stringify({ v: 1, id: 'first', kind: 'done', title: 'T', ts: 1 })),
+		)
+		notifyService.dispatchEvent(
+			parseNotifyEvent(JSON.stringify({ v: 1, id: 'last', kind: 'done', title: 'T', ts: 2 })),
+		)
+		expect(sendPush).not.toHaveBeenCalled()
+		notifyService.dispose()
+		await notifyService.awaitInFlight(1000)
+		expect(sendPush).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'last' })
+	})
 })

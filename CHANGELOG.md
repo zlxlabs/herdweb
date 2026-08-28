@@ -1,3 +1,17 @@
+# [1.16.0](https://github.com/zlxlabs/herdweb/compare/v1.15.0...v1.16.0) (2026-08-28)
+
+
+### Bug Fixes
+
+* **notify:** reset unlabeled done coalesce on each event ([fb1d67e](https://github.com/zlxlabs/herdweb/commit/fb1d67e3f83ef5d10457d1ad97d86a10c84e7faf))
+
+
+### Features
+
+* **notify:** accept optional task role fields ([9c1e513](https://github.com/zlxlabs/herdweb/commit/9c1e513684f1b6dd9cd2a0c9f459f940dd59bd2d))
+* **notify:** gate outbound on attention policy ([4a95c89](https://github.com/zlxlabs/herdweb/commit/4a95c896d32d59a4f5ea8704a361f3c6a0f2056c))
+* **notify:** outbound only for asking, health, and root done ([#122](https://github.com/zlxlabs/herdweb/issues/122)) ([dcfdd94](https://github.com/zlxlabs/herdweb/commit/dcfdd944e3de44408a035ee80edf8666df8f9e74))
+
 # [1.15.0](https://github.com/zlxlabs/herdweb/compare/v1.14.0...v1.15.0) (2026-08-28)
 
 

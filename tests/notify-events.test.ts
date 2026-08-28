@@ -107,6 +107,42 @@ describe('parseNotifyEvent', () => {
 		}
 	})
 
+	test.each(['root', 'child'] as const)('accepts role=%s', (role) => {
+		const parsed = parseNotifyEvent(JSON.stringify({ ...validBase, role }))
+		expect(parsed.role).toBe(role)
+	})
+
+	test('accepts optional parentId and startedAt', () => {
+		const parsed = parseNotifyEvent(
+			JSON.stringify({
+				...validBase,
+				role: 'child',
+				parentId: 'root-1',
+				startedAt: 1_700_000_000,
+			}),
+		)
+		expect(parsed.parentId).toBe('root-1')
+		expect(parsed.startedAt).toBe(1_700_000_000)
+	})
+
+	test.each([
+		['role=parent', { ...validBase, role: 'parent' }],
+		['empty parentId', { ...validBase, parentId: '' }],
+		['non-string parentId', { ...validBase, parentId: 1 }],
+		['non-finite startedAt', { ...validBase, startedAt: Number.POSITIVE_INFINITY }],
+		['NaN startedAt', { ...validBase, startedAt: Number.NaN }],
+		['string startedAt', { ...validBase, startedAt: '1' }],
+		['unknown field foo', { ...validBase, foo: 'x' }],
+	])('rejects %s with 400', (_label, payload) => {
+		try {
+			parseNotifyEvent(JSON.stringify(payload))
+			throw new Error('expected throw')
+		} catch (error) {
+			expect(error).toBeInstanceOf(NotifyEventError)
+			expect((error as NotifyEventError).statusCode).toBe(400)
+		}
+	})
+
 	test('truncates title/body/reason', () => {
 		const event = parseNotifyEvent(
 			JSON.stringify({
@@ -152,8 +188,37 @@ describe('POST /api/events', () => {
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim()
 		expect(lines).toContain('persist-1')
 		expect(decisionLines(logSpy)).toContain(
-			'herdweb: notify decision accepted kind=done id=persist-1',
+			'herdweb: notify decision skipped kind=done id=persist-1 reason=done-coalesced',
 		)
+		logSpy.mockRestore()
+	})
+
+	test('persists optional role parentId startedAt into jsonl', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'child-1',
+				kind: 'done',
+				title: 'Child done',
+				ts: 1,
+				role: 'child',
+				parentId: 'root-1',
+				startedAt: 99,
+			}),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as {
+			role?: string
+			parentId?: string
+			startedAt?: number
+		}
+		expect(stored).toMatchObject({ role: 'child', parentId: 'root-1', startedAt: 99 })
 		logSpy.mockRestore()
 	})
 
@@ -230,9 +295,9 @@ describe('POST /api/events', () => {
 		const decision = logSpy.mock.calls
 			.map((args) => String(args[0]))
 			.filter((line) => line.startsWith('herdweb: notify decision'))
-		expect(decision.filter((line) => line.includes('accepted') && line.includes('id=dup'))).toEqual(
-			['herdweb: notify decision accepted kind=done id=dup'],
-		)
+		expect(decision.filter((line) => line.includes('skipped') && line.includes('id=dup'))).toEqual([
+			'herdweb: notify decision skipped kind=done id=dup reason=done-coalesced',
+		])
 		expect(decision.filter((line) => line.includes('reason=duplicate'))).toEqual([
 			'herdweb: notify decision duplicate kind=done id=dup reason=duplicate',
 		])
