@@ -33,7 +33,7 @@ function event(
 }
 
 describe('DONE_COALESCE_MS', () => {
-	test('is a 600s tumbling window', () => {
+	test('is a 600s sliding quiet period', () => {
 		expect(DONE_COALESCE_MS).toBe(600_000)
 	})
 })
@@ -257,6 +257,24 @@ describe('notify service outbound gate', () => {
 		expect(decisionLines(h.logSpy)).toContain(
 			'herdweb: notify decision accepted kind=done id=done-2',
 		)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('unlabeled done sliding quiet period resets on each new event', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(parsedEvent({ id: 'done-1', kind: 'done', session: 'dev' }))
+		vi.advanceTimersByTime(400_000)
+		h.service.dispatchEvent(parsedEvent({ id: 'done-2', kind: 'done', session: 'dev' }))
+		vi.advanceTimersByTime(200_000)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		vi.advanceTimersByTime(400_000)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'done-2' })
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})

@@ -310,7 +310,7 @@ died) or when the original long-running task finishes.
 | `silence` | written | never (`not-attention`; the detector may still log `armed-quiet`) |
 | `done` + `role=root` | written | immediate |
 | `done` + `role=child` | written | never (`child-done`) |
-| `done` with no `role` | written | last event per `session` (missing session uses `default`) after a 600s window (`done-coalesced`). v1 merge key is session-only — parallel repos that share a session name can swallow each other's unlabeled completions. |
+| `done` with no `role` | written | last event per `session` (missing session uses `default`) after 600s of quiet (`done-coalesced`; each new unlabeled done resets the timer). v1 merge key is session-only — parallel repos that share a session name can swallow each other's unlabeled completions. |
 
 `role` is `root` or `child` (optional). `parentId` and `startedAt` are
 optional inbound fields stored in history; they do not change the gate.

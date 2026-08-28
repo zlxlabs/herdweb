@@ -278,8 +278,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		const key = coalesceSessionKey(event)
 		const existing = pendingCoalesce.get(key)
 		if (existing !== undefined) {
-			existing.event = event
-			return
+			clearTimeout(existing.timer)
 		}
 		const timer = setTimeout(() => {
 			const current = pendingCoalesce.get(key)
