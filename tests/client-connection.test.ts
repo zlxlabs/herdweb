@@ -1293,9 +1293,11 @@ describe('client connection state machine', () => {
 			window.term?.input('during-probe', true)
 			expect(overlay?.style.display).toBe('flex')
 			expect(overlay?.querySelector('div')?.textContent).toBe('Not sent — still syncing.')
-			expect(parseSent(socket).slice(sentBefore).some((frame) => frame.type === 'input')).toBe(
-				false,
-			)
+			expect(
+				parseSent(socket)
+					.slice(sentBefore)
+					.some((frame) => frame.type === 'input'),
+			).toBe(false)
 			const probe = lastPing(socket)
 			if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
 			receive(socket, { type: 'pong', nonce: probe.nonce })
@@ -1517,15 +1519,19 @@ describe('client connection state machine', () => {
 		try {
 			hidePage()
 			if (!graceCallback) throw new Error('missing hidden grace callback')
+			const firstGrace = graceCallback
 			showPage()
 			const probe = lastPing(socket)
 			if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
 			receive(socket, { type: 'pong', nonce: probe.nonce })
 			expect(getStatus().state).toBe('synced')
-			graceCallback()
+			firstGrace()
+			hidePage()
+			firstGrace()
 			expect(socket.readyState).toBe(FakeSocket.OPEN)
 			expect(getStatus().state).toBe('synced')
-			expect(currentSocket()).toBe(socket)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(socket.readyState).toBe(FakeSocket.CLOSED)
 		} finally {
 			spy.mockRestore()
 		}

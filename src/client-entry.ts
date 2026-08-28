@@ -1097,11 +1097,13 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		clearTimer(reconnectTimer)
 		reconnectTimer = undefined
 		if (hiddenSuspendTimer !== undefined) return
-		hiddenSuspendTimer = window.setTimeout(() => {
+		const handle = window.setTimeout(() => {
+			if (hiddenSuspendTimer !== handle) return
 			hiddenSuspendTimer = undefined
 			if (!pageHidden) return
 			suspendConnection()
 		}, HIDDEN_SUSPEND_GRACE_MS)
+		hiddenSuspendTimer = handle
 	}
 
 	function canResumeProbe(gracePending = hiddenSuspendTimer !== undefined): boolean {
