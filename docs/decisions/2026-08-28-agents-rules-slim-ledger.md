@@ -1,8 +1,8 @@
 # 2026-08-28 AGENTS.md 规则瘦身核销表
 
-**Status:** Draft (commit 1 of rules-slim)
+**Status:** Applied (AGENTS.md rewrite landed)
 **Base:** `a3a29e880d516ebb34c5cc2bbf8a2e0d7ba73da2`
-**源文件:** 仓根 `AGENTS.md`（13837B）；`CLAUDE.md` 为指向它的软链，本卡不动软链。
+**源文件:** 仓根 `AGENTS.md` 由 13837B 瘦到 5297B（`wc -c`）；`CLAUDE.md` 仍为指向它的软链。
 **配方:** [规则文件预算 · 三问准入](/home/zlx/projects/personal/agent-config/docs/guides/rules-budget.md)
 
 三问：这条每个会话都需要吗？能从代码/README/git log 推断吗？现在还成立吗？不全过则搬 `docs/` 留指针或删除。拿不准的标「保留」并注明存疑。
@@ -86,7 +86,7 @@ H1 `# herdweb` 无独立二级标题，其下 3 条约束行另表核销，不�
 | C-14 | Agent onboarding: 帮用户搭建（不是开发）时读并遵循 herdweb-setup skill | 保留 | 三问全过：用户向会话的入口纪律。 |
 | C-15 | Voice input: toolbar-only；`asr.enabled` + HTTPS（localhost 除外）+ `.local` key；drawer/floating 非法 | 保留 | 三问全过：放置约束是已知陷阱。 |
 
-## 拟新建文档（commit 2 落盘，正文原样搬）
+## 拟新建文档（commit 2 已落盘，正文原样搬）
 
 | 新路径 | 承接条目 |
 |---|---|
