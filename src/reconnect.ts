@@ -163,6 +163,11 @@ export function setupReconnect(term: XTerminal, config: ReconnectConfig): () => 
 		if (!(event instanceof CustomEvent)) return
 		const detail: unknown = event.detail
 		if (typeof detail !== 'string') return
+		if (detail === '') {
+			notice = null
+			render(term.getConnectionStatus())
+			return
+		}
 		notice = detail
 		message.textContent = detail
 		if (detail === 'Session ended — restart herdweb to start a new one.') {

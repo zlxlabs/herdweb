@@ -807,11 +807,15 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	function handlePong(myEpoch: number, nonce: string): void {
 		if (heartbeatPingId !== nonce) return
+		const wasResumeProbe = resumeProbeInFlight
 		clearTimer(heartbeatDeadlineTimer)
 		heartbeatDeadlineTimer = undefined
 		heartbeatPingId = null
 		resumeProbeInFlight = false
 		lastProvenFreshAt = Date.now()
+		if (wasResumeProbe && connectionStatus.state === 'synced') {
+			window.dispatchEvent(new CustomEvent('herdweb-connection-notice', { detail: '' }))
+		}
 		if (pageHidden || connectionStatus.state !== 'synced') return
 		heartbeatNextTimer = window.setTimeout(() => {
 			heartbeatNextTimer = undefined
@@ -1152,15 +1156,8 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pageHidden = false
 		const persisted = 'persisted' in event && event.persisted === true
 		const gracePending = hiddenSuspendTimer !== undefined
-		// 首次加载也会派发 pageshow(persisted=false)，此时不该重连、不该探活。
-		// 复用条件从来不是 socket OPEN，而是当前 epoch 的在场证据：已完成 snapshot，
-		// 或本次 hidden 留下的宽限账本。握手窗口（!snapshotLoaded 且无宽限）一律不发 ping。
 		if (!persisted) {
-			if (socket?.readyState === WebSocket.CONNECTING) {
-				clearHiddenSuspendGrace()
-				return
-			}
-			if (resumeProbeInFlight) {
+			if (socket?.readyState === WebSocket.CONNECTING || resumeProbeInFlight) {
 				clearHiddenSuspendGrace()
 				return
 			}
