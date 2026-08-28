@@ -93,6 +93,16 @@ async function waitForSynced(page: import('@playwright/test').Page): Promise<voi
 	await waitForState(page, 'synced')
 }
 
+async function setPageVisibility(
+	page: import('@playwright/test').Page,
+	state: 'hidden' | 'visible',
+): Promise<void> {
+	await page.evaluate((next) => {
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: next })
+		document.dispatchEvent(new Event('visibilitychange'))
+	}, state)
+}
+
 test('plain page load constructs exactly one terminal WebSocket', async ({ page }) => {
 	await installSocketProbe(page)
 	await page.goto('/')
@@ -201,6 +211,81 @@ test('offline event invalidates an OPEN socket before keyboard input is sent', a
 	await context.setOffline(false)
 	await waitForSynced(page)
 	await expect(page.locator('body')).not.toContainText(marker)
+})
+
+test('brief hidden then visible reuses the live socket without attach-target', async ({ page }) => {
+	await installSocketProbe(page)
+	await page.goto('/')
+	await page.waitForSelector('#terminal .xterm')
+	await waitForSynced(page)
+	const constructsBefore = await getSocketConstructs(page)
+	const framesBefore = await getSentFrames(page)
+	const marker = `grace-keep-${Date.now()}`
+	await page.evaluate((value) => window.term?.input(`printf "${value}\\n"\r`, true), marker)
+	await expect(page.locator('body')).toContainText(marker)
+
+	await setPageVisibility(page, 'hidden')
+	await page.waitForTimeout(10_000)
+	await setPageVisibility(page, 'visible')
+	await waitForSynced(page)
+
+	expect(await getSocketConstructs(page)).toBe(constructsBefore)
+	const newFrames = (await getSentFrames(page)).slice(framesBefore.length)
+	expect(newFrames.some((frame) => JSON.parse(frame).type === 'attach-target')).toBe(false)
+	await expect(page.locator('#herdweb-reconnect-overlay')).toBeHidden()
+	await expect(page.locator('body')).toContainText(marker)
+
+	await page.evaluate(() => {
+		;(document.querySelector('.xterm-helper-textarea') as HTMLTextAreaElement | null)?.focus()
+	})
+	const afterProbe = `grace-input-${Date.now()}`
+	await page.keyboard.type(`printf "${afterProbe}\\n"`)
+	await page.keyboard.press('Enter')
+	await expect(page.locator('body')).toContainText(afterProbe)
+})
+
+test('killing the socket while hidden reconnects behind a banner that keeps the old screen', async ({
+	page,
+	context,
+}) => {
+	await installSocketProbe(page)
+	await page.goto('/')
+	await page.waitForSelector('#terminal .xterm')
+	await waitForSynced(page)
+	const marker = `banner-keep-${Date.now()}`
+	await page.evaluate((value) => window.term?.input(`printf "${value}\\n"\r`, true), marker)
+	await expect(page.locator('body')).toContainText(marker)
+
+	await setPageVisibility(page, 'hidden')
+	await context.setOffline(true)
+	await page.evaluate(() => window.__herdwebSockets?.[0]?.close())
+	await setPageVisibility(page, 'visible')
+
+	const overlay = page.locator('#herdweb-reconnect-overlay')
+	await expect(overlay).toBeVisible({ timeout: 15_000 })
+	await expect(overlay).toHaveAttribute('data-layout', 'banner')
+	await expect(page.locator('#terminal .xterm')).toBeVisible()
+	await expect(page.locator('body')).toContainText(marker)
+	await page.screenshot({ path: 'test-results/reconnect-banner-after-sync.png' })
+
+	await context.setOffline(false)
+	await waitForSynced(page)
+	await expect(overlay).toBeHidden()
+	await expect(page.locator('body')).toContainText(marker)
+})
+
+test('first load shows a fullscreen modal overlay before the first snapshot', async ({
+	page,
+	serve,
+}) => {
+	await page.routeWebSocket(`${serve.url.replace('http', 'ws')}/ws`, () => {
+		// Hold the first handshake so the never-synced overlay stays modal.
+	})
+	await page.goto(serve.url)
+	const overlay = page.locator('#herdweb-reconnect-overlay')
+	await expect(overlay).toBeVisible({ timeout: 10_000 })
+	await expect(overlay).toHaveAttribute('data-layout', 'modal')
+	await page.screenshot({ path: 'test-results/reconnect-first-load-modal.png' })
 })
 
 test('freeze and resume events force a fresh epoch and snapshot', async ({ page }) => {
