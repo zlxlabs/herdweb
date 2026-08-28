@@ -1,3 +1,10 @@
+# [1.17.0](https://github.com/zlxlabs/herdweb/compare/v1.16.0...v1.17.0) (2026-08-28)
+
+
+### Features
+
+* **client:** keep the socket alive across brief PWA backgrounding ([#123](https://github.com/zlxlabs/herdweb/issues/123)) ([feab427](https://github.com/zlxlabs/herdweb/commit/feab427084716edbf9711743a03e00f22ffac57d))
+
 # [1.16.0](https://github.com/zlxlabs/herdweb/compare/v1.15.0...v1.16.0) (2026-08-28)
 
 
