@@ -201,6 +201,7 @@ function lastPing(socket: FakeSocket): { type: string; nonce?: string } | undefi
 }
 
 async function freshAttempt(): Promise<FakeSocket> {
+	// pagehide still immediately suspends; visibility hidden now starts a 60s grace.
 	window.dispatchEvent(pagehideEvent(false))
 	setVisibility('visible')
 	window.dispatchEvent(pageshowEvent(true))
@@ -267,6 +268,8 @@ describe('client connection state machine', () => {
 	})
 
 	afterEach(async () => {
+		// exitReceived lives in the module under test, so an ended test must be
+		// recovered through the real restart path to avoid leaking into the next test.
 		const overlay = document.querySelector<HTMLDivElement>('#herdweb-session-status')
 		if (overlay?.style.display !== 'flex') return
 		if (currentSocket().readyState !== FakeSocket.OPEN) {
@@ -633,6 +636,8 @@ describe('client connection state machine', () => {
 		const syncingSocket = await freshAttempt()
 		openWithAttach(syncingSocket)
 		expect(getStatus().state).toBe('syncing')
+		// lastProvenFreshAt stays 0 until snapshot; with real clocks that fails the
+		// freshness-only guard and WebKit would spawn a second socket on pageshow.
 		vi.setSystemTime(30_000)
 		const socketCount = harness.sockets.length
 		window.dispatchEvent(pageshowEvent(false))
