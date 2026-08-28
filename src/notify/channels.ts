@@ -1,5 +1,5 @@
 import type { NotifyChannel } from '../types'
-import type { NotifyEvent, NotifyKind } from './events'
+import { type NotifyEvent, type NotifyKind, isRecord } from './events'
 
 const KIND_LABELS: Record<NotifyKind, string> = {
 	asking: '等待输入',
@@ -31,6 +31,38 @@ function formatChannelError(error: unknown): string {
 		if (typeof name === 'string' && name.length > 0) return name
 	}
 	return 'Error'
+}
+
+function channelLogLine(
+	channel: NotifyChannel,
+	event: NotifyEvent,
+	host: string,
+	result: 'delivered' | 'failed',
+	detail: string,
+): string {
+	return `herdweb: notify channel ${channelLabel(channel)} ${result} → ${host} (${detail}) kind=${event.kind} id=${event.id}`
+}
+
+async function readWecomErrcode(response: Response): Promise<number | undefined> {
+	let text: string
+	try {
+		text = await response.text()
+	} catch {
+		return undefined
+	}
+	try {
+		const parsed: unknown = JSON.parse(text)
+		if (
+			!isRecord(parsed) ||
+			typeof parsed.errcode !== 'number' ||
+			!Number.isFinite(parsed.errcode)
+		) {
+			return undefined
+		}
+		return parsed.errcode
+	} catch {
+		return undefined
+	}
 }
 
 export function buildNotifyContent(event: NotifyEvent): string {
@@ -83,18 +115,19 @@ async function deliverChannel(
 	try {
 		const response = await fetch(requestForChannel(channel, event, content))
 		if (response.ok) {
-			console.log(
-				`herdweb: notify channel ${channelLabel(channel)} delivered → ${host} (${response.status})`,
-			)
+			if (channel.type === 'wecom') {
+				const errcode = await readWecomErrcode(response)
+				if (errcode !== undefined && errcode !== 0) {
+					console.log(channelLogLine(channel, event, host, 'failed', `errcode=${errcode}`))
+					return
+				}
+			}
+			console.log(channelLogLine(channel, event, host, 'delivered', String(response.status)))
 			return
 		}
-		console.log(
-			`herdweb: notify channel ${channelLabel(channel)} failed → ${host} (${response.status})`,
-		)
+		console.log(channelLogLine(channel, event, host, 'failed', String(response.status)))
 	} catch (error: unknown) {
-		console.log(
-			`herdweb: notify channel ${channelLabel(channel)} failed → ${host} (${formatChannelError(error)})`,
-		)
+		console.log(channelLogLine(channel, event, host, 'failed', formatChannelError(error)))
 	}
 }
 

@@ -16,9 +16,11 @@ describe('notify service awaitInFlight drain', () => {
 	afterEach(() => {
 		rmSync(stateDir, { recursive: true, force: true })
 		vi.unstubAllGlobals()
+		vi.restoreAllMocks()
 	})
 
 	test('clears race loser timer when in-flight promises settle early', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -56,6 +58,7 @@ describe('notify service awaitInFlight drain', () => {
 	})
 
 	test('rejects when in-flight promises never settle', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -86,6 +89,7 @@ describe('notify service awaitInFlight drain', () => {
 	})
 
 	test('waits for in-flight channel delivery before returning', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
 		let resolveFetch!: (response: Response) => void
 		vi.stubGlobal(

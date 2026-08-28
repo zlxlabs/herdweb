@@ -11,7 +11,11 @@ import type WebSocket from 'ws'
 import { bundleClientAssets, bundleSwAsset, bundleWorkletAsset, renderClientHtml } from '../build'
 import { bareDocumentRoute, documentRoute, joinBasePath } from './base-path'
 import { createLifecycleGate } from './lifecycle-gate'
-import { buildRestartEvent, buildSessionEndEvent, shouldAnnounceRestart } from './notify/health'
+import {
+	buildRestartEvent,
+	buildSessionEndEvent,
+	considerRestartAnnouncement,
+} from './notify/health'
 import { ensureVapidKeys } from './notify/push'
 import { registerNotifyRoutes } from './notify/routes'
 import { createNotifyService, notifyDrain } from './notify/service'
@@ -588,17 +592,22 @@ export async function serve(
 			if (sessionLifecycles.has(createdSession.id)) return
 			// oxlint-disable-next-line typescript/consistent-type-assertions -- factory returns SharedTerminalSession
 			const session = createdSession as SharedTerminalSession
-			if (shouldAnnounceRestart(previousSessions[target.id], session.id, Date.now())) {
-				notifyService.dispatchEvent(
-					buildRestartEvent({
-						sessionKey: target.id,
-						targetMode: config.targetMode,
-						targetId: target.id,
-						startTime: session.startTime,
-						ts: Date.now(),
-					}),
-				)
-			}
+			considerRestartAnnouncement({
+				prev: previousSessions[target.id],
+				currentSessionId: session.id,
+				now: Date.now(),
+				announce: () => {
+					notifyService.dispatchEvent(
+						buildRestartEvent({
+							sessionKey: target.id,
+							targetMode: config.targetMode,
+							targetId: target.id,
+							startTime: session.startTime,
+							ts: Date.now(),
+						}),
+					)
+				},
+			})
 			const detector = createSilenceDetector({
 				sessionKey: target.id,
 				targetMode: config.targetMode,

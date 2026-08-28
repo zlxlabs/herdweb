@@ -1,6 +1,7 @@
 import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context, Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
+import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
 import { NotifyEventError, isRecord, parseNotifyEvent, validateNotifyEventForMode } from './events'
 import { parseHistoryLimitParam, readEventHistory } from './history'
 import {
@@ -39,9 +40,13 @@ interface NotifyRouteDeps {
 }
 
 function isLoopbackRequest(c: Context): boolean {
-	const info = getConnInfo(c)
-	const address = info.remote.address ?? ''
-	return isLoopbackAddress(address)
+	try {
+		const info = getConnInfo(c)
+		const address = info.remote.address ?? ''
+		return isLoopbackAddress(address)
+	} catch {
+		return false
+	}
 }
 
 function checkBearerToken(c: Context, token: string | undefined): boolean {
@@ -58,6 +63,18 @@ function deny(
 	status: ContentfulStatusCode,
 ): Response {
 	return deps.withSecurityHeaders(c.text(message, status), securityHeaders)
+}
+
+function denyInboundEvent(
+	c: Context,
+	deps: NotifyRouteDeps,
+	securityHeaders: Record<string, string>,
+	message: string,
+	status: ContentfulStatusCode,
+	reason: NotifyDecisionReason,
+): Response {
+	logNotifyDecision({ outcome: 'rejected', reason, status })
+	return deny(c, deps, securityHeaders, message, status)
 }
 
 function requireOrigin(
@@ -120,13 +137,13 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 		app.post(route, async (c) => {
 			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
 			if (!isLoopbackRequest(c)) {
-				return deny(c, deps, securityHeaders, 'Forbidden', 403)
+				return denyInboundEvent(c, deps, securityHeaders, 'Forbidden', 403, 'not-loopback')
 			}
 			if (!checkBearerToken(c, deps.token)) {
-				return deny(c, deps, securityHeaders, 'Unauthorized', 401)
+				return denyInboundEvent(c, deps, securityHeaders, 'Unauthorized', 401, 'unauthorized')
 			}
 			if (!eventsLimiter.allow()) {
-				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
+				return denyInboundEvent(c, deps, securityHeaders, 'Too Many Requests', 429, 'rate-limited')
 			}
 
 			const raw = await c.req.text()
@@ -136,12 +153,22 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 				validateNotifyEventForMode(event, targetMode, targetIds)
 			} catch (error) {
 				if (error instanceof NotifyEventError) {
-					return deny(c, deps, securityHeaders, error.message, error.statusCode)
+					return denyInboundEvent(
+						c,
+						deps,
+						securityHeaders,
+						error.message,
+						error.statusCode,
+						error.statusCode === 413 ? 'payload-too-large' : 'invalid-event',
+					)
 				}
-				return deny(c, deps, securityHeaders, 'invalid event', 400)
+				return denyInboundEvent(c, deps, securityHeaders, 'invalid event', 400, 'invalid-event')
 			}
 
-			deps.notifyService.dispatchEvent(event)
+			const result = deps.notifyService.dispatchEvent(event)
+			if (result === 'duplicate') {
+				return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
+			}
 			return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
 		})
 	}

@@ -56,6 +56,23 @@ interface SubscriptionDelta {
 	readonly remove: boolean
 }
 
+function acceptedReasonFor(event: NotifyEvent): NotifyDecisionReason | undefined {
+	if (event.kind === 'silence') return 'armed-quiet'
+	if (event.kind === 'health') {
+		return event.reason !== undefined ? 'session-end' : 'service-restart'
+	}
+	return undefined
+}
+
+function logAcceptedDecision(event: NotifyEvent): void {
+	logNotifyDecision({
+		outcome: 'accepted',
+		kind: event.kind,
+		id: event.id,
+		reason: acceptedReasonFor(event),
+	})
+}
+
 function sameSubscriptionRecord(
 	left: PushSubscriptionRecord,
 	right: PushSubscriptionRecord,
@@ -206,23 +223,6 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		lastByIdentity.set(`${targetId}\u0000${event.session ?? ''}`, event.ts)
 	}
 
-	function acceptedReasonFor(event: NotifyEvent): NotifyDecisionReason | undefined {
-		if (event.kind === 'silence') return 'armed-quiet'
-		if (event.kind === 'health') {
-			return event.reason !== undefined ? 'session-end' : 'service-restart'
-		}
-		return undefined
-	}
-
-	function logAccepted(event: NotifyEvent): void {
-		logNotifyDecision({
-			outcome: 'accepted',
-			kind: event.kind,
-			id: event.id,
-			reason: acceptedReasonFor(event),
-		})
-	}
-
 	function pruneStaleSubscriptions(): void {
 		if (inFlight.size > 0) return
 		const subs = readSubscriptions(deps.stateDir)
@@ -263,7 +263,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 
 			recordLastEvent(normalized)
 			if (normalized.kind !== 'silence') {
-				logAccepted(normalized)
+				logAcceptedDecision(normalized)
 			}
 			const pushPromise = pushToAll(normalized)
 				.catch((error: unknown) => {

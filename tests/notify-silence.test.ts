@@ -106,8 +106,12 @@ describe('createSilenceDetector', () => {
 		busy = false
 		h.advance(180_000)
 		expect(h.dispatched).toHaveLength(1)
+		expect(decisionLines()).toEqual([
+			'herdweb: notify decision accepted kind=silence id=silence:dev:3 reason=armed-quiet bytes=0',
+		])
 		h.advance(600_000)
 		expect(h.dispatched).toHaveLength(1)
+		expect(decisionLines().filter((line) => line.includes('skipped'))).toEqual([])
 		h.dispose()
 	})
 
@@ -131,6 +135,8 @@ describe('createSilenceDetector', () => {
 		lastOut = firstTs + 30_000
 		h.advance(180_000)
 		expect(h.dispatched).toHaveLength(2)
+		expect(decisionLines().filter((line) => line.includes('reason=cooldown'))).toEqual([])
+		expect(decisionLines().filter((line) => line.includes('accepted'))).toHaveLength(2)
 		h.dispose()
 	})
 

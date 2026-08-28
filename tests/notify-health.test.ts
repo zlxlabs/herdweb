@@ -5,6 +5,7 @@ import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
 	buildRestartEvent,
 	buildSessionEndEvent,
+	considerRestartAnnouncement,
 	extractSessionKey,
 	formatExitReason,
 	shouldAnnounceRestart,
@@ -58,6 +59,73 @@ describe('shouldAnnounceRestart', () => {
 	})
 })
 
+describe('considerRestartAnnouncement', () => {
+	const prev = {
+		sessionId: 'old-id',
+		exitedAt: 1_000,
+		exitCode: 0,
+		signal: null,
+	}
+
+	afterEach(() => {
+		vi.restoreAllMocks()
+	})
+
+	test('does not log when no previous entry', () => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const announce = vi.fn()
+		considerRestartAnnouncement({
+			prev: undefined,
+			currentSessionId: 'new-id',
+			now: 200_000,
+			announce,
+		})
+		expect(announce).not.toHaveBeenCalled()
+		expect(logSpy.mock.calls.map((args) => String(args[0]))).toEqual([])
+	})
+
+	test('does not log when sessionId is unchanged', () => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const announce = vi.fn()
+		considerRestartAnnouncement({
+			prev,
+			currentSessionId: 'old-id',
+			now: 200_000,
+			announce,
+		})
+		expect(announce).not.toHaveBeenCalled()
+		expect(logSpy.mock.calls.map((args) => String(args[0]))).toEqual([])
+	})
+
+	test('logs restart-gap skip when sessionId changed within 120s', () => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const announce = vi.fn()
+		considerRestartAnnouncement({
+			prev,
+			currentSessionId: 'new-id',
+			now: 100_000,
+			announce,
+		})
+		expect(announce).not.toHaveBeenCalled()
+		expect(logSpy.mock.calls.map((args) => String(args[0]))).toEqual([
+			'herdweb: notify decision skipped kind=health reason=restart-gap remainingMs=21000',
+		])
+	})
+
+	test('announces without skip log when sessionId changed and gap >120s', () => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const announce = vi.fn()
+		considerRestartAnnouncement({
+			prev,
+			currentSessionId: 'new-id',
+			now: 130_000,
+			announce,
+		})
+		expect(announce).toHaveBeenCalledTimes(1)
+		expect(logSpy.mock.calls.map((args) => String(args[0]))).toEqual([])
+	})
+})
+
 describe('health event builders', () => {
 	test('buildSessionEndEvent includes exit reason', () => {
 		const event = buildSessionEndEvent({
@@ -91,7 +159,34 @@ describe('health event builders', () => {
 		expect(event.id).toBe('health:dev:500')
 	})
 
+	test('dispatching session-end and restart logs accepted decisions', () => {
+		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-decision-'))
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const service = createNotifyService({ stateDir, historyLimit: 200 })
+		service.dispatchEvent(
+			buildSessionEndEvent({
+				sessionKey: 'dev',
+				startTime: 100,
+				exitCode: 0,
+				signal: null,
+				ts: 200,
+			}),
+		)
+		service.dispatchEvent(buildRestartEvent({ sessionKey: 'dev', startTime: 500, ts: 600 }))
+		const decision = logSpy.mock.calls
+			.map((args) => String(args[0]))
+			.filter((line) => line.startsWith('herdweb: notify decision'))
+		expect(decision).toEqual([
+			'herdweb: notify decision accepted kind=health id=health:dev:100 reason=session-end',
+			'herdweb: notify decision accepted kind=health id=health:dev:500 reason=service-restart',
+		])
+		service.dispose()
+		rmSync(stateDir, { recursive: true, force: true })
+		logSpy.mockRestore()
+	})
+
 	test('explicit restart and exit same-id producers preserve targetId in push bytes', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-health-push-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -159,6 +254,7 @@ describe('health event builders', () => {
 		service.dispose()
 		rmSync(stateDir, { recursive: true, force: true })
 		vi.useRealTimers()
+		vi.restoreAllMocks()
 	})
 })
 

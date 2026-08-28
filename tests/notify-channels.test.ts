@@ -197,6 +197,12 @@ describe('notify channel delivery isolation', () => {
 			true,
 		)
 		expect(logSpy.mock.calls.every(([message]) => !String(message).includes('https://'))).toBe(true)
+		expect(
+			logSpy.mock.calls.every(
+				([message]) =>
+					String(message).includes('kind=done') && String(message).includes('id=event-1'),
+			),
+		).toBe(true)
 	})
 
 	test('isolates a failed channel from a successful channel', async () => {
@@ -247,6 +253,8 @@ describe('notify channel delivery isolation', () => {
 		const output = [...logSpy.mock.calls, ...errorSpy.mock.calls].flat().join(' ')
 		expect(output).toContain('qyapi.weixin.qq.com')
 		expect(output).not.toContain('secret-value')
+		expect(output).toContain('kind=done')
+		expect(output).toContain('id=event-1')
 	})
 
 	test('logs network error name without throwing', async () => {
@@ -274,6 +282,59 @@ describe('notify channel delivery isolation', () => {
 		expect(timeoutSpy).toHaveBeenCalledWith(10_000)
 		expect(logSpy.mock.calls.flat().join(' ')).toContain('TimeoutError')
 	})
+
+	test('wecom HTTP 200 with nonzero errcode logs failed not delivered', async () => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(
+				async () =>
+					new Response(JSON.stringify({ errcode: 93017, errmsg: 'invalid ip' }), { status: 200 }),
+			),
+		)
+
+		await sendNotifyChannels(
+			[
+				{
+					type: 'wecom',
+					url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=secret-value',
+				},
+			],
+			event,
+		)
+
+		expect(logSpy.mock.calls.map(([message]) => String(message))).toEqual([
+			'herdweb: notify channel wecom failed → qyapi.weixin.qq.com (errcode=93017) kind=done id=event-1',
+		])
+		const output = logSpy.mock.calls.flat().join(' ')
+		expect(output).not.toContain('delivered')
+		expect(output).not.toContain('secret-value')
+		expect(output).not.toContain('invalid ip')
+	})
+
+	test.each([
+		['errcode 0', JSON.stringify({ errcode: 0 }), 'wecom'],
+		['non-json body', 'not-json', 'wecom'],
+		['missing errcode field', JSON.stringify({ errmsg: 'ok' }), 'wecom'],
+		['webhook ignores errcode', JSON.stringify({ errcode: 93017 }), 'webhook'],
+	] as const)('HTTP 200 %s stays delivered', async (_name, body, type) => {
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.stubGlobal(
+			'fetch',
+			vi.fn(async () => new Response(body, { status: 200 })),
+		)
+		const url =
+			type === 'wecom'
+				? 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=secret-value'
+				: 'https://hook.example.com/events'
+		await sendNotifyChannels([{ type, url } as const], event)
+		const line = String(logSpy.mock.calls[0]?.[0])
+		expect(line).toContain('delivered')
+		expect(line).toContain('kind=done')
+		expect(line).toContain('id=event-1')
+		expect(line).not.toContain('errcode=')
+		expect(line).not.toContain('secret-value')
+	})
 })
 
 describe('notify service channel independence', () => {
@@ -284,6 +345,8 @@ describe('notify service channel independence', () => {
 	})
 
 	test('sends channels when Web Push rejects', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		vi.spyOn(console, 'error').mockImplementation(() => {})
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-channel-isolation-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -310,6 +373,7 @@ describe('notify service channel independence', () => {
 	})
 
 	test('sends Web Push when a channel rejects', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-channel-isolation-'))
 		writeSubscriptions(stateDir, [
 			{
@@ -335,6 +399,7 @@ describe('notify service channel independence', () => {
 	})
 
 	test('does not fetch when no channels are configured', async () => {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
 		const fetchMock = vi.fn()
 		vi.stubGlobal('fetch', fetchMock)
 		const service = createNotifyService({
