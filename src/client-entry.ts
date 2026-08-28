@@ -63,6 +63,10 @@ const MAX_RENDER_BACKLOG_BYTES = 1024 * 1024
 const BUFFERED_AMOUNT_SETTLE_MS = 100
 // Heartbeats refresh this proof every 10s; 25s leaves margin while remaining ahead of the 15s deadline.
 const FRESHNESS_WINDOW_MS = 25_000
+// Android PWA brief backgrounding: keep the socket during this window, then suspend.
+const HIDDEN_SUSPEND_GRACE_MS = 60_000
+// Foreground resume probe reuses the single in-flight ping slot with a tighter deadline.
+const RESUME_PROBE_DEADLINE_MS = 4_000
 const utf8Encoder = new TextEncoder()
 type TerminalMessage =
 	| { readonly type: 'input'; readonly data: string }
@@ -253,7 +257,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	let heartbeatDeadlineTimer: number | undefined
 	let heartbeatNextTimer: number | undefined
 	let bufferedAmountCheckTimer: number | undefined
+	let hiddenSuspendTimer: number | undefined
 	let heartbeatPingId: string | null = null
+	let resumeProbeInFlight = false
 	let immediateAttemptQueued = false
 	let pageHidden = document.visibilityState === 'hidden'
 	const connectionListeners = new Set<(connected: boolean) => void>()
@@ -289,27 +295,49 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	const targetListeners = new Set<() => void>()
 	let pendingNotifyTargetId: string | null = null
 
+	function freshnessIsStale(): boolean {
+		return Date.now() - lastProvenFreshAt > FRESHNESS_WINDOW_MS
+	}
+
+	function showNotSentNotice(): void {
+		if (notSentNoticeShown) return
+		notSentNoticeShown = true
+		window.dispatchEvent(
+			new CustomEvent('herdweb-connection-notice', {
+				detail: 'Not sent — still syncing.',
+			}),
+		)
+	}
+
+	function emitOnOpenSocket(message: TerminalMessage): void {
+		const activeSocket = socket
+		if (!activeSocket || attachmentId === null) return
+		const wasBuffered = message.type === 'input' && activeSocket.bufferedAmount > 0
+		const framed: ClientMessage = { ...message, attachmentId }
+		activeSocket.send(serialiseClientMessage(framed))
+		if (message.type !== 'input') return
+		if (wasBuffered || activeSocket.bufferedAmount > 0) {
+			scheduleBufferedAmountCheck(currentEpoch, activeSocket)
+			return
+		}
+		clearTimer(bufferedAmountCheckTimer)
+		bufferedAmountCheckTimer = undefined
+	}
+
 	function send(message: TerminalMessage): void {
-		if (
+		const live =
 			connectionStatus.state === 'synced' &&
 			attachmentId !== null &&
 			socket?.readyState === WebSocket.OPEN
-		) {
-			if (message.type === 'input' && Date.now() - lastProvenFreshAt > FRESHNESS_WINDOW_MS) {
-				failConnection(currentEpoch, 'heartbeat-timeout')
-			} else {
-				const activeSocket = socket
-				const wasBuffered = message.type === 'input' && activeSocket.bufferedAmount > 0
-				const framed: ClientMessage = { ...message, attachmentId }
-				activeSocket.send(serialiseClientMessage(framed))
-				if (message.type === 'input' && (wasBuffered || activeSocket.bufferedAmount > 0)) {
-					scheduleBufferedAmountCheck(currentEpoch, activeSocket)
-				} else if (message.type === 'input') {
-					clearTimer(bufferedAmountCheckTimer)
-					bufferedAmountCheckTimer = undefined
-				}
-				return
-			}
+		if (live && message.type === 'input' && resumeProbeInFlight) {
+			showNotSentNotice()
+			return
+		}
+		if (live && message.type === 'input' && freshnessIsStale()) {
+			failConnection(currentEpoch, 'heartbeat-timeout')
+		} else if (live) {
+			emitOnOpenSocket(message)
+			return
 		}
 		if (message.type === 'resize') {
 			pendingResize = { cols: message.cols, rows: message.rows }
@@ -318,29 +346,19 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 			}
 			return
 		}
-		if (!notSentNoticeShown) {
-			notSentNoticeShown = true
-			window.dispatchEvent(
-				new CustomEvent('herdweb-connection-notice', {
-					detail: 'Not sent — still syncing.',
-				}),
-			)
-		}
+		showNotSentNotice()
 	}
 
 	function sendInputAction(id: string, data: string): boolean {
 		if (connectionStatus.state !== 'synced' || socket?.readyState !== WebSocket.OPEN) {
-			if (!notSentNoticeShown) {
-				notSentNoticeShown = true
-				window.dispatchEvent(
-					new CustomEvent('herdweb-connection-notice', {
-						detail: 'Not sent — still syncing.',
-					}),
-				)
-			}
+			showNotSentNotice()
 			return false
 		}
-		if (Date.now() - lastProvenFreshAt > FRESHNESS_WINDOW_MS) {
+		if (resumeProbeInFlight) {
+			showNotSentNotice()
+			return false
+		}
+		if (freshnessIsStale()) {
 			failConnection(currentEpoch, 'heartbeat-timeout')
 			return false
 		}
@@ -538,6 +556,12 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		heartbeatDeadlineTimer = undefined
 		heartbeatNextTimer = undefined
 		heartbeatPingId = null
+		resumeProbeInFlight = false
+	}
+
+	function clearHiddenSuspendGrace(): void {
+		clearTimer(hiddenSuspendTimer)
+		hiddenSuspendTimer = undefined
 	}
 
 	function clearConnectionTimers(): void {
@@ -661,6 +685,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		currentEpoch += 1
 		clearConnectionTimers()
 		stopHeartbeat()
+		clearHiddenSuspendGrace()
 		snapshotLoaded = false
 		snapshotApplying = false
 		sessionId = null
@@ -695,8 +720,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	function sendHeartbeat(myEpoch: number): void {
 		if (
+			pageHidden ||
 			myEpoch !== currentEpoch ||
 			connectionStatus.state !== 'synced' ||
+			heartbeatPingId !== null ||
 			!socket ||
 			socket.readyState !== WebSocket.OPEN
 		) {
@@ -711,6 +738,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	}
 
 	function startHeartbeat(myEpoch: number): void {
+		if (pageHidden) return
 		stopHeartbeat()
 		sendHeartbeat(myEpoch)
 	}
@@ -782,7 +810,9 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		clearTimer(heartbeatDeadlineTimer)
 		heartbeatDeadlineTimer = undefined
 		heartbeatPingId = null
+		resumeProbeInFlight = false
 		lastProvenFreshAt = Date.now()
+		if (pageHidden || connectionStatus.state !== 'synced') return
 		heartbeatNextTimer = window.setTimeout(() => {
 			heartbeatNextTimer = undefined
 			sendHeartbeat(myEpoch)
@@ -983,6 +1013,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	function connect(): void {
 		if (pageHidden) return
+		clearHiddenSuspendGrace()
 		currentEpoch += 1
 		const myEpoch = currentEpoch
 		clearConnectionTimers()
@@ -1057,18 +1088,59 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	window.term = termBridge
 	window.__herdwebResize = syncSize
 
+	function beginHiddenSuspendGrace(): void {
+		stopHeartbeat()
+		if (hiddenSuspendTimer !== undefined) return
+		hiddenSuspendTimer = window.setTimeout(() => {
+			hiddenSuspendTimer = undefined
+			suspendConnection()
+		}, HIDDEN_SUSPEND_GRACE_MS)
+	}
+
+	function canResumeProbe(): boolean {
+		return (
+			socket?.readyState === WebSocket.OPEN &&
+			!exitReceived &&
+			(connectionStatus.state === 'synced' || connectionStatus.state === 'syncing')
+		)
+	}
+
+	function sendResumeProbe(myEpoch: number): void {
+		if (myEpoch !== currentEpoch || !socket || socket.readyState !== WebSocket.OPEN) {
+			queueImmediateConnect(true)
+			return
+		}
+		if (resumeProbeInFlight && heartbeatPingId !== null) return
+		stopHeartbeat()
+		const nonce = crypto.randomUUID()
+		heartbeatPingId = nonce
+		resumeProbeInFlight = true
+		socket.send(serialiseClientMessage({ type: 'ping', nonce }))
+		heartbeatDeadlineTimer = window.setTimeout(() => {
+			if (heartbeatPingId === nonce) failConnection(myEpoch, 'heartbeat-timeout')
+		}, RESUME_PROBE_DEADLINE_MS)
+	}
+
 	function onVisibilityChange(): void {
 		if (document.visibilityState === 'hidden') {
 			pageHidden = true
-			suspendConnection()
+			beginHiddenSuspendGrace()
 			return
 		}
 		pageHidden = false
+		if (resumeProbeInFlight) return
+		const gracePending = hiddenSuspendTimer !== undefined
+		clearHiddenSuspendGrace()
+		if (gracePending && canResumeProbe()) {
+			sendResumeProbe(currentEpoch)
+			return
+		}
 		queueImmediateConnect(true)
 	}
 
 	function onPageHide(): void {
 		pageHidden = true
+		clearHiddenSuspendGrace()
 		suspendConnection()
 	}
 
@@ -1076,19 +1148,32 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		pageHidden = false
 		const persisted = 'persisted' in event && event.persisted === true
 		// 首次加载也会派发 pageshow(persisted=false)，此时不该重连。
-		// 判据用新鲜度证明而不是 connectionStatus.state：后者是「没收到坏消息」的
-		// 缺席证据（I3 明令禁止），而 lastProvenFreshAt 只由当前 epoch 的 snapshot
-		// 应用成功与 ID 匹配的 pong 写入，是在场证据。
-		// WebKit 可能在 snapshot 应用前派发 pageshow（socket 已 OPEN 但 lastProvenFreshAt
-		// 仍为 0）；此时用 !snapshotLoaded 作为握手仍在进行中的在场证据。
+		// 复用条件从来不是 socket OPEN，而是当前 epoch 的在场证据：握手尚未完成
+		// （!snapshotLoaded）、25s 新鲜度窗口内的 pong/snapshot，或正在进行的 resume 探活。
 		if (!persisted) {
-			if (socket?.readyState === WebSocket.CONNECTING) return
+			if (socket?.readyState === WebSocket.CONNECTING) {
+				clearHiddenSuspendGrace()
+				return
+			}
+			if (resumeProbeInFlight) {
+				clearHiddenSuspendGrace()
+				return
+			}
 			if (
 				socket?.readyState === WebSocket.OPEN &&
 				(!snapshotLoaded || Date.now() - lastProvenFreshAt <= FRESHNESS_WINDOW_MS)
-			)
+			) {
+				clearHiddenSuspendGrace()
+				if (canResumeProbe() && heartbeatPingId === null) sendResumeProbe(currentEpoch)
 				return
+			}
+			if (hiddenSuspendTimer !== undefined && canResumeProbe()) {
+				clearHiddenSuspendGrace()
+				sendResumeProbe(currentEpoch)
+				return
+			}
 		}
+		clearHiddenSuspendGrace()
 		queueImmediateConnect(true)
 	}
 

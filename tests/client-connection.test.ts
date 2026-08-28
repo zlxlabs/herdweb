@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest'
+import { setupReconnect } from '../src/reconnect'
 import type { ConnectionStatus } from '../src/types'
 
 const harness = vi.hoisted(() => ({
@@ -179,11 +180,31 @@ function pageshowEvent(persisted: boolean): Event {
 	return event
 }
 
-async function freshAttempt(): Promise<FakeSocket> {
+function hidePage(): void {
 	setVisibility('hidden')
 	document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function showPage(): void {
 	setVisibility('visible')
 	document.dispatchEvent(new Event('visibilitychange'))
+}
+
+function parseSent(socket: FakeSocket): Record<string, unknown>[] {
+	return socket.sent.map((payload) => JSON.parse(payload) as Record<string, unknown>)
+}
+
+function lastPing(socket: FakeSocket): { type: string; nonce?: string } | undefined {
+	return parseSent(socket)
+		.filter((frame) => frame.type === 'ping')
+		.at(-1) as { type: string; nonce?: string } | undefined
+}
+
+async function freshAttempt(): Promise<FakeSocket> {
+	// pagehide still immediately suspends; visibility hidden now starts a 60s grace.
+	window.dispatchEvent(pagehideEvent(false))
+	setVisibility('visible')
+	window.dispatchEvent(pageshowEvent(true))
 	await vi.advanceTimersByTimeAsync(0)
 	return currentSocket()
 }
@@ -236,7 +257,8 @@ describe('client connection state machine', () => {
 		})
 		Object.defineProperty(globalThis, '__herdwebBasePath', { configurable: true, value: '/' })
 		vi.stubGlobal('WebSocket', FakeSocket)
-		vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `ping-${harness.sockets.length}`) })
+		let uuidSeq = 0
+		vi.stubGlobal('crypto', { randomUUID: vi.fn(() => `ping-${++uuidSeq}`) })
 		await import('../src/client-entry')
 		socket = harness.sockets[0] as FakeSocket
 	})
@@ -267,8 +289,7 @@ describe('client connection state machine', () => {
 	})
 
 	afterAll(async () => {
-		setVisibility('hidden')
-		document.dispatchEvent(new Event('visibilitychange'))
+		document.dispatchEvent(new Event('freeze'))
 		await vi.advanceTimersByTimeAsync(0)
 		vi.useRealTimers()
 		vi.unstubAllGlobals()
@@ -483,19 +504,33 @@ describe('client connection state machine', () => {
 	})
 
 	test.each([
-		['hidden', 'visibilitychange', false],
-		['pagehide', 'pagehide', false],
-		['pagehide-persisted', 'pagehide', true],
-	] as const)('%s suspends a synced socket and clears timers', async (_name, event, persisted) => {
+		['pagehide', false],
+		['pagehide-persisted', true],
+	] as const)('%s suspends a synced socket and clears timers', async (_name, persisted) => {
 		const oldSocket = await freshSynced()
 		const socketCount = harness.sockets.length
-		if (event === 'visibilitychange') {
-			setVisibility('hidden')
-			document.dispatchEvent(new Event('visibilitychange'))
-		} else {
-			window.dispatchEvent(pagehideEvent(persisted))
-		}
+		window.dispatchEvent(pagehideEvent(persisted))
 
+		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
+		expect(getStatus().state).toBe('disconnected')
+		await vi.advanceTimersByTimeAsync(20_000)
+		expect(harness.sockets).toHaveLength(socketCount)
+	})
+
+	test('hidden keeps a synced socket open and starts a single grace timer', async () => {
+		const oldSocket = await freshSynced()
+		const socketCount = harness.sockets.length
+		const writesBefore = (harness.terminal as FakeTerminal).writes.length
+		hidePage()
+		hidePage()
+
+		expect(oldSocket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+		expect((harness.terminal as FakeTerminal).writes).toHaveLength(writesBefore)
+		await vi.advanceTimersByTimeAsync(59_999)
+		expect(oldSocket.readyState).toBe(FakeSocket.OPEN)
+		expect(harness.sockets).toHaveLength(socketCount)
+		await vi.advanceTimersByTimeAsync(1)
 		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
 		expect(getStatus().state).toBe('disconnected')
 		await vi.advanceTimersByTimeAsync(20_000)
@@ -611,17 +646,25 @@ describe('client connection state machine', () => {
 		expect(currentSocket()).toBe(syncingSocket)
 	})
 
-	test('visibility, online, and pageshow in one turn create one socket', async () => {
-		await freshSynced()
-		setVisibility('hidden')
-		document.dispatchEvent(new Event('visibilitychange'))
+	test('visibility, online, and pageshow in one turn probe once without a new socket', async () => {
+		const socket = await freshSynced()
 		const socketCount = harness.sockets.length
-		setVisibility('visible')
-		document.dispatchEvent(new Event('visibilitychange'))
+		const sentBefore = socket.sent.length
+		const pingsBefore = parseSent(socket).filter((frame) => frame.type === 'ping').length
+		hidePage()
+		showPage()
 		window.dispatchEvent(new Event('online'))
 		window.dispatchEvent(new Event('pageshow'))
 		await vi.advanceTimersByTimeAsync(0)
-		expect(harness.sockets).toHaveLength(socketCount + 1)
+		expect(harness.sockets).toHaveLength(socketCount)
+		expect(currentSocket()).toBe(socket)
+		expect(getStatus().state).toBe('synced')
+		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(pingsBefore + 1)
+		expect(
+			parseSent(socket)
+				.slice(sentBefore)
+				.some((frame) => frame.type === 'attach-target'),
+		).toBe(false)
 	})
 
 	test('online while visible retries a disconnected page immediately', async () => {
@@ -645,8 +688,7 @@ describe('client connection state machine', () => {
 
 	test('online while hidden does not create a socket', async () => {
 		await freshSynced()
-		setVisibility('hidden')
-		document.dispatchEvent(new Event('visibilitychange'))
+		hidePage()
 		const socketCount = harness.sockets.length
 		window.dispatchEvent(new Event('online'))
 		await vi.advanceTimersByTimeAsync(20_000)
@@ -663,10 +705,8 @@ describe('client connection state machine', () => {
 		receive(socket, { type: 'exit', exitCode: 0, signal: null })
 		const socketCount = harness.sockets.length
 		if (event === 'visibility') {
-			setVisibility('hidden')
-			document.dispatchEvent(new Event('visibilitychange'))
-			setVisibility('visible')
-			document.dispatchEvent(new Event('visibilitychange'))
+			hidePage()
+			showPage()
 		} else if (event === 'page') {
 			window.dispatchEvent(pagehideEvent(false))
 			window.dispatchEvent(pageshowEvent(true))
@@ -829,12 +869,10 @@ describe('client connection state machine', () => {
 		await freshSynced()
 		currentSocket().close()
 		const socketCount = harness.sockets.length
-		setVisibility('hidden')
-		document.dispatchEvent(new Event('visibilitychange'))
+		hidePage()
 		await vi.advanceTimersByTimeAsync(15_000)
 		expect(harness.sockets).toHaveLength(socketCount)
-		setVisibility('visible')
-		document.dispatchEvent(new Event('visibilitychange'))
+		showPage()
 		await vi.advanceTimersByTimeAsync(0)
 		expect(harness.sockets).toHaveLength(socketCount + 1)
 	})
@@ -1215,8 +1253,10 @@ describe('client connection state machine', () => {
 		window.dispatchEvent(new Event('beforeunload'))
 		expect(oldSocket.readyState).toBe(FakeSocket.OPEN)
 
-		setVisibility('hidden')
-		document.dispatchEvent(new Event('visibilitychange'))
+		hidePage()
+		expect(oldSocket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+		document.dispatchEvent(new Event('freeze'))
 		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
 		expect(getStatus().state).toBe('disconnected')
 
@@ -1224,5 +1264,231 @@ describe('client connection state machine', () => {
 		document.dispatchEvent(new Event('visibilitychange'))
 		await vi.advanceTimersByTimeAsync(0)
 		expect(currentSocket()).not.toBe(oldSocket)
+	})
+
+	test('brief hidden then visible keeps the live socket with zero reset and zero attach', async () => {
+		const socket = await freshSynced('live-screen')
+		if (!window.term) throw new Error('missing term')
+		const disposeOverlay = setupReconnect(window.term, { enabled: true })
+		try {
+			const terminal = harness.terminal as FakeTerminal
+			const writesBefore = terminal.writes.length
+			const sentBefore = socket.sent.length
+			const socketCount = harness.sockets.length
+			hidePage()
+			await vi.advanceTimersByTimeAsync(10_000)
+			showPage()
+
+			expect(harness.sockets).toHaveLength(socketCount)
+			expect(currentSocket()).toBe(socket)
+			expect(getStatus().state).toBe('synced')
+			expect(terminal.writes).toHaveLength(writesBefore)
+			expect(terminal.writes.slice(writesBefore)).not.toContain('<reset>')
+			const afterShow = parseSent(socket).slice(sentBefore)
+			expect(afterShow).toEqual([expect.objectContaining({ type: 'ping' })])
+			expect(afterShow.some((frame) => frame.type === 'attach-target')).toBe(false)
+
+			const probe = lastPing(socket)
+			if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+			receive(socket, { type: 'pong', nonce: probe.nonce })
+			const sentAfterPong = socket.sent.length
+			window.term?.input('after-probe', true)
+			expect(socket.sent).toHaveLength(sentAfterPong + 1)
+			expect(JSON.parse(socket.sent[sentAfterPong] as string)).toEqual({
+				type: 'input',
+				attachmentId: expect.any(String),
+				data: 'after-probe',
+			})
+			expect(getStatus().state).toBe('synced')
+			const overlay = document.querySelector<HTMLDivElement>('#herdweb-reconnect-overlay')
+			expect(overlay?.style.display).toBe('none')
+		} finally {
+			disposeOverlay()
+		}
+	})
+
+	test('resume probe in flight drops keyboard input without failConnection', async () => {
+		const socket = await freshSynced()
+		const sentBefore = socket.sent.length
+		let notice = ''
+		const onNotice = (event: Event): void => {
+			if (event instanceof CustomEvent && typeof event.detail === 'string') notice = event.detail
+		}
+		window.addEventListener('herdweb-connection-notice', onNotice)
+		hidePage()
+		showPage()
+		window.term?.input('during-probe', true)
+		expect(window.term?.sendInputAction('probe-action', 'during-probe-action')).toBe(false)
+		window.removeEventListener('herdweb-connection-notice', onNotice)
+
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+		expect(notice).toBe('Not sent — still syncing.')
+		const afterProbe = parseSent(socket).slice(sentBefore)
+		expect(afterProbe).toEqual([expect.objectContaining({ type: 'ping' })])
+		expect(
+			afterProbe.some((frame) => frame.type === 'input' || frame.type === 'input-action'),
+		).toBe(false)
+	})
+
+	test('stale input during resume probe is dropped without disconnecting', async () => {
+		const socket = await freshSynced()
+		hidePage()
+		vi.setSystemTime(30_000)
+		showPage()
+		const sentBefore = socket.sent.length
+		let notice = ''
+		const onNotice = (event: Event): void => {
+			if (event instanceof CustomEvent && typeof event.detail === 'string') notice = event.detail
+		}
+		window.addEventListener('herdweb-connection-notice', onNotice)
+		window.term?.input('stale-during-probe', true)
+		window.removeEventListener('herdweb-connection-notice', onNotice)
+		expect(socket.sent).toHaveLength(sentBefore)
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+		expect(notice).toBe('Not sent — still syncing.')
+	})
+
+	test('output during a resume probe writes through on the same epoch', async () => {
+		const socket = await freshSynced()
+		const terminal = harness.terminal as FakeTerminal
+		const writesBefore = terminal.writes.length
+		hidePage()
+		showPage()
+		const attachmentId = currentAttachment(socket)
+		receive(socket, { type: 'output', attachmentId, data: 'live-during-probe', seq: 9 })
+		expect(terminal.writes.slice(writesBefore)).toEqual(['live-during-probe'])
+		expect(terminal.writes.slice(writesBefore)).not.toContain('<reset>')
+		expect(getStatus().state).toBe('synced')
+	})
+
+	test('a dead socket on resume times out the probe and reconnects without clearing the screen first', async () => {
+		const socket = await freshSynced('keep-old-screen')
+		if (!window.term) throw new Error('missing term')
+		const disposeOverlay = setupReconnect(window.term, { enabled: true })
+		try {
+			const terminal = harness.terminal as FakeTerminal
+			const writesBefore = terminal.writes.length
+			hidePage()
+			await vi.advanceTimersByTimeAsync(10_000)
+			showPage()
+			await vi.advanceTimersByTimeAsync(3_999)
+			expect(socket.readyState).toBe(FakeSocket.OPEN)
+			expect(getStatus().state).toBe('synced')
+			expect(terminal.writes).toHaveLength(writesBefore)
+			await vi.advanceTimersByTimeAsync(1)
+			expect(socket.readyState).toBe(FakeSocket.CLOSED)
+			expect(getStatus().state).toBe('reconnecting')
+			expect(terminal.writes).toHaveLength(writesBefore)
+			expect(terminal.writes.slice(writesBefore)).not.toContain('<reset>')
+			const overlay = document.querySelector<HTMLDivElement>('#herdweb-reconnect-overlay')
+			expect(overlay?.style.display).toBe('flex')
+			expect(overlay?.dataset.layout).toBe('banner')
+		} finally {
+			disposeOverlay()
+		}
+	})
+
+	test('hidden past the grace window reconnects on visible', async () => {
+		const oldSocket = await freshSynced()
+		const socketCount = harness.sockets.length
+		hidePage()
+		await vi.advanceTimersByTimeAsync(60_000)
+		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
+		expect(getStatus().state).toBe('disconnected')
+		showPage()
+		await vi.advanceTimersByTimeAsync(0)
+		expect(harness.sockets).toHaveLength(socketCount + 1)
+		expect(currentSocket()).not.toBe(oldSocket)
+		expect(getStatus().state).toBe('reconnecting')
+	})
+
+	test('hidden then freeze suspends immediately and cancels grace', async () => {
+		const oldSocket = await freshSynced()
+		const socketCount = harness.sockets.length
+		hidePage()
+		document.dispatchEvent(new Event('freeze'))
+		expect(oldSocket.readyState).toBe(FakeSocket.CLOSED)
+		expect(getStatus().state).toBe('disconnected')
+		await vi.advanceTimersByTimeAsync(60_000)
+		expect(harness.sockets).toHaveLength(socketCount)
+	})
+
+	test('visible cancels a late grace timer so a live socket stays up', async () => {
+		const socket = await freshSynced()
+		hidePage()
+		showPage()
+		const probe = lastPing(socket)
+		if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+		receive(socket, { type: 'pong', nonce: probe.nonce })
+		for (let index = 0; index < 6; index += 1) {
+			const ping = lastPing(socket)
+			if (typeof ping?.nonce !== 'string') throw new Error('missing heartbeat ping')
+			receive(socket, { type: 'pong', nonce: ping.nonce })
+			await vi.advanceTimersByTimeAsync(10_000)
+		}
+		expect(currentSocket()).toBe(socket)
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+	})
+
+	test('visible with a non-OPEN socket reconnects without probing', async () => {
+		const oldSocket = await freshSynced()
+		hidePage()
+		oldSocket.close()
+		const sentAfterClose = oldSocket.sent.length
+		const socketCount = harness.sockets.length
+		showPage()
+		await vi.advanceTimersByTimeAsync(0)
+		expect(harness.sockets).toHaveLength(socketCount + 1)
+		expect(currentSocket()).not.toBe(oldSocket)
+		expect(
+			parseSent(oldSocket)
+				.slice(sentAfterClose)
+				.some((frame) => frame.type === 'ping'),
+		).toBe(false)
+		expect(getStatus().state).toBe('reconnecting')
+	})
+
+	test('a mismatched resume-probe pong does not refresh and the deadline still fires', async () => {
+		const socket = await freshSynced()
+		hidePage()
+		showPage()
+		receive(socket, { type: 'pong', nonce: 'wrong-probe' })
+		await vi.advanceTimersByTimeAsync(3_999)
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+		await vi.advanceTimersByTimeAsync(1)
+		expect(socket.readyState).toBe(FakeSocket.CLOSED)
+		expect(getStatus().lastFailureReason).toBe('heartbeat-timeout')
+	})
+
+	test('resume probe pong arriving before the deadline wins over the timeout', async () => {
+		const socket = await freshSynced()
+		hidePage()
+		showPage()
+		const probe = lastPing(socket)
+		if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+		receive(socket, { type: 'pong', nonce: probe.nonce })
+		await vi.advanceTimersByTimeAsync(4_000)
+		expect(socket.readyState).toBe(FakeSocket.OPEN)
+		expect(getStatus().state).toBe('synced')
+	})
+
+	test('resume probe deadline arriving before pong ignores the late pong', async () => {
+		const socket = await freshSynced()
+		const socketCount = harness.sockets.length
+		hidePage()
+		showPage()
+		const probe = lastPing(socket)
+		if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+		await vi.advanceTimersByTimeAsync(4_000)
+		expect(socket.readyState).toBe(FakeSocket.CLOSED)
+		expect(harness.sockets).toHaveLength(socketCount)
+		receive(socket, { type: 'pong', nonce: probe.nonce })
+		await vi.advanceTimersByTimeAsync(0)
+		expect(getStatus().state).toBe('reconnecting')
+		expect(harness.sockets).toHaveLength(socketCount)
 	})
 })
