@@ -304,6 +304,7 @@ describe('client connection state machine', () => {
 		expect(harness.sockets).toHaveLength(1)
 		expect(currentSocket()).toBe(initialSocket)
 		expect(initialSocket.readyState).toBe(FakeSocket.CONNECTING)
+		expect(parseSent(initialSocket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
 	})
 
 	test('drops input while syncing, then emits ping before the coalesced resize after snapshot', () => {
@@ -644,6 +645,23 @@ describe('client connection state machine', () => {
 
 		expect(harness.sockets).toHaveLength(socketCount)
 		expect(currentSocket()).toBe(syncingSocket)
+		expect(parseSent(syncingSocket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
+	})
+
+	test('first-load pageshow never emits a resume-probe ping', async () => {
+		const socket = await freshAttempt()
+		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
+		window.dispatchEvent(pageshowEvent(false))
+		await vi.advanceTimersByTimeAsync(0)
+		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
+
+		openWithAttach(socket)
+		expect(getStatus().state).toBe('syncing')
+		window.dispatchEvent(pageshowEvent(false))
+		window.dispatchEvent(pageshowEvent(false))
+		await vi.advanceTimersByTimeAsync(0)
+		expect(currentSocket()).toBe(socket)
+		expect(parseSent(socket).filter((frame) => frame.type === 'ping')).toHaveLength(0)
 	})
 
 	test('visibility, online, and pageshow in one turn probe once without a new socket', async () => {
@@ -869,8 +887,12 @@ describe('client connection state machine', () => {
 		await freshSynced()
 		currentSocket().close()
 		const socketCount = harness.sockets.length
+		const timersAfterDisconnect = vi.getTimerCount()
 		hidePage()
-		await vi.advanceTimersByTimeAsync(15_000)
+		expect(vi.getTimerCount()).toBe(timersAfterDisconnect)
+		await vi.advanceTimersByTimeAsync(1_000)
+		expect(harness.sockets).toHaveLength(socketCount)
+		await vi.advanceTimersByTimeAsync(14_000)
 		expect(harness.sockets).toHaveLength(socketCount)
 		showPage()
 		await vi.advanceTimersByTimeAsync(0)
@@ -1490,5 +1512,36 @@ describe('client connection state machine', () => {
 		await vi.advanceTimersByTimeAsync(0)
 		expect(getStatus().state).toBe('reconnecting')
 		expect(harness.sockets).toHaveLength(socketCount)
+	})
+
+	test('a late hidden-grace callback is ignored once the page is visible', async () => {
+		const socket = await freshSynced()
+		const fakeSetTimeout = window.setTimeout.bind(window)
+		let graceCallback: (() => void) | undefined
+		const spy = vi.spyOn(window, 'setTimeout').mockImplementation(((
+			handler: TimerHandler,
+			delay?: number,
+			...args: unknown[]
+		) => {
+			if (delay === 60_000 && typeof handler === 'function') {
+				graceCallback = handler as () => void
+			}
+			return fakeSetTimeout(handler, delay, ...args)
+		}) as typeof setTimeout)
+		try {
+			hidePage()
+			if (!graceCallback) throw new Error('missing hidden grace callback')
+			showPage()
+			const probe = lastPing(socket)
+			if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+			receive(socket, { type: 'pong', nonce: probe.nonce })
+			expect(getStatus().state).toBe('synced')
+			graceCallback()
+			expect(socket.readyState).toBe(FakeSocket.OPEN)
+			expect(getStatus().state).toBe('synced')
+			expect(currentSocket()).toBe(socket)
+		} finally {
+			spy.mockRestore()
+		}
 	})
 })

@@ -1090,27 +1090,31 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 
 	function beginHiddenSuspendGrace(): void {
 		stopHeartbeat()
+		clearTimer(reconnectTimer)
+		reconnectTimer = undefined
 		if (hiddenSuspendTimer !== undefined) return
 		hiddenSuspendTimer = window.setTimeout(() => {
 			hiddenSuspendTimer = undefined
+			if (!pageHidden) return
 			suspendConnection()
 		}, HIDDEN_SUSPEND_GRACE_MS)
 	}
 
-	function canResumeProbe(): boolean {
+	function canResumeProbe(gracePending = hiddenSuspendTimer !== undefined): boolean {
 		return (
 			socket?.readyState === WebSocket.OPEN &&
 			!exitReceived &&
-			(connectionStatus.state === 'synced' || connectionStatus.state === 'syncing')
+			(connectionStatus.state === 'synced' || connectionStatus.state === 'syncing') &&
+			(snapshotLoaded || gracePending)
 		)
 	}
 
 	function sendResumeProbe(myEpoch: number): void {
+		if (resumeProbeInFlight) return
 		if (myEpoch !== currentEpoch || !socket || socket.readyState !== WebSocket.OPEN) {
 			queueImmediateConnect(true)
 			return
 		}
-		if (resumeProbeInFlight && heartbeatPingId !== null) return
 		stopHeartbeat()
 		const nonce = crypto.randomUUID()
 		heartbeatPingId = nonce
@@ -1131,7 +1135,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		if (resumeProbeInFlight) return
 		const gracePending = hiddenSuspendTimer !== undefined
 		clearHiddenSuspendGrace()
-		if (gracePending && canResumeProbe()) {
+		if (gracePending && canResumeProbe(gracePending)) {
 			sendResumeProbe(currentEpoch)
 			return
 		}
@@ -1147,9 +1151,10 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	function onPageShow(event: Event): void {
 		pageHidden = false
 		const persisted = 'persisted' in event && event.persisted === true
-		// 首次加载也会派发 pageshow(persisted=false)，此时不该重连。
-		// 复用条件从来不是 socket OPEN，而是当前 epoch 的在场证据：握手尚未完成
-		// （!snapshotLoaded）、25s 新鲜度窗口内的 pong/snapshot，或正在进行的 resume 探活。
+		const gracePending = hiddenSuspendTimer !== undefined
+		// 首次加载也会派发 pageshow(persisted=false)，此时不该重连、不该探活。
+		// 复用条件从来不是 socket OPEN，而是当前 epoch 的在场证据：已完成 snapshot，
+		// 或本次 hidden 留下的宽限账本。握手窗口（!snapshotLoaded 且无宽限）一律不发 ping。
 		if (!persisted) {
 			if (socket?.readyState === WebSocket.CONNECTING) {
 				clearHiddenSuspendGrace()
@@ -1164,10 +1169,12 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 				(!snapshotLoaded || Date.now() - lastProvenFreshAt <= FRESHNESS_WINDOW_MS)
 			) {
 				clearHiddenSuspendGrace()
-				if (canResumeProbe() && heartbeatPingId === null) sendResumeProbe(currentEpoch)
+				if (canResumeProbe(gracePending) && heartbeatPingId === null) {
+					sendResumeProbe(currentEpoch)
+				}
 				return
 			}
-			if (hiddenSuspendTimer !== undefined && canResumeProbe()) {
+			if (gracePending && canResumeProbe(gracePending)) {
 				clearHiddenSuspendGrace()
 				sendResumeProbe(currentEpoch)
 				return
