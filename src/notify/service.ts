@@ -398,12 +398,20 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
-			// An absence signal (or away mode) releases the session's deferred
-			// event first, preserving outbound order before this event's own gate.
-			if (awayMode() || !isFreshLikelyPresent(normalized, now())) {
+			// Only an explicit absence signal (likely-away / unknown / stale
+			// presenceAt) or away mode releases the session's deferred event;
+			// a missing presence field means the producer made no inference and
+			// must not flush. The flush runs before this event's own gate,
+			// preserving outbound order.
+			const nowMs = now()
+			const explicitAbsence =
+				normalized.presence === 'likely-away' ||
+				normalized.presence === 'unknown' ||
+				(normalized.presence === 'likely-present' && !isFreshLikelyPresent(normalized, nowMs))
+			if (awayMode() || explicitAbsence) {
 				flushDeferredPresenceFor(coalesceSessionKey(normalized))
 			}
-			const decision = decideOutbound(normalized, { awayMode: awayMode(), now: now() })
+			const decision = decideOutbound(normalized, { awayMode: awayMode(), now: nowMs })
 			if (decision.action === 'withhold') {
 				logNotifyDecision({
 					outcome: 'skipped',

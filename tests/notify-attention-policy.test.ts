@@ -572,6 +572,48 @@ describe('presence defer lane (service)', () => {
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})
 
+	test('a silence event without presence does not flush the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		// Internal producers (silence detector) never attach presence.
+		h.service.dispatchEvent(parsedEvent({ id: 's-1', kind: 'silence', session: 'dev' }))
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=silence id=s-1 reason=not-attention',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a plain event without presence does not flush the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		h.service.dispatchEvent(parsedEvent({ id: 'p-2', kind: 'asking', session: 'dev' }))
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-2' })
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[1]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
 	test('away mode sends likely-present events immediately', async () => {
 		const h = createOutboundHarness({ isAwayMode: () => true })
 		h.service.dispatchEvent(parsedEvent({ id: 'p-9', kind: 'asking', presence: 'likely-present' }))
