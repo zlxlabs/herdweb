@@ -1,3 +1,20 @@
+# [1.18.0](https://github.com/zlxlabs/herdweb/compare/v1.17.0...v1.18.0) (2026-08-29)
+
+
+### Bug Fixes
+
+* **notify:** flush presence deferrals only on explicit absence signals ([f9ed823](https://github.com/zlxlabs/herdweb/commit/f9ed8233de76768db13f300dd484cdc801ba609f))
+* **notify:** keep the away-mode toggle disabled until the server state lands ([c341069](https://github.com/zlxlabs/herdweb/commit/c3410697c9e8c0045c65c2220ca18ea682e76965))
+
+
+### Features
+
+* **notify:** accept optional presence fields ([2201cd6](https://github.com/zlxlabs/herdweb/commit/2201cd6e56e3495acaeb0fe4c3f3ba7b58af812e))
+* **notify:** add an away-mode toggle to the panel ([3f5214d](https://github.com/zlxlabs/herdweb/commit/3f5214d382b0bbf939232d7fe16c58f2cef6663a))
+* **notify:** defer outbound while the user looks present ([f9feff6](https://github.com/zlxlabs/herdweb/commit/f9feff69e26d4ea7e515c49e79fd89835dfe36e4))
+* **notify:** flush deferred events on absence and shutdown ([5fd1daa](https://github.com/zlxlabs/herdweb/commit/5fd1daab429373e8cf920fc85bd576800416fb96))
+* **notify:** persist an away-mode switch ([00b0044](https://github.com/zlxlabs/herdweb/commit/00b004441ce70d1807db59e7fd120867d2c9813d))
+
 # [1.17.0](https://github.com/zlxlabs/herdweb/compare/v1.16.0...v1.17.0) (2026-08-28)
 
 
