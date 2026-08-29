@@ -20,7 +20,12 @@ import { ensureVapidKeys } from './notify/push'
 import { registerNotifyRoutes } from './notify/routes'
 import { createNotifyService, notifyDrain } from './notify/service'
 import { type SilenceDetector, createSilenceDetector } from './notify/silence'
-import { readLastSessionStore, resolveNotifyStateDir, updateLastSessionEntry } from './notify/state'
+import {
+	readLastSessionStore,
+	readNotifySettings,
+	resolveNotifyStateDir,
+	updateLastSessionEntry,
+} from './notify/state'
 import { manifestToJson } from './pwa/manifest'
 import type {
 	SessionClient,
@@ -471,6 +476,7 @@ function mountNotifyStack(
 		targetIds: config.targets.map((target) => target.id),
 		vapidOverride: config.notify.vapid,
 		channels: config.notify.channels,
+		isAwayMode: () => readNotifySettings(stateDir).awayMode,
 	})
 	registerNotifyRoutes(app, {
 		basePath,
