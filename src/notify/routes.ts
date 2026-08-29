@@ -12,6 +12,7 @@ import {
 } from './push'
 import { SlidingWindowRateLimiter } from './rate-limit'
 import type { NotifyService } from './service'
+import { type NotifySettings, readNotifySettings, writeNotifySettings } from './state'
 
 const EVENTS_RATE_LIMIT = 60
 const EVENTS_WINDOW_MS = 60_000
@@ -287,6 +288,42 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 				writeSubscriptions(deps.stateDir, kept)
 			}
 			return deps.withSecurityHeaders(c.body(null, 204), securityHeaders)
+		})
+	}
+
+	for (const route of deps.routeVariants(deps.basePath, '/api/notify/settings')) {
+		app.get(route, (c) => {
+			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
+			if (!pushLimiter.allow()) {
+				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
+			}
+			return deps.withSecurityHeaders(c.json(readNotifySettings(deps.stateDir)), securityHeaders)
+		})
+		app.put(route, async (c) => {
+			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
+			const denied = requireOrigin(c, deps, securityHeaders)
+			if (denied) return denied
+			if (!pushLimiter.allow()) {
+				return deny(c, deps, securityHeaders, 'Too Many Requests', 429)
+			}
+			const body = await readJsonBody(c)
+			if (!isRecord(body)) {
+				return deny(c, deps, securityHeaders, 'invalid settings', 400)
+			}
+			for (const key of Object.keys(body)) {
+				if (key !== 'awayMode') {
+					return deny(c, deps, securityHeaders, `unknown field: ${key}`, 400)
+				}
+			}
+			if (typeof body.awayMode !== 'boolean') {
+				return deny(c, deps, securityHeaders, 'awayMode must be a boolean', 400)
+			}
+			const settings: NotifySettings = { awayMode: body.awayMode }
+			writeNotifySettings(deps.stateDir, settings)
+			if (settings.awayMode) {
+				deps.notifyService.flushDeferredPresence()
+			}
+			return deps.withSecurityHeaders(c.json(settings), securityHeaders)
 		})
 	}
 }

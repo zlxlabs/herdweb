@@ -81,6 +81,7 @@ describe('logNotifyDecision', () => {
 			'not-attention',
 			'child-done',
 			'done-coalesced',
+			'user-present',
 		])
 		for (const reason of NOTIFY_DECISION_REASONS) {
 			logNotifyDecision({ outcome: 'skipped', reason })
@@ -111,6 +112,7 @@ describe('logNotifyDecision', () => {
 				case 'not-attention':
 				case 'child-done':
 				case 'done-coalesced':
+				case 'user-present':
 					return reason
 			}
 		}

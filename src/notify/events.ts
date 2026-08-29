@@ -2,6 +2,22 @@ export const NOTIFY_KINDS = ['asking', 'done', 'ci-red', 'silence', 'health', 't
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
 export type NotifyTaskRole = 'root' | 'child'
 
+/**
+ * Producer-side guess about whether the user is at the keyboard. The `likely-`
+ * prefix marks it as an inference, not a fact; herdweb only consumes it on the
+ * outbound gate. Absent or `unknown` means "no signal".
+ */
+export type NotifyPresence = 'likely-present' | 'likely-away' | 'unknown'
+
+/** A `presenceAt` older than this many ms is stale and downgrades to `unknown`. */
+export const PRESENCE_FRESH_MS = 120_000
+
+const NOTIFY_PRESENCE_VALUES = ['likely-present', 'likely-away', 'unknown'] as const
+
+function isNotifyPresence(value: unknown): value is NotifyPresence {
+	return typeof value === 'string' && NOTIFY_PRESENCE_VALUES.some((p) => p === value)
+}
+
 interface NotifyEventFields {
 	readonly id: string
 	readonly kind: NotifyKind
@@ -13,6 +29,8 @@ interface NotifyEventFields {
 	readonly role?: NotifyTaskRole
 	readonly parentId?: string
 	readonly startedAt?: number
+	readonly presence?: NotifyPresence
+	readonly presenceAt?: number
 }
 
 export interface NotifyEventV1 extends NotifyEventFields {
@@ -39,6 +57,8 @@ const ALLOWED_FIELDS = new Set([
 	'role',
 	'parentId',
 	'startedAt',
+	'presence',
+	'presenceAt',
 ])
 const NOTIFY_TASK_ROLES = ['root', 'child'] as const
 
@@ -155,6 +175,17 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('startedAt must be a finite number', 400)
 	}
 
+	if (obj.presence !== undefined && !isNotifyPresence(obj.presence)) {
+		throw new NotifyEventError('invalid presence', 400)
+	}
+
+	if (
+		obj.presenceAt !== undefined &&
+		(typeof obj.presenceAt !== 'number' || !Number.isFinite(obj.presenceAt))
+	) {
+		throw new NotifyEventError('presenceAt must be a finite number', 400)
+	}
+
 	const id = typeof obj.id === 'string' && obj.id.length > 0 ? obj.id : undefined
 	if (obj.kind !== 'test' && id === undefined) {
 		throw new NotifyEventError('id is required', 400)
@@ -177,6 +208,10 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 			: {}),
 		...(typeof obj.startedAt === 'number' && Number.isFinite(obj.startedAt)
 			? { startedAt: obj.startedAt }
+			: {}),
+		...(isNotifyPresence(obj.presence) ? { presence: obj.presence } : {}),
+		...(typeof obj.presenceAt === 'number' && Number.isFinite(obj.presenceAt)
+			? { presenceAt: obj.presenceAt }
 			: {}),
 	}
 

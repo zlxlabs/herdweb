@@ -821,3 +821,181 @@ test('perm check button is a no-op when Notification is unsupported', async () =
 
 	expect(permStatus.textContent).toBe('此浏览器不支持通知')
 })
+
+interface AwayModeFetchOptions {
+	readonly serverAwayMode: boolean
+	readonly putOk: boolean
+}
+
+function setupAwayModeFetch(options: AwayModeFetchOptions): ReturnType<typeof vi.fn> {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	return vi.fn(async (url: string, init?: RequestInit) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings')) {
+			if (init?.method === 'PUT') {
+				return options.putOk
+					? { ok: true, status: 200, json: async () => ({ awayMode: options.serverAwayMode }) }
+					: { ok: false, status: 500, json: async () => ({}) }
+			}
+			return { ok: true, status: 200, json: async () => ({ awayMode: options.serverAwayMode }) }
+		}
+		return { ok: false, status: 500, json: async () => ({}) }
+	})
+}
+
+function awayToggleOf(panel: {
+	element: HTMLDivElement
+}): HTMLInputElement {
+	const toggle = panel.element.querySelector<HTMLInputElement>('.wt-notify-away-toggle')
+	if (!toggle) throw new Error('missing away-mode toggle')
+	return toggle
+}
+
+test('open() checks the away-mode toggle from the server state', async () => {
+	const fetchMock = setupAwayModeFetch({ serverAwayMode: true, putOk: true })
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+	expect(awayToggleOf(panel).checked).toBe(true)
+})
+
+test('open() leaves the away-mode toggle off when the server state is off', async () => {
+	const fetchMock = setupAwayModeFetch({ serverAwayMode: false, putOk: true })
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+	expect(awayToggleOf(panel).checked).toBe(false)
+})
+
+test('toggling away mode PUTs the new state', async () => {
+	const fetchMock = setupAwayModeFetch({ serverAwayMode: false, putOk: true })
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const toggle = awayToggleOf(panel)
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(fetchMock).toHaveBeenCalledWith(
+		'/api/notify/settings',
+		expect.objectContaining({ method: 'PUT', body: JSON.stringify({ awayMode: true }) }),
+	)
+	expect(toggle.checked).toBe(true)
+})
+
+test('a failed PUT rolls the away-mode toggle back to the server state', async () => {
+	const fetchMock = setupAwayModeFetch({ serverAwayMode: false, putOk: false })
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const toggle = awayToggleOf(panel)
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	expect(toggle.checked).toBe(false)
+	const status = panel.element.querySelector<HTMLParagraphElement>('.wt-notify-status')
+	expect(status?.textContent).toContain('Away mode update failed')
+})
+
+test('away mode uses the base path when joining the settings URL', async () => {
+	const fetchMock = setupAwayModeFetch({ serverAwayMode: true, putOk: true })
+	const panel = createNotifyPanel({
+		basePath: '/herdweb',
+		fetchFn: fetchMock as unknown as typeof fetch,
+	})
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+	expect(
+		fetchMock.mock.calls.some(
+			([url]) => typeof url === 'string' && url === '/herdweb/api/notify/settings',
+		),
+	).toBe(true)
+	expect(awayToggleOf(panel).checked).toBe(true)
+})
+
+test('away-mode toggle stays disabled until the settings GET lands', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	let resolveGet!: (value: unknown) => void
+	const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings') && init === undefined) {
+			return new Promise((resolve) => {
+				resolveGet = resolve
+			})
+		}
+		return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(true)
+
+	resolveGet({ ok: true, status: 200, json: async () => ({ awayMode: true }) })
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(true)
+})
+
+test('away-mode toggle recovers as enabled when the settings GET fails', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	const fetchMock = vi.fn(async (url: string) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings')) {
+			return { ok: false, status: 500, json: async () => ({}) }
+		}
+		return { ok: false, status: 500, json: async () => ({}) }
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(false)
+})
+
+test('away-mode toggle is disabled while the PUT is in flight', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	let resolvePut!: (value: unknown) => void
+	const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings')) {
+			if (init?.method === 'PUT') {
+				return new Promise((resolve) => {
+					resolvePut = resolve
+				})
+			}
+			return Promise.resolve({ ok: true, status: 200, json: async () => ({ awayMode: false }) })
+		}
+		return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(false)
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(true)
+
+	resolvePut({ ok: true, status: 200, json: async () => ({ awayMode: true }) })
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(true)
+})

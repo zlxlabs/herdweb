@@ -292,7 +292,7 @@ journalctl --user -u herdweb.service --grep 'herdweb: notify channel'
 `reason=` is one of: `armed-quiet`, `session-end`, `service-restart`,
 `cooldown`, `lane-cooldown`, `restart-gap`, `duplicate`, `not-loopback`,
 `unauthorized`, `rate-limited`, `invalid-event`, `payload-too-large`,
-`not-attention`, `child-done`, `done-coalesced`.
+`not-attention`, `child-done`, `done-coalesced`, `user-present`.
 
 **What gets notified (and how fast)**
 
@@ -318,6 +318,45 @@ Until producers send `role`, unlabeled `done` events coalesce. Producer
 labeling is tracked in [agent-config#843](https://github.com/zlxlabs/agent-config/issues/843).
 A process drain (`awaitInFlight` / `dispose`) flushes a still-pending
 unlabeled `done` so shutdown does not drop the last completion.
+
+**Presence-aware deferral**
+
+Producers may attach `presence` (`likely-present` | `likely-away` |
+`unknown`) and an optional `presenceAt` (epoch ms) to any event. The
+`likely-` prefix marks the value as an inference, not a fact; herdweb only
+consumes it on the outbound gate, and history records the event regardless.
+
+When a fresh `likely-present` signal says you are probably at the computer,
+outbound delivery is deferred for 300s (`user-present`) instead of firing
+immediately — the phone stays quiet while you can already see the screen. A
+`presenceAt` older than 120s is stale and downgrades to `unknown`; a missing
+or future `presenceAt` is trusted. Each new fresh `likely-present` event for
+the same session replaces the pending one and resets the 300s timer.
+
+The defer lane sits between the "never outbound" rules and the role rules:
+`silence` and `done` + `role=child` still never go outbound, and a released
+event re-enters the normal gate. An unlabeled `done` then joins the 600s
+coalesce window with a **fresh** timer started at release time, replacing any
+already-pending coalesce entry for that session — the 600s quiet period does
+not run concurrently with the 300s deferral. The pending event is released
+early only by an explicit absence signal — `likely-away`, `unknown`, or a
+stale `presenceAt` — for the same session, by switching on away mode, or on
+process drain (`awaitInFlight` / `dispose`), so shutdown never drops a
+deferred event. An event with no `presence` field (including herdweb's own
+`silence` and `health` producers) makes no inference and never releases the
+pending event.
+
+**Away mode (runtime switch)**
+
+`GET /api/notify/settings` returns `{"awayMode": false}` and
+`PUT /api/notify/settings` with body `{"awayMode": true}` flips it
+(same-origin only; unknown fields and non-boolean `awayMode` get a 400).
+The switch is server-side runtime state persisted in
+`notify-settings.json` under the notify state directory — not a config
+file option. On = ignore `presence` entirely and follow the table above.
+Switching it on immediately flushes every presence-deferred event; the
+Notifications panel exposes it as the `Away mode` toggle, read fresh each
+time the panel opens.
 
 The silence lane cannot distinguish “waiting for you” from “running a long
 task” — titles use “may be done / stuck” wording, and that guess is kept

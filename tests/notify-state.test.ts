@@ -1,9 +1,16 @@
-import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { NotifyEventError, parseNotifyEvent } from '../src/notify/events'
-import { appendEventLine, resolveNotifyStateDir, writeJsonFileAtomic } from '../src/notify/state'
+import {
+	NOTIFY_SETTINGS_FILE,
+	appendEventLine,
+	readNotifySettings,
+	resolveNotifyStateDir,
+	writeJsonFileAtomic,
+	writeNotifySettings,
+} from '../src/notify/state'
 
 const validBase = {
 	v: 1,
@@ -118,5 +125,41 @@ describe('notify state', () => {
 		await new Promise<void>((resolve) => setImmediate(resolve))
 		const afterTrim = readFileSync(join(stateDir, 'events.jsonl'), 'utf-8').trim().split('\n')
 		expect(afterTrim).toHaveLength(10)
+	})
+})
+
+describe('notify settings', () => {
+	let stateDir: string | undefined
+
+	afterEach(() => {
+		if (stateDir) rmSync(stateDir, { recursive: true, force: true })
+		stateDir = undefined
+	})
+
+	test('missing file falls back to awayMode=false', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-settings-'))
+		expect(readNotifySettings(stateDir)).toEqual({ awayMode: false })
+	})
+
+	test('corrupt file falls back to awayMode=false', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-settings-'))
+		writeFileSync(join(stateDir, NOTIFY_SETTINGS_FILE), '{not json', 'utf-8')
+		expect(readNotifySettings(stateDir)).toEqual({ awayMode: false })
+	})
+
+	test('wrong shape falls back to awayMode=false', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-settings-'))
+		writeJsonFileAtomic(join(stateDir, NOTIFY_SETTINGS_FILE), { awayMode: 'yes' })
+		expect(readNotifySettings(stateDir)).toEqual({ awayMode: false })
+	})
+
+	test('write then read round-trips with mode 0644', () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-settings-'))
+		writeNotifySettings(stateDir, { awayMode: true })
+		expect(readNotifySettings(stateDir)).toEqual({ awayMode: true })
+		const mode = statSync(join(stateDir, NOTIFY_SETTINGS_FILE)).mode & 0o777
+		expect(mode).toBe(0o644)
+		writeNotifySettings(stateDir, { awayMode: false })
+		expect(readNotifySettings(stateDir)).toEqual({ awayMode: false })
 	})
 })

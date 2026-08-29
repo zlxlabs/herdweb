@@ -147,7 +147,7 @@ test('refresh button re-fetches history and explicit URLs carry targetId', async
 	refreshBtn.click()
 	await new Promise((resolve) => setTimeout(resolve, 20))
 
-	expect(fetchMock).toHaveBeenCalledTimes(2)
+	expect(callCount).toBe(2)
 	expect(panel.element.querySelector('.wt-notify-history-title')?.textContent).toBe('Finished')
 	panel.element
 		.querySelector<HTMLButtonElement>('.wt-notify-test')

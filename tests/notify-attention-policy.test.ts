@@ -6,11 +6,12 @@ import {
 	DONE_COALESCE_MS,
 	type NotifyTaskRole,
 	type OutboundDecision,
+	PRESENCE_DEFER_MS,
 	coalesceSessionKey,
 	decideOutbound,
 } from '../src/notify/attention-policy'
-import type { NotifyEvent, NotifyKind } from '../src/notify/events'
-import { parseNotifyEvent } from '../src/notify/events'
+import type { NotifyEvent, NotifyKind, NotifyPresence } from '../src/notify/events'
+import { PRESENCE_FRESH_MS, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
 
@@ -27,6 +28,8 @@ function event(
 		role?: NotifyTaskRole
 		session?: string
 		id?: string
+		presence?: NotifyPresence
+		presenceAt?: number
 	} = {},
 ): NotifyEvent {
 	return { ...BASE, kind, ...extra }
@@ -35,6 +38,18 @@ function event(
 describe('DONE_COALESCE_MS', () => {
 	test('is a 600s sliding quiet period', () => {
 		expect(DONE_COALESCE_MS).toBe(600_000)
+	})
+})
+
+describe('PRESENCE_DEFER_MS', () => {
+	test('is a 300s defer window', () => {
+		expect(PRESENCE_DEFER_MS).toBe(300_000)
+	})
+})
+
+describe('PRESENCE_FRESH_MS', () => {
+	test('is a 120s freshness threshold', () => {
+		expect(PRESENCE_FRESH_MS).toBe(120_000)
 	})
 })
 
@@ -47,6 +62,9 @@ describe('coalesceSessionKey', () => {
 		expect(coalesceSessionKey(event('done'))).toBe('default')
 	})
 })
+
+const NOW = 1_700_000_000_000
+const OPTS = { awayMode: false, now: NOW } as const
 
 describe('decideOutbound', () => {
 	test.each([
@@ -66,9 +84,111 @@ describe('decideOutbound', () => {
 		['done', undefined, { action: 'coalesce', reason: 'done-coalesced' }],
 	] as const satisfies ReadonlyArray<
 		readonly [NotifyKind, NotifyTaskRole | undefined, OutboundDecision]
-	>)('kind=%s role=%s', (kind, role, expected) => {
+	>)('kind=%s role=%s, no presence signal', (kind, role, expected) => {
 		const extra = role === undefined ? {} : { role }
-		expect(decideOutbound(event(kind, extra))).toEqual(expected)
+		expect(decideOutbound(event(kind, extra), OPTS)).toEqual(expected)
+	})
+
+	test.each([
+		['asking', undefined],
+		['health', undefined],
+		['ci-red', undefined],
+		['test', undefined],
+		['done', 'root'],
+		['done', undefined],
+	] as const)('likely-present defers kind=%s role=%s', (kind, role) => {
+		const extra = role === undefined ? {} : { role }
+		expect(decideOutbound(event(kind, { ...extra, presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'defer',
+			reason: 'user-present',
+		})
+	})
+
+	test('likely-present does not change the silence withhold', () => {
+		expect(decideOutbound(event('silence', { presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'withhold',
+			reason: 'not-attention',
+		})
+	})
+
+	test('likely-present does not defer a child done', () => {
+		expect(
+			decideOutbound(event('done', { role: 'child', presence: 'likely-present' }), OPTS),
+		).toEqual({ action: 'withhold', reason: 'child-done' })
+	})
+
+	test.each([
+		['unknown', { action: 'send-now' }],
+		['likely-away', { action: 'send-now' }],
+	] as const satisfies ReadonlyArray<readonly [NotifyPresence, OutboundDecision]>)(
+		'presence=%s asks follow the existing role rules',
+		(presence, expected) => {
+			expect(decideOutbound(event('asking', { presence }), OPTS)).toEqual(expected)
+		},
+	)
+
+	test.each([
+		['unknown', { action: 'coalesce', reason: 'done-coalesced' }],
+		['likely-away', { action: 'coalesce', reason: 'done-coalesced' }],
+	] as const satisfies ReadonlyArray<readonly [NotifyPresence, OutboundDecision]>)(
+		'presence=%s unlabeled dones still coalesce',
+		(presence, expected) => {
+			expect(decideOutbound(event('done', { presence }), OPTS)).toEqual(expected)
+		},
+	)
+
+	test('away mode skips the presence lane entirely', () => {
+		const opts = { awayMode: true, now: NOW }
+		expect(decideOutbound(event('asking', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'send-now',
+		})
+		expect(decideOutbound(event('done', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'coalesce',
+			reason: 'done-coalesced',
+		})
+	})
+
+	test('ignorePresence skips the defer lane for the release re-check', () => {
+		const opts = { awayMode: false, now: NOW, ignorePresence: true }
+		expect(decideOutbound(event('asking', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'send-now',
+		})
+		expect(decideOutbound(event('done', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'coalesce',
+			reason: 'done-coalesced',
+		})
+	})
+})
+
+describe('presenceAt freshness', () => {
+	const present = { presence: 'likely-present' } as const
+
+	test('missing presenceAt trusts the current value', () => {
+		expect(decideOutbound(event('asking', present), OPTS)).toEqual({
+			action: 'defer',
+			reason: 'user-present',
+		})
+	})
+
+	test('presenceAt within the freshness window defers', () => {
+		expect(
+			decideOutbound(event('asking', { ...present, presenceAt: NOW - PRESENCE_FRESH_MS }), OPTS),
+		).toEqual({ action: 'defer', reason: 'user-present' })
+	})
+
+	test('stale presenceAt downgrades presence to unknown', () => {
+		expect(
+			decideOutbound(
+				event('asking', { ...present, presenceAt: NOW - PRESENCE_FRESH_MS - 1 }),
+				OPTS,
+			),
+		).toEqual({ action: 'send-now' })
+	})
+
+	test('future presenceAt is treated as fresh', () => {
+		expect(decideOutbound(event('asking', { ...present, presenceAt: NOW + 60_000 }), OPTS)).toEqual(
+			{ action: 'defer', reason: 'user-present' },
+		)
 	})
 })
 
@@ -110,7 +230,7 @@ function parsedEvent(input: Record<string, unknown>): NotifyEvent {
 	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1, ...input }))
 }
 
-function createOutboundHarness() {
+function createOutboundHarness(opts: { isAwayMode?: () => boolean } = {}) {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-attention-'))
 	writeSubscriptions(stateDir, [
 		{
@@ -127,6 +247,7 @@ function createOutboundHarness() {
 		historyLimit: 200,
 		sendPush,
 		channels: [{ type: 'webhook', url: 'https://hook.example.com/events' }],
+		...(opts.isAwayMode !== undefined ? { isAwayMode: opts.isAwayMode } : {}),
 	})
 	return { stateDir, sendPush, requests, logSpy, service }
 }
@@ -290,6 +411,216 @@ describe('notify service outbound gate', () => {
 		expect(h.requests).toHaveLength(2)
 		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id).sort()
 		expect(ids).toEqual(['a-1', 'b-1'])
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+})
+
+describe('presence defer lane (service)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		vi.restoreAllMocks()
+		vi.useRealTimers()
+	})
+
+	test('likely-present asking writes history, defers 300s, then sends', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(parsedEvent({ id: 'p-1', kind: 'asking', presence: 'likely-present' }))
+		await Promise.resolve()
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=asking id=p-1 reason=user-present',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS - 1)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(h.requests).toHaveLength(1)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision accepted kind=asking id=p-1',
+		)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a fresh likely-present event on the same session resets the 300s timer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		vi.advanceTimersByTime(200_000)
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-2', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		vi.advanceTimersByTime(200_000)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		vi.advanceTimersByTime(100_000)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-2' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a likely-away event flushes the pending defer before its own outbound', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		h.service.dispatchEvent(
+			parsedEvent({
+				id: 'p-2',
+				kind: 'done',
+				role: 'root',
+				session: 'dev',
+				presence: 'likely-away',
+			}),
+		)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id)
+		expect(ids).toEqual(['p-1', 'p-2'])
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a stale presenceAt flushes the pending defer and sends immediately', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		h.service.dispatchEvent(
+			parsedEvent({
+				id: 'p-2',
+				kind: 'asking',
+				session: 'dev',
+				presence: 'likely-present',
+				presenceAt: Date.now() - PRESENCE_FRESH_MS - 1,
+			}),
+		)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id)
+		expect(ids).toEqual(['p-1', 'p-2'])
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('an unlabeled likely-present done defers, then enters the 600s coalesce window', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'd-1', kind: 'done', session: 'dev', presence: 'likely-present' }),
+		)
+		await Promise.resolve()
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=done id=d-1 reason=user-present',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=done id=d-1 reason=done-coalesced',
+		)
+		vi.advanceTimersByTime(DONE_COALESCE_MS - 1)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'd-1' })
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a likely-present silence withholds without flushing the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		h.service.dispatchEvent(
+			parsedEvent({ id: 's-1', kind: 'silence', session: 'dev', presence: 'likely-present' }),
+		)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=silence id=s-1 reason=not-attention',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a silence event without presence does not flush the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		// Internal producers (silence detector) never attach presence.
+		h.service.dispatchEvent(parsedEvent({ id: 's-1', kind: 'silence', session: 'dev' }))
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=silence id=s-1 reason=not-attention',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a plain event without presence does not flush the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		h.service.dispatchEvent(parsedEvent({ id: 'p-2', kind: 'asking', session: 'dev' }))
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-2' })
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[1]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('away mode sends likely-present events immediately', async () => {
+		const h = createOutboundHarness({ isAwayMode: () => true })
+		h.service.dispatchEvent(parsedEvent({ id: 'p-9', kind: 'asking', presence: 'likely-present' }))
+		await h.service.awaitInFlight(1000)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		expect(h.requests).toHaveLength(1)
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})

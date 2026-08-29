@@ -125,6 +125,22 @@ describe('parseNotifyEvent', () => {
 		expect(parsed.startedAt).toBe(1_700_000_000)
 	})
 
+	test.each(['likely-present', 'likely-away', 'unknown'] as const)(
+		'accepts presence=%s',
+		(presence) => {
+			const parsed = parseNotifyEvent(JSON.stringify({ ...validBase, presence }))
+			expect(parsed.presence).toBe(presence)
+		},
+	)
+
+	test('accepts optional presenceAt as epoch ms', () => {
+		const parsed = parseNotifyEvent(
+			JSON.stringify({ ...validBase, presence: 'likely-present', presenceAt: 1_700_000_000_000 }),
+		)
+		expect(parsed.presence).toBe('likely-present')
+		expect(parsed.presenceAt).toBe(1_700_000_000_000)
+	})
+
 	test.each([
 		['role=parent', { ...validBase, role: 'parent' }],
 		['empty parentId', { ...validBase, parentId: '' }],
@@ -133,6 +149,11 @@ describe('parseNotifyEvent', () => {
 		['NaN startedAt', { ...validBase, startedAt: Number.NaN }],
 		['string startedAt', { ...validBase, startedAt: '1' }],
 		['unknown field foo', { ...validBase, foo: 'x' }],
+		['invalid presence value', { ...validBase, presence: 'present' }],
+		['non-string presence', { ...validBase, presence: 1 }],
+		['string presenceAt', { ...validBase, presenceAt: '1700000000000' }],
+		['NaN presenceAt', { ...validBase, presenceAt: Number.NaN }],
+		['non-finite presenceAt', { ...validBase, presenceAt: Number.POSITIVE_INFINITY }],
 	])('rejects %s with 400', (_label, payload) => {
 		try {
 			parseNotifyEvent(JSON.stringify(payload))
@@ -219,6 +240,48 @@ describe('POST /api/events', () => {
 			startedAt?: number
 		}
 		expect(stored).toMatchObject({ role: 'child', parentId: 'root-1', startedAt: 99 })
+		logSpy.mockRestore()
+	})
+
+	test('persists presence fields into jsonl', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'presence-1',
+				kind: 'asking',
+				title: 'Need input',
+				ts: 1,
+				presence: 'likely-present',
+				presenceAt: 1_700_000_000_000,
+			}),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as {
+			presence?: string
+			presenceAt?: number
+		}
+		expect(stored).toMatchObject({ presence: 'likely-present', presenceAt: 1_700_000_000_000 })
+		logSpy.mockRestore()
+	})
+
+	test('rejects invalid presence over HTTP with 400', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ...validBase, id: 'presence-bad', presence: 'definitely-here' }),
+		})
+		expect(response.status).toBe(400)
+		expect(decisionLines(logSpy)).toContain(
+			'herdweb: notify decision rejected reason=invalid-event status=400',
+		)
 		logSpy.mockRestore()
 	})
 

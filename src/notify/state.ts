@@ -114,6 +114,26 @@ export function appendEventLine(stateDir: string, event: NotifyEvent, limit: num
 
 const LAST_SESSION_FILE = 'last-session.json'
 
+export const NOTIFY_SETTINGS_FILE = 'notify-settings.json'
+
+export interface NotifySettings {
+	readonly awayMode: boolean
+}
+
+function isNotifySettings(value: unknown): value is NotifySettings {
+	return isRecord(value) && typeof value.awayMode === 'boolean'
+}
+
+/** Read the runtime notify settings; missing/corrupt file means defaults. */
+export function readNotifySettings(stateDir: string): NotifySettings {
+	const parsed = readJsonFile(join(stateDir, NOTIFY_SETTINGS_FILE))
+	return isNotifySettings(parsed) ? { awayMode: parsed.awayMode } : { awayMode: false }
+}
+
+export function writeNotifySettings(stateDir: string, value: NotifySettings): void {
+	writeJsonFileAtomic(join(stateDir, NOTIFY_SETTINGS_FILE), value, 0o644)
+}
+
 export interface LastSessionEntry {
 	readonly sessionId: string
 	readonly exitedAt: number

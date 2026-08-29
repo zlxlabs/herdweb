@@ -1,6 +1,12 @@
 import webpush from 'web-push'
 import type { NotifyChannel } from '../types'
-import { DONE_COALESCE_MS, coalesceSessionKey, decideOutbound } from './attention-policy'
+import {
+	DONE_COALESCE_MS,
+	PRESENCE_DEFER_MS,
+	coalesceSessionKey,
+	decideOutbound,
+	isFreshLikelyPresent,
+} from './attention-policy'
 import { sendNotifyChannels } from './channels'
 import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
 import {
@@ -49,6 +55,7 @@ interface NotifyServiceDeps {
 	readonly sendPush?: typeof webpush.sendNotification
 	readonly channels?: readonly NotifyChannel[]
 	readonly now?: () => number
+	readonly isAwayMode?: () => boolean
 }
 
 interface SubscriptionDelta {
@@ -108,6 +115,7 @@ function mergeSubscriptionDeltas(
 export interface NotifyService {
 	dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate'
 	awaitInFlight(timeoutMs: number): Promise<void>
+	flushDeferredPresence(): void
 	lastEventAt(targetId: string, session?: string): number | undefined
 	dispose(): void
 }
@@ -150,6 +158,14 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		string,
 		{ event: NotifyEvent; timer: ReturnType<typeof setTimeout> }
 	>()
+	const pendingPresence = new Map<
+		string,
+		{ event: NotifyEvent; timer: ReturnType<typeof setTimeout> }
+	>()
+
+	function awayMode(): boolean {
+		return deps.isAwayMode?.() ?? false
+	}
 
 	function ensureVapid(): VapidKeys {
 		vapid ??= ensureVapidKeys(deps.stateDir, deps.vapidOverride)
@@ -299,6 +315,68 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		}
 	}
 
+	/** Re-run the role rules for a released presence-deferred event. */
+	function releaseDeferred(event: NotifyEvent): void {
+		const decision = decideOutbound(event, {
+			awayMode: awayMode(),
+			now: now(),
+			ignorePresence: true,
+		})
+		if (decision.action === 'withhold') {
+			logNotifyDecision({
+				outcome: 'skipped',
+				kind: event.kind,
+				id: event.id,
+				reason: decision.reason,
+			})
+			return
+		}
+		if (decision.action === 'coalesce') {
+			queueCoalesce(event)
+			return
+		}
+		deliverOutbound(event)
+	}
+
+	function queuePresenceDefer(event: NotifyEvent): void {
+		logNotifyDecision({
+			outcome: 'skipped',
+			kind: event.kind,
+			id: event.id,
+			reason: 'user-present',
+		})
+		const key = coalesceSessionKey(event)
+		const existing = pendingPresence.get(key)
+		if (existing !== undefined) {
+			clearTimeout(existing.timer)
+		}
+		const timer = setTimeout(() => {
+			const current = pendingPresence.get(key)
+			if (current === undefined) return
+			pendingPresence.delete(key)
+			releaseDeferred(current.event)
+		}, PRESENCE_DEFER_MS)
+		unrefTimer(timer)
+		pendingPresence.set(key, { event, timer })
+	}
+
+	function flushDeferredPresenceFor(key: string): void {
+		const existing = pendingPresence.get(key)
+		if (existing === undefined) return
+		pendingPresence.delete(key)
+		clearTimeout(existing.timer)
+		releaseDeferred(existing.event)
+	}
+
+	function flushAllDeferredPresence(): void {
+		const pending = [...pendingPresence.values()]
+		pendingPresence.clear()
+		for (const item of pending) {
+			clearTimeout(item.timer)
+			releaseDeferred(item.event)
+		}
+	}
+
 	return {
 		dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate' {
 			validateNotifyEventForMode(event, targetMode, targetIds)
@@ -320,7 +398,21 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
-			const decision = decideOutbound(normalized)
+			// Only an explicit absence signal (likely-away / unknown / stale
+			// presenceAt) or away mode releases the session's deferred event;
+			// a missing presence field means the producer made no inference and
+			// must not flush. The flush runs before this event's own gate so
+			// send calls are initiated in dispatch order (delivery itself is
+			// concurrent and its arrival order is not guaranteed).
+			const nowMs = now()
+			const explicitAbsence =
+				normalized.presence === 'likely-away' ||
+				normalized.presence === 'unknown' ||
+				(normalized.presence === 'likely-present' && !isFreshLikelyPresent(normalized, nowMs))
+			if (awayMode() || explicitAbsence) {
+				flushDeferredPresenceFor(coalesceSessionKey(normalized))
+			}
+			const decision = decideOutbound(normalized, { awayMode: awayMode(), now: nowMs })
 			if (decision.action === 'withhold') {
 				logNotifyDecision({
 					outcome: 'skipped',
@@ -334,11 +426,16 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 				queueCoalesce(normalized)
 				return 'accepted'
 			}
+			if (decision.action === 'defer') {
+				queuePresenceDefer(normalized)
+				return 'accepted'
+			}
 			deliverOutbound(normalized)
 			return 'accepted'
 		},
 
 		async awaitInFlight(timeoutMs: number): Promise<void> {
+			flushAllDeferredPresence()
 			flushAllCoalesced()
 			const pending = [...inFlight]
 			if (pending.length === 0) return
@@ -363,7 +460,12 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			return lastByIdentity.get(`${targetId}\u0000${session ?? ''}`)
 		},
 
+		flushDeferredPresence(): void {
+			flushAllDeferredPresence()
+		},
+
 		dispose(): void {
+			flushAllDeferredPresence()
 			flushAllCoalesced()
 			if (staleScanTimer !== undefined) {
 				clearInterval(staleScanTimer)
