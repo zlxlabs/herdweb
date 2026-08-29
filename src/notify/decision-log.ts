@@ -14,6 +14,7 @@ export type NotifyDecisionReason =
 	| 'not-attention'
 	| 'child-done'
 	| 'done-coalesced'
+	| 'user-present'
 
 export type NotifyDecisionOutcome = 'accepted' | 'skipped' | 'duplicate' | 'rejected'
 
@@ -33,6 +34,7 @@ export const NOTIFY_DECISION_REASONS = [
 	'not-attention',
 	'child-done',
 	'done-coalesced',
+	'user-present',
 ] as const satisfies readonly NotifyDecisionReason[]
 
 export const NOTIFY_DECISION_LOG_PREFIX = 'herdweb: notify decision'

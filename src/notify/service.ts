@@ -320,7 +320,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			}
 
 			recordLastEvent(normalized)
-			const decision = decideOutbound(normalized)
+			const decision = decideOutbound(normalized, { awayMode: false, now: now() })
 			if (decision.action === 'withhold') {
 				logNotifyDecision({
 					outcome: 'skipped',

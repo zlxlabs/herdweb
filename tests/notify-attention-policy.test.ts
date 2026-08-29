@@ -6,11 +6,12 @@ import {
 	DONE_COALESCE_MS,
 	type NotifyTaskRole,
 	type OutboundDecision,
+	PRESENCE_DEFER_MS,
 	coalesceSessionKey,
 	decideOutbound,
 } from '../src/notify/attention-policy'
-import type { NotifyEvent, NotifyKind } from '../src/notify/events'
-import { parseNotifyEvent } from '../src/notify/events'
+import type { NotifyEvent, NotifyKind, NotifyPresence } from '../src/notify/events'
+import { PRESENCE_FRESH_MS, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
 
@@ -27,6 +28,8 @@ function event(
 		role?: NotifyTaskRole
 		session?: string
 		id?: string
+		presence?: NotifyPresence
+		presenceAt?: number
 	} = {},
 ): NotifyEvent {
 	return { ...BASE, kind, ...extra }
@@ -35,6 +38,18 @@ function event(
 describe('DONE_COALESCE_MS', () => {
 	test('is a 600s sliding quiet period', () => {
 		expect(DONE_COALESCE_MS).toBe(600_000)
+	})
+})
+
+describe('PRESENCE_DEFER_MS', () => {
+	test('is a 300s defer window', () => {
+		expect(PRESENCE_DEFER_MS).toBe(300_000)
+	})
+})
+
+describe('PRESENCE_FRESH_MS', () => {
+	test('is a 120s freshness threshold', () => {
+		expect(PRESENCE_FRESH_MS).toBe(120_000)
 	})
 })
 
@@ -47,6 +62,9 @@ describe('coalesceSessionKey', () => {
 		expect(coalesceSessionKey(event('done'))).toBe('default')
 	})
 })
+
+const NOW = 1_700_000_000_000
+const OPTS = { awayMode: false, now: NOW } as const
 
 describe('decideOutbound', () => {
 	test.each([
@@ -66,9 +84,110 @@ describe('decideOutbound', () => {
 		['done', undefined, { action: 'coalesce', reason: 'done-coalesced' }],
 	] as const satisfies ReadonlyArray<
 		readonly [NotifyKind, NotifyTaskRole | undefined, OutboundDecision]
-	>)('kind=%s role=%s', (kind, role, expected) => {
+	>)('kind=%s role=%s, no presence signal', (kind, role, expected) => {
 		const extra = role === undefined ? {} : { role }
-		expect(decideOutbound(event(kind, extra))).toEqual(expected)
+		expect(decideOutbound(event(kind, extra), OPTS)).toEqual(expected)
+	})
+
+	test.each([
+		['asking', undefined],
+		['health', undefined],
+		['ci-red', undefined],
+		['test', undefined],
+		['done', 'root'],
+		['done', undefined],
+	] as const)('likely-present defers kind=%s role=%s', (kind, role) => {
+		const extra = role === undefined ? {} : { role }
+		expect(
+			decideOutbound(event(kind, { ...extra, presence: 'likely-present' }), OPTS),
+		).toEqual({ action: 'defer', reason: 'user-present' })
+	})
+
+	test('likely-present does not change the silence withhold', () => {
+		expect(decideOutbound(event('silence', { presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'withhold',
+			reason: 'not-attention',
+		})
+	})
+
+	test('likely-present does not defer a child done', () => {
+		expect(
+			decideOutbound(event('done', { role: 'child', presence: 'likely-present' }), OPTS),
+		).toEqual({ action: 'withhold', reason: 'child-done' })
+	})
+
+	test.each([
+		['unknown', { action: 'send-now' }],
+		['likely-away', { action: 'send-now' }],
+	] as const satisfies ReadonlyArray<readonly [NotifyPresence, OutboundDecision]>)(
+		'presence=%s asks follow the existing role rules',
+		(presence, expected) => {
+			expect(decideOutbound(event('asking', { presence }), OPTS)).toEqual(expected)
+		},
+	)
+
+	test.each([
+		['unknown', { action: 'coalesce', reason: 'done-coalesced' }],
+		['likely-away', { action: 'coalesce', reason: 'done-coalesced' }],
+	] as const satisfies ReadonlyArray<readonly [NotifyPresence, OutboundDecision]>)(
+		'presence=%s unlabeled dones still coalesce',
+		(presence, expected) => {
+			expect(decideOutbound(event('done', { presence }), OPTS)).toEqual(expected)
+		},
+	)
+
+	test('away mode skips the presence lane entirely', () => {
+		const opts = { awayMode: true, now: NOW }
+		expect(decideOutbound(event('asking', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'send-now',
+		})
+		expect(decideOutbound(event('done', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'coalesce',
+			reason: 'done-coalesced',
+		})
+	})
+
+	test('ignorePresence skips the defer lane for the release re-check', () => {
+		const opts = { awayMode: false, now: NOW, ignorePresence: true }
+		expect(decideOutbound(event('asking', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'send-now',
+		})
+		expect(decideOutbound(event('done', { presence: 'likely-present' }), opts)).toEqual({
+			action: 'coalesce',
+			reason: 'done-coalesced',
+		})
+	})
+})
+
+describe('presenceAt freshness', () => {
+	const present = { presence: 'likely-present' } as const
+
+	test('missing presenceAt trusts the current value', () => {
+		expect(decideOutbound(event('asking', present), OPTS)).toEqual({
+			action: 'defer',
+			reason: 'user-present',
+		})
+	})
+
+	test('presenceAt within the freshness window defers', () => {
+		expect(
+			decideOutbound(event('asking', { ...present, presenceAt: NOW - PRESENCE_FRESH_MS }), OPTS),
+		).toEqual({ action: 'defer', reason: 'user-present' })
+	})
+
+	test('stale presenceAt downgrades presence to unknown', () => {
+		expect(
+			decideOutbound(
+				event('asking', { ...present, presenceAt: NOW - PRESENCE_FRESH_MS - 1 }),
+				OPTS,
+			),
+		).toEqual({ action: 'send-now' })
+	})
+
+	test('future presenceAt is treated as fresh', () => {
+		expect(
+			decideOutbound(event('asking', { ...present, presenceAt: NOW + 60_000 }), OPTS),
+		).toEqual({ action: 'defer', reason: 'user-present' })
 	})
 })
 
