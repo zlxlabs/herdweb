@@ -12,7 +12,7 @@ import {
 } from './push'
 import { SlidingWindowRateLimiter } from './rate-limit'
 import type { NotifyService } from './service'
-import { readNotifySettings, writeNotifySettings } from './state'
+import { type NotifySettings, readNotifySettings, writeNotifySettings } from './state'
 
 const EVENTS_RATE_LIMIT = 60
 const EVENTS_WINDOW_MS = 60_000
@@ -318,7 +318,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 			if (typeof body.awayMode !== 'boolean') {
 				return deny(c, deps, securityHeaders, 'awayMode must be a boolean', 400)
 			}
-			const settings = { awayMode: body.awayMode }
+			const settings: NotifySettings = { awayMode: body.awayMode }
 			writeNotifySettings(deps.stateDir, settings)
 			if (settings.awayMode) {
 				deps.notifyService.flushDeferredPresence()
