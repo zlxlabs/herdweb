@@ -229,7 +229,7 @@ function parsedEvent(input: Record<string, unknown>): NotifyEvent {
 	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1, ...input }))
 }
 
-function createOutboundHarness() {
+function createOutboundHarness(opts: { isAwayMode?: () => boolean } = {}) {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-attention-'))
 	writeSubscriptions(stateDir, [
 		{
@@ -246,6 +246,7 @@ function createOutboundHarness() {
 		historyLimit: 200,
 		sendPush,
 		channels: [{ type: 'webhook', url: 'https://hook.example.com/events' }],
+		...(opts.isAwayMode !== undefined ? { isAwayMode: opts.isAwayMode } : {}),
 	})
 	return { stateDir, sendPush, requests, logSpy, service }
 }
@@ -409,6 +410,174 @@ describe('notify service outbound gate', () => {
 		expect(h.requests).toHaveLength(2)
 		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id).sort()
 		expect(ids).toEqual(['a-1', 'b-1'])
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+})
+
+describe('presence defer lane (service)', () => {
+	afterEach(() => {
+		vi.unstubAllGlobals()
+		vi.restoreAllMocks()
+		vi.useRealTimers()
+	})
+
+	test('likely-present asking writes history, defers 300s, then sends', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(parsedEvent({ id: 'p-1', kind: 'asking', presence: 'likely-present' }))
+		await Promise.resolve()
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=asking id=p-1 reason=user-present',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS - 1)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(h.requests).toHaveLength(1)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision accepted kind=asking id=p-1',
+		)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a fresh likely-present event on the same session resets the 300s timer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		vi.advanceTimersByTime(200_000)
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-2', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		vi.advanceTimersByTime(200_000)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		vi.advanceTimersByTime(100_000)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-2' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a likely-away event flushes the pending defer before its own outbound', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		h.service.dispatchEvent(
+			parsedEvent({
+				id: 'p-2',
+				kind: 'done',
+				role: 'root',
+				session: 'dev',
+				presence: 'likely-away',
+			}),
+		)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id)
+		expect(ids).toEqual(['p-1', 'p-2'])
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a stale presenceAt flushes the pending defer and sends immediately', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		h.service.dispatchEvent(
+			parsedEvent({
+				id: 'p-2',
+				kind: 'asking',
+				session: 'dev',
+				presence: 'likely-present',
+				presenceAt: Date.now() - PRESENCE_FRESH_MS - 1,
+			}),
+		)
+		expect(h.sendPush).toHaveBeenCalledTimes(2)
+		await h.service.awaitInFlight(1000)
+		const ids = h.sendPush.mock.calls.map(([, payload]) => JSON.parse(String(payload)).id)
+		expect(ids).toEqual(['p-1', 'p-2'])
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('an unlabeled likely-present done defers, then enters the 600s coalesce window', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'd-1', kind: 'done', session: 'dev', presence: 'likely-present' }),
+		)
+		await Promise.resolve()
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=done id=d-1 reason=user-present',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=done id=d-1 reason=done-coalesced',
+		)
+		vi.advanceTimersByTime(DONE_COALESCE_MS - 1)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		vi.advanceTimersByTime(1)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'd-1' })
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('a likely-present silence withholds without flushing the pending defer', async () => {
+		vi.useFakeTimers()
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(
+			parsedEvent({ id: 'p-1', kind: 'asking', session: 'dev', presence: 'likely-present' }),
+		)
+		h.service.dispatchEvent(
+			parsedEvent({ id: 's-1', kind: 'silence', session: 'dev', presence: 'likely-present' }),
+		)
+		await Promise.resolve()
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=silence id=s-1 reason=not-attention',
+		)
+		vi.advanceTimersByTime(PRESENCE_DEFER_MS)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		await h.service.awaitInFlight(1000)
+		expect(JSON.parse(String(h.sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'p-1' })
+		expect(readJsonl(h.stateDir)).toHaveLength(2)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('away mode sends likely-present events immediately', async () => {
+		const h = createOutboundHarness({ isAwayMode: () => true })
+		h.service.dispatchEvent(parsedEvent({ id: 'p-9', kind: 'asking', presence: 'likely-present' }))
+		await h.service.awaitInFlight(1000)
+		expect(h.sendPush).toHaveBeenCalledTimes(1)
+		expect(h.requests).toHaveLength(1)
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})

@@ -181,3 +181,93 @@ describe('notify service awaitInFlight drain', () => {
 		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'last' })
 	})
 })
+
+describe('presence defer drain', () => {
+	let stateDir: string
+
+	afterEach(() => {
+		rmSync(stateDir, { recursive: true, force: true })
+		vi.unstubAllGlobals()
+		vi.restoreAllMocks()
+	})
+
+	function createHarness() {
+		vi.spyOn(console, 'log').mockImplementation(() => {})
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-drain-'))
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/ok',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: 0,
+			},
+		])
+		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
+		return { sendPush, notifyService }
+	}
+
+	test('awaitInFlight flushes a pending presence-deferred event before waiting', async () => {
+		const { sendPush, notifyService } = createHarness()
+		notifyService.dispatchEvent(
+			parseNotifyEvent(
+				JSON.stringify({
+					v: 1,
+					id: 'defer-drain',
+					kind: 'asking',
+					title: 'T',
+					ts: 1,
+					presence: 'likely-present',
+				}),
+			),
+		)
+		expect(sendPush).not.toHaveBeenCalled()
+		await notifyService.awaitInFlight(1000)
+		expect(sendPush).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'defer-drain' })
+		notifyService.dispose()
+	})
+
+	test('dispose flushes a pending presence-deferred event', async () => {
+		const { sendPush, notifyService } = createHarness()
+		notifyService.dispatchEvent(
+			parseNotifyEvent(
+				JSON.stringify({
+					v: 1,
+					id: 'defer-dispose',
+					kind: 'asking',
+					title: 'T',
+					ts: 1,
+					presence: 'likely-present',
+				}),
+			),
+		)
+		expect(sendPush).not.toHaveBeenCalled()
+		notifyService.dispose()
+		await notifyService.awaitInFlight(1000)
+		expect(sendPush).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({
+			id: 'defer-dispose',
+		})
+	})
+
+	test('dispose flushes a deferred unlabeled done through both queues', async () => {
+		const { sendPush, notifyService } = createHarness()
+		notifyService.dispatchEvent(
+			parseNotifyEvent(
+				JSON.stringify({
+					v: 1,
+					id: 'defer-done',
+					kind: 'done',
+					title: 'T',
+					ts: 1,
+					presence: 'likely-present',
+				}),
+			),
+		)
+		expect(sendPush).not.toHaveBeenCalled()
+		notifyService.dispose()
+		await notifyService.awaitInFlight(1000)
+		expect(sendPush).toHaveBeenCalledTimes(1)
+		expect(JSON.parse(String(sendPush.mock.calls[0]?.[1]))).toMatchObject({ id: 'defer-done' })
+	})
+})
