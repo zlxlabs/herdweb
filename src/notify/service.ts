@@ -401,8 +401,9 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 			// Only an explicit absence signal (likely-away / unknown / stale
 			// presenceAt) or away mode releases the session's deferred event;
 			// a missing presence field means the producer made no inference and
-			// must not flush. The flush runs before this event's own gate,
-			// preserving outbound order.
+			// must not flush. The flush runs before this event's own gate so
+			// send calls are initiated in dispatch order (delivery itself is
+			// concurrent and its arrival order is not guaranteed).
 			const nowMs = now()
 			const explicitAbsence =
 				normalized.presence === 'likely-away' ||

@@ -335,11 +335,16 @@ the same session replaces the pending one and resets the 300s timer.
 
 The defer lane sits between the "never outbound" rules and the role rules:
 `silence` and `done` + `role=child` still never go outbound, and a released
-event re-enters the normal gate (an unlabeled `done` then joins the 600s
-coalesce window). The pending event is released early when the producer
-reports `likely-away` / `unknown` (or a stale `presenceAt`) for the same
-session, when away mode is switched on, and on process drain (`awaitInFlight`
-/ `dispose`), so shutdown never drops a deferred event.
+event re-enters the normal gate. An unlabeled `done` then joins the 600s
+coalesce window with a **fresh** timer started at release time, replacing any
+already-pending coalesce entry for that session — the 600s quiet period does
+not run concurrently with the 300s deferral. The pending event is released
+early only by an explicit absence signal — `likely-away`, `unknown`, or a
+stale `presenceAt` — for the same session, by switching on away mode, or on
+process drain (`awaitInFlight` / `dispose`), so shutdown never drops a
+deferred event. An event with no `presence` field (including herdweb's own
+`silence` and `health` producers) makes no inference and never releases the
+pending event.
 
 **Away mode (runtime switch)**
 
