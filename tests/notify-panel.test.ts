@@ -921,3 +921,81 @@ test('away mode uses the base path when joining the settings URL', async () => {
 	).toBe(true)
 	expect(awayToggleOf(panel).checked).toBe(true)
 })
+
+test('away-mode toggle stays disabled until the settings GET lands', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	let resolveGet!: (value: unknown) => void
+	const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings') && init === undefined) {
+			return new Promise((resolve) => {
+				resolveGet = resolve
+			})
+		}
+		return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(true)
+
+	resolveGet({ ok: true, status: 200, json: async () => ({ awayMode: true }) })
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(true)
+})
+
+test('away-mode toggle recovers as enabled when the settings GET fails', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	const fetchMock = vi.fn(async (url: string) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings')) {
+			return { ok: false, status: 500, json: async () => ({}) }
+		}
+		return { ok: false, status: 500, json: async () => ({}) }
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(false)
+})
+
+test('away-mode toggle is disabled while the PUT is in flight', async () => {
+	stubNotification({ permission: 'granted', requestPermission: vi.fn() })
+	stubServiceWorker()
+	let resolvePut!: (value: unknown) => void
+	const fetchMock = vi.fn((url: string, init?: RequestInit) => {
+		if (typeof url === 'string' && url.endsWith('/api/notify/settings')) {
+			if (init?.method === 'PUT') {
+				return new Promise((resolve) => {
+					resolvePut = resolve
+				})
+			}
+			return Promise.resolve({ ok: true, status: 200, json: async () => ({ awayMode: false }) })
+		}
+		return Promise.resolve({ ok: false, status: 500, json: async () => ({}) })
+	})
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 20))
+
+	const toggle = awayToggleOf(panel)
+	expect(toggle.disabled).toBe(false)
+	toggle.checked = true
+	toggle.dispatchEvent(new Event('change', { bubbles: true }))
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(true)
+
+	resolvePut({ ok: true, status: 200, json: async () => ({ awayMode: true }) })
+	await new Promise((resolve) => setTimeout(resolve, 20))
+	expect(toggle.disabled).toBe(false)
+	expect(toggle.checked).toBe(true)
+})

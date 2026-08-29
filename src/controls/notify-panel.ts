@@ -157,6 +157,8 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	const awayRow = el('div', { class: 'wt-notify-row' })
 	const awayLabel = el('label', { class: 'wt-notify-toggle-label' }, 'Away mode')
 	const awayToggle = el('input', { type: 'checkbox', class: 'wt-notify-away-toggle' })
+	// Unknown/unready third state: stay disabled until the server state lands.
+	awayToggle.disabled = true
 	awayRow.append(awayLabel, awayToggle)
 	const awayHint = el(
 		'p',
@@ -287,14 +289,17 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	async function refreshAwayMode(): Promise<void> {
 		try {
 			const response = await fetchFn(joinBasePath(deps.basePath, '/api/notify/settings'))
-			if (!response.ok) return
-			const body: unknown = await response.json()
-			if (isRecord(body) && typeof body.awayMode === 'boolean') {
-				awayModeServer = body.awayMode
-				awayToggle.checked = body.awayMode
+			if (response.ok) {
+				const body: unknown = await response.json()
+				if (isRecord(body) && typeof body.awayMode === 'boolean') {
+					awayModeServer = body.awayMode
+					awayToggle.checked = body.awayMode
+				}
 			}
 		} catch {
 			// Keep the last known server state.
+		} finally {
+			awayToggle.disabled = false
 		}
 	}
 
@@ -447,6 +452,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 
 	awayToggle.addEventListener('change', () => {
 		const next = awayToggle.checked
+		awayToggle.disabled = true
 		void (async () => {
 			let response: Response
 			try {
@@ -457,15 +463,18 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 				})
 			} catch {
 				awayToggle.checked = awayModeServer
+				awayToggle.disabled = false
 				setStatus('Away mode update failed')
 				return
 			}
 			if (!response.ok) {
 				awayToggle.checked = awayModeServer
+				awayToggle.disabled = false
 				setStatus(`Away mode update failed (${response.status})`)
 				return
 			}
 			awayModeServer = next
+			awayToggle.disabled = false
 			setStatus(next ? 'Away mode on' : 'Away mode off')
 		})()
 	})
