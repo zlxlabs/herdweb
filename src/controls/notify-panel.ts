@@ -154,6 +154,15 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 	const toggleLabel = el('label', { class: 'wt-notify-toggle-label' }, 'Push notifications')
 	const toggle = el('input', { type: 'checkbox', class: 'wt-notify-toggle' })
 	toggleRow.append(toggleLabel, toggle)
+	const awayRow = el('div', { class: 'wt-notify-row' })
+	const awayLabel = el('label', { class: 'wt-notify-toggle-label' }, 'Away mode')
+	const awayToggle = el('input', { type: 'checkbox', class: 'wt-notify-away-toggle' })
+	awayRow.append(awayLabel, awayToggle)
+	const awayHint = el(
+		'p',
+		{ class: 'wt-notify-away-hint' },
+		'On: ignore presence signals and send notifications immediately.',
+	)
 	const permStatus = el('p', { class: 'wt-notify-perm-status' })
 	const permCheckBtn = el(
 		'button',
@@ -186,6 +195,8 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		permStatus,
 		swStatus,
 		toggleRow,
+		awayRow,
+		awayHint,
 		permCheckBtn,
 		swCheckBtn,
 		testBtn,
@@ -268,6 +279,22 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			return null
 		} catch {
 			return null
+		}
+	}
+
+	let awayModeServer = false
+
+	async function refreshAwayMode(): Promise<void> {
+		try {
+			const response = await fetchFn(joinBasePath(deps.basePath, '/api/notify/settings'))
+			if (!response.ok) return
+			const body: unknown = await response.json()
+			if (isRecord(body) && typeof body.awayMode === 'boolean') {
+				awayModeServer = body.awayMode
+				awayToggle.checked = body.awayMode
+			}
+		} catch {
+			// Keep the last known server state.
 		}
 	}
 
@@ -388,6 +415,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 		overlay.style.display = 'block'
 		void refreshSwStatus()
 		void refreshToggle()
+		void refreshAwayMode()
 		void fetchHistory()
 	}
 
@@ -414,6 +442,31 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			} else {
 				await unsubscribe()
 			}
+		})()
+	})
+
+	awayToggle.addEventListener('change', () => {
+		const next = awayToggle.checked
+		void (async () => {
+			let response: Response
+			try {
+				response = await fetchFn(joinBasePath(deps.basePath, '/api/notify/settings'), {
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ awayMode: next }),
+				})
+			} catch {
+				awayToggle.checked = awayModeServer
+				setStatus('Away mode update failed')
+				return
+			}
+			if (!response.ok) {
+				awayToggle.checked = awayModeServer
+				setStatus(`Away mode update failed (${response.status})`)
+				return
+			}
+			awayModeServer = next
+			setStatus(next ? 'Away mode on' : 'Away mode off')
 		})()
 	})
 

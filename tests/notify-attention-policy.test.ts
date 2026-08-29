@@ -98,9 +98,10 @@ describe('decideOutbound', () => {
 		['done', undefined],
 	] as const)('likely-present defers kind=%s role=%s', (kind, role) => {
 		const extra = role === undefined ? {} : { role }
-		expect(
-			decideOutbound(event(kind, { ...extra, presence: 'likely-present' }), OPTS),
-		).toEqual({ action: 'defer', reason: 'user-present' })
+		expect(decideOutbound(event(kind, { ...extra, presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'defer',
+			reason: 'user-present',
+		})
 	})
 
 	test('likely-present does not change the silence withhold', () => {
@@ -185,9 +186,9 @@ describe('presenceAt freshness', () => {
 	})
 
 	test('future presenceAt is treated as fresh', () => {
-		expect(
-			decideOutbound(event('asking', { ...present, presenceAt: NOW + 60_000 }), OPTS),
-		).toEqual({ action: 'defer', reason: 'user-present' })
+		expect(decideOutbound(event('asking', { ...present, presenceAt: NOW + 60_000 }), OPTS)).toEqual(
+			{ action: 'defer', reason: 'user-present' },
+		)
 	})
 })
 
