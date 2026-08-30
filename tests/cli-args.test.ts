@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { parseCliArgs } from '../src/cli/args'
+import { assertServeCommandCompatible, parseCliArgs } from '../src/cli/args'
 
 describe('parseCliArgs', () => {
 	test('defaults to help with no args', () => {
@@ -412,6 +412,40 @@ describe('parseCliArgs', () => {
 		expect(result.ok).toBe(true)
 		if (result.ok) {
 			expect(result.value.basePath).toBe('/two')
+		}
+	})
+})
+
+describe('assertServeCommandCompatible', () => {
+	const cases: readonly {
+		cell: string
+		targetMode: 'single' | 'explicit'
+		trailing: readonly string[]
+		throws: boolean
+	}[] = [
+		{ cell: 'single × empty', targetMode: 'single', trailing: [], throws: false },
+		{
+			cell: 'single × nonempty',
+			targetMode: 'single',
+			trailing: ['herdr', '--session', 'default'],
+			throws: false,
+		},
+		{ cell: 'explicit × empty', targetMode: 'explicit', trailing: [], throws: false },
+		{
+			cell: 'explicit × nonempty',
+			targetMode: 'explicit',
+			trailing: ['herdr', 'session', 'attach', 'herdweb-dev'],
+			throws: true,
+		},
+	]
+
+	test.each(cases)('$cell', ({ targetMode, trailing, throws }) => {
+		if (throws) {
+			expect(() => assertServeCommandCompatible(targetMode, trailing)).toThrow(
+				'Explicit targets cannot be combined with a trailing command after --',
+			)
+		} else {
+			expect(() => assertServeCommandCompatible(targetMode, trailing)).not.toThrow()
 		}
 	})
 })

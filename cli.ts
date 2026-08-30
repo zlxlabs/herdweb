@@ -3,7 +3,7 @@ import { execSync } from 'node:child_process'
 import { existsSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
-import { parseCliArgs } from './src/cli/args'
+import { assertServeCommandCompatible, parseCliArgs } from './src/cli/args'
 import { defaultConfig, defineConfig, mergeConfig } from './src/config'
 import {
 	ConfigValidationError,
@@ -281,9 +281,7 @@ async function main(): Promise<void> {
 	switch (command) {
 		case 'serve': {
 			const loaded = await loadConfig(configPath)
-			if (loaded.config.targetMode === 'explicit' && command_.length > 0) {
-				throw new Error('Explicit targets cannot be combined with a trailing command after --')
-			}
+			assertServeCommandCompatible(loaded.config.targetMode, command_)
 			const defaultTarget = loaded.config.targets.find(
 				({ id }) => id === loaded.config.defaultTargetId,
 			)
