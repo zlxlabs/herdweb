@@ -55,7 +55,7 @@
 		"test:pw": "playwright test",
 		"test:pw:chromium": "playwright test --project=chromium-android",
 		"test:pw:webkit": "playwright test --project=webkit-iphone",
-		"ci-check": "pnpm run test:coverage && pnpm run build:dist && pnpm run test:pw && pnpm run check && pnpm run lint:ox && pnpm run lint:typos && pnpm run lint:knip && pnpm run lint:publint && pnpm exec tsc --noEmit",
+		"ci-check": "pnpm run test:coverage && pnpm run build:dist && pnpm run test:pw && pnpm run check && pnpm run lint:ox && pnpm run lint:typos && pnpm run lint:knip && pnpm run lint:publint && pnpm exec tsc --noEmit && pnpm run test:deploy",
 		"release": "semantic-release",
 		"prepublishOnly": "pnpm run lint:ox && pnpm run lint:knip && pnpm run build:dist && pnpm run lint:publint"
 	},

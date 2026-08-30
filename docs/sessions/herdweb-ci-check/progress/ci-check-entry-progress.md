@@ -29,3 +29,13 @@
 关键决策与已否决方案：解析 `ci.yml` 用手写 job/`run` 抽取，不引入 YAML 依赖。否决只做 CI→ci-check 单向包含。白名单是精确字符串常量，不是正则。
 
 下一步唯一动作：抽 `assertServeCommandCompatible` + 四格表驱动测试 + unit 契约两层。
+
+## 2026-08-30 抽 CLI 校验纯函数并加 unit 契约两层
+
+当前阶段：implementing（里程碑 ④）
+
+本段结论：`assertServeCommandCompatible` 落到 `src/cli/args.ts`，`cli.ts` 的 serve 路径调用它。四格表驱动覆盖 `single/explicit × 空/非空`。unit 契约层一把两个 unit 的 ExecStart 喂给 `parseCliArgs`；层二在 config 存在时经 tsx+`defineConfig` 加载真实 targetMode（vite 读不了仓外 `.omo/`）。里程碑 ③ 双向红验已完成：删 `ci.yml` 的 `lint:typos`、删 `ci-check` 的 `lint:knip` 均以 AssertionError 转红，已按单行还原。
+
+关键决策与已否决方案：纯函数放 `src/cli/args.ts` 而不是 `cli.ts`（knip project 含 `src/**`，且测试可直接 import）。层二不用 vite `import()`（仓外路径失败）。否决为层二新增生产代码加载器。
+
+下一步唯一动作：`ci.yml` check job 改为 `pnpm run ci-check`，文档 Key Commands 收敛到该入口，并把 `test:deploy` 链进 `ci-check`。
