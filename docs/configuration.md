@@ -104,6 +104,13 @@ export default {
 }
 ```
 
+`font.cdnUrl` defaults to a version-pinned JetBrainsMono Nerd Font stylesheet
+on jsDelivr (`nerdfont-webfonts@v3.3.0`, not `@latest`). The page requests it
+with `media="print"` so a hung CDN cannot block first paint; the client then
+switches `media` to `all`. Override `cdnUrl` only if you host the stylesheet
+yourself. Leave `font.family` as-is so a missing webfont falls back to system
+`monospace`.
+
 `gestures.scroll.strategy` controls touch scroll behaviour:
 
 - `wheel` (default): sends SGR mouse wheel events with touch-mapped terminal coordinates.

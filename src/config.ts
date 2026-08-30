@@ -13,8 +13,11 @@ import type {
 /** Default font configuration */
 const defaultFont: HerdwebConfig['font'] = {
 	family: 'JetBrainsMono NFM, monospace',
+	// Pin the jsDelivr tag. `@latest` can hang forever (HAR time=-1) and would
+	// also silently retag the webfont. v3.3.0 is the newest GitHub tag and the
+	// CSS URL returns 200.
 	cdnUrl:
-		'https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@latest/build/jetbrainsmono-nfm.css',
+		'https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@v3.3.0/build/jetbrainsmono-nfm.css',
 	mobileSizeDefault: 13,
 	sizeRange: [8, 32],
 }
