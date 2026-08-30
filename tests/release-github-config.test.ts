@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import '@semantic-release/git'
 import { describe, expect, test } from 'vitest'
 
 type ReleasePlugin = string | [string, Record<string, unknown>]
