@@ -947,18 +947,8 @@ describe('createdEngine capture release on hidden', () => {
 			configurable: true,
 			value: { getUserMedia: async () => ({ getTracks: () => [] }) },
 		})
-		vi.stubGlobal(
-			'AudioContext',
-			class {
-				constructor() {}
-			},
-		)
-		vi.stubGlobal(
-			'AudioWorkletNode',
-			class {
-				constructor() {}
-			},
-		)
+		vi.stubGlobal('AudioContext', class {})
+		vi.stubGlobal('AudioWorkletNode', class {})
 		vi.stubGlobal(
 			'WebSocket',
 			class {

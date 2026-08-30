@@ -557,7 +557,9 @@ class BrowserPcmCapture implements PcmCapture {
  * starting + provider/protocol failure -> failing: report once, invalidate epoch, cleanup -> idle.
  * recording + stop -> stopping: stop monitor/capture, flush queued PCM, send tail, await final/3s,
  *   cleanup -> idle. keep-alive capture pauses (no track.stop / context.close) and the next
- *   start reuses a live stream; dispose()/pagehide/ended tracks fully release.
+ *   start reuses a live stream within KEEP_ALIVE_IDLE_MS; idle timeout, releaseCapture(),
+ *   dispose()/pagehide, and ended tracks fully release. Idle/hidden release does not unhook
+ *   pagehide; dispose() does.
  * recording + WS/provider/protocol/backpressure failure -> failing: report once, stop/close, idle.
  * stopping + provider/WS/protocol/stop failure -> stopping: report once, resolve final waiter,
  *   keep the shared stop promise, then cleanup -> idle.

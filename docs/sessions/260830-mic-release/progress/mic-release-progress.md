@@ -19,3 +19,13 @@
 关键决策与已否决方案：方法放在具体类、不改 `AsrEngine` 接口。否决在 `releaseCapture` 里走 `dispose()`/`release()`（会摘监听器、语义变成终态）。
 
 下一步唯一动作：提交里程碑 ②，再改 `mic-controller` hidden 分支调用 `releaseCapture()`。
+
+## 2026-08-30 mic-controller hidden 释放采集
+
+当前阶段：implementing（里程碑 ③）
+
+本段结论：`onVisibilityChange` 在 `hidden` 时先按原逻辑取消非 idle 会话，再无条件调用 `createdEngine.releaseCapture()`——idle 且 keep-alive 仍持有 live 轨道时也会释放。`visible` 不申请麦克风、不释放。注入 FakeEngine 的既有路径 `createdEngine` 为空，行为不变。
+
+关键决策与已否决方案：释放调用放在 `currentState !== 'idle'` 守卫之外。否决把释放塞进 `cancelSession`（idle 根本不会进 cancel，主缺陷就在 idle）。
+
+下一步唯一动作：提交里程碑 ③，再同步生命周期迁移表注释并跑 lint。
