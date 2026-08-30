@@ -246,7 +246,7 @@ test('brief hidden then visible reuses the live socket without attach-target', a
 
 test('killing the socket while hidden reconnects behind a banner that keeps the old screen', async ({
 	page,
-	context,
+	serve,
 }) => {
 	await installSocketProbe(page)
 	await page.goto('/')
@@ -256,8 +256,22 @@ test('killing the socket while hidden reconnects behind a banner that keeps the 
 	await page.evaluate((value) => window.term?.input(`printf "${value}\\n"\r`, true), marker)
 	await expect(page.locator('body')).toContainText(marker)
 
+	// Hold the next handshake so the banner stays observable. context.setOffline(true)
+	// does not block loopback WebSockets on WebKit: navigator.onLine goes false and
+	// fetch fails, but ws://127.0.0.1 still opens, reconnect finishes in ~25ms, and
+	// the overlay is already data-connection-state="synced" by the text assertion.
+	let releaseHold!: () => void
+	const held = new Promise<void>((resolve) => {
+		releaseHold = resolve
+	})
+	await page.routeWebSocket(`${serve.url.replace('http', 'ws')}/ws`, async (socket) => {
+		await held
+		const upstream = socket.connectToServer()
+		socket.onMessage((message) => upstream.send(message))
+		upstream.onMessage((message) => socket.send(message))
+	})
+
 	await setPageVisibility(page, 'hidden')
-	await context.setOffline(true)
 	await page.evaluate(() => window.__herdwebSockets?.[0]?.close())
 	await setPageVisibility(page, 'visible')
 
@@ -269,7 +283,7 @@ test('killing the socket while hidden reconnects behind a banner that keeps the 
 	await expect(page.locator('body')).toContainText(marker)
 	await page.screenshot({ path: 'test-results/reconnect-banner-after-sync.png' })
 
-	await context.setOffline(false)
+	releaseHold()
 	await waitForSynced(page)
 	await expect(overlay).toBeHidden()
 	await expect(page.locator('body')).toContainText(marker)
