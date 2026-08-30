@@ -49,3 +49,13 @@
 关键决策与已否决方案：无。
 
 下一步唯一动作：无，本卡实现与验证完成，等候验收。
+
+## 2026-08-30 F1 stop 失败路径也排闲置释放
+
+当前阶段：implementing（验收 F1）
+
+本段结论：`stop()` 在 pause 为真时，成功与失败分支都调用 `scheduleIdleRelease()`。轴 1 补行：keep-alive on + `stop()` 因 flush ack 超时 reject 后，闲置到期轨道 ended。新增测试锁死该格。红验把失败分支调度去掉后该测试以 AssertionError（live≠ended）转红，已单行还原。
+
+关键决策与已否决方案：两个 `.then` 分支各调一次，不用 `finally`——红验要求「改回只在成功分支排」，双分支比 finally 更好拆。未改 `stopPromise` 清理与 `idleGeneration` 守卫。
+
+下一步唯一动作：提交本段 progress，跑指定回归与三条 lint。
