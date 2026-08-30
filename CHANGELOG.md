@@ -1,3 +1,13 @@
+## [1.18.1](https://github.com/zlxlabs/herdweb/compare/v1.18.0...v1.18.1) (2026-08-30)
+
+
+### Bug Fixes
+
+* **asr:** expose DoubaoEngine.releaseCapture without disposing ([2dbe9f3](https://github.com/zlxlabs/herdweb/commit/2dbe9f395c34dc895683e0f21cd717bd25649886))
+* **asr:** release keep-alive capture after idle timeout ([c03c41e](https://github.com/zlxlabs/herdweb/commit/c03c41eaca9f631595e0e7de0add9de8b4f2b8e4))
+* **asr:** release keep-alive capture when the page is hidden ([6ab7d0b](https://github.com/zlxlabs/herdweb/commit/6ab7d0b0393e3ff448b9ad14572ce0bb2a99730f))
+* **asr:** schedule keep-alive idle release when stop fails ([7fab3ef](https://github.com/zlxlabs/herdweb/commit/7fab3ef25129ae0a4a74bee26a14d28c0361dc84))
+
 # [1.18.0](https://github.com/zlxlabs/herdweb/compare/v1.17.0...v1.18.0) (2026-08-29)
 
 
