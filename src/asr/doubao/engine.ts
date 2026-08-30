@@ -454,6 +454,7 @@ class BrowserPcmCapture implements PcmCapture {
 			},
 			() => {
 				if (this.stopPromise === promise) this.stopPromise = undefined
+				if (pause) this.scheduleIdleRelease()
 			},
 		)
 		return promise

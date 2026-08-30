@@ -1433,6 +1433,22 @@ describe('DoubaoEngine', () => {
 			await engine.dispose()
 		})
 
+		test('releases keep-alive capture after idle timeout when stop flush ack times out', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			FakeAudioNode.ackFlush = false
+			const { stream, engine } = liveSession()
+			await engine.start()
+			const stop = engine.stop()
+			await vi.advanceTimersByTimeAsync(3_000)
+			await stop
+			expect(stream.track.readyState).toBe('live')
+			expect(stream.track.stopCalls).toBe(0)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(stream.track.readyState).toBe('ended')
+			expect(stream.track.stopCalls).toBe(1)
+			await engine.dispose()
+		})
+
 		test('releases a paused keep-alive capture after the idle timeout', async () => {
 			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 			const { stream, engine } = liveSession()
