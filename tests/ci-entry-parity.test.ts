@@ -46,6 +46,34 @@ const EXPECTED_CI_CHECK_COMMANDS: readonly string[] = [
 	'pnpm run test:deploy',
 ]
 
+/**
+ * Locked bodies of scripts that `ci-check` invokes via `pnpm run <name>`.
+ * Compared against the live `package.json` after expanding each reference.
+ * Replacing any referenced script with a no-op (`true`, `echo ok`) must fail —
+ * the top-level `pnpm run X` strings would otherwise stay unchanged.
+ *
+ * `pnpm exec tsc --noEmit` is not a `pnpm run` invocation and has no `scripts`
+ * entry; it stays locked only as a top-level command above.
+ */
+const EXPECTED_REFERENCED_SCRIPT_BODIES: Readonly<Record<string, string>> = {
+	'test:coverage': 'vitest run --coverage',
+	'build:dist': 'tsdown && pnpm run build:overlay',
+	'test:pw': 'playwright test',
+	check: 'biome check .',
+	'lint:ox': 'oxlint --import-plugin --promise-plugin',
+	'lint:typos': 'typos',
+	'lint:knip': 'knip',
+	'lint:publint': 'publint',
+	'test:deploy':
+		'bash tests/deploy/test-debug-unit.sh && bash tests/deploy/test-prod-unit.sh && bash tests/deploy/test-check-exposure.sh',
+}
+
+const PNPM_RUN_INVOCATION = /^pnpm run (\S+)$/
+
+function referencedScriptName(command: string): string | undefined {
+	return command.match(PNPM_RUN_INVOCATION)?.[1]
+}
+
 function extractJobRunCommands(yaml: string, jobName: string): string[] {
 	const lines = yaml.split('\n')
 	const jobHeader = new RegExp(`^ {2}${jobName}:\\s*$`)
@@ -177,5 +205,32 @@ describe('CI check job ↔ ci-check parity', () => {
 		)
 		expect(missingFromCiCheck, 'CI verification step missing from ci-check').toEqual([])
 		expect(extraInCiCheck, 'ci-check command missing from CI check job').toEqual([])
+	})
+
+	test('each pnpm run in ci-check expands to the locked script body', () => {
+		const scripts = pkg.scripts ?? {}
+		const commands = parseCiCheckCommands(ciCheckScript ?? '')
+		const seen: string[] = []
+		for (const command of commands) {
+			const name = referencedScriptName(command)
+			if (name === undefined) continue
+			seen.push(name)
+			const expected = EXPECTED_REFERENCED_SCRIPT_BODIES[name]
+			expect(
+				expected,
+				`ci-check references pnpm run ${name} with no locked body`,
+			).toBeDefined()
+			expect(
+				scripts[name],
+				`package.json scripts.${name} drifted from the locked verification command`,
+			).toBe(expected)
+		}
+		const expectedNames = Object.keys(EXPECTED_REFERENCED_SCRIPT_BODIES)
+		const missing = expectedNames.filter((name) => !seen.includes(name))
+		const extra = seen.filter((name) => !(name in EXPECTED_REFERENCED_SCRIPT_BODIES))
+		expect(missing, 'ci-check dropped a referenced script that the expansion table locks').toEqual(
+			[],
+		)
+		expect(extra, 'ci-check gained a pnpm run with no locked body').toEqual([])
 	})
 })
