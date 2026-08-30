@@ -16,8 +16,12 @@ See `docs/architecture/stack.md`.
 
 ## Key Commands
 
+This repo assumes [mise](https://mise.jdx.dev/). After clone, install mise and run `mise install`
+(`mise.toml` pins node, pnpm, python, typos, hk, node-gyp, ttyd). Without it, `pnpm run ci-check`
+fails at `lint:typos` with `typos: not found` after minutes of tests (#131).
+
 ```bash
-git config core.hooksPath .hk-hooks  # Run once after clone
+git config core.hooksPath .hk-hooks  # Run once after clone (hk is from mise)
 pnpm test              # Run all tests
 pnpm run test:pw       # Playwright e2e tests (chromium + webkit)
 pnpm run check         # Biome lint + format check
