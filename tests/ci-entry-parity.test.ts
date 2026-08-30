@@ -239,10 +239,7 @@ describe('CI check job ↔ ci-check parity', () => {
 			if (name === undefined) continue
 			seen.push(name)
 			const expected = EXPECTED_REFERENCED_SCRIPT_BODIES[name]
-			expect(
-				expected,
-				`ci-check references pnpm run ${name} with no locked body`,
-			).toBeDefined()
+			expect(expected, `ci-check references pnpm run ${name} with no locked body`).toBeDefined()
 			expect(
 				scripts[name],
 				`package.json scripts.${name} drifted from the locked verification command`,
