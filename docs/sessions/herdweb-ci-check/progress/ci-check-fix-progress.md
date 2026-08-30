@@ -9,3 +9,13 @@
 关键决策与已否决方案：锁定表内联常量，读真实 `package.json` 后比对。否决「展开结果非空」或子串包含。否决递归展开 `build:dist` 里的 `build:overlay`（卡面只锁 ci-check 直接引用）。
 
 下一步唯一动作：把 `test-debug-unit.sh` 的 ExecStart 断言改成行锚定整行相等，并做指定红验 3。
+
+## 2026-08-30 F2 ExecStart 行锚定整行相等
+
+当前阶段：repairing（F2）
+
+本段结论：`has()` 改为 `grep -qxF`，ExecStart 必须整行逐字相等。给 unit 追加 ` -- herdr session attach herdweb-dev` 后脚本非零退出（`FAIL: debug command contract changed`），已立刻还原 unit。`Environment=PATH=` 期望串同步写成完整行，否则 `-x` 会对现有合法 unit 误红。
+
+关键决策与已否决方案：用 `grep -qxF` 而不是逐行读。否决只加「不含 ` -- `」的否定断言。`has()` 三个调用共用行锚定，不为 ExecStart 另做包装函数。
+
+下一步唯一动作：加固 `extractJobRunCommands` 识别 `- name` 后接 `run`、去 YAML 引号并规范化空格，再做指定红验 4。
