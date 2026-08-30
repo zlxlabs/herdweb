@@ -51,9 +51,11 @@
 		"lint:typos": "typos",
 		"test": "vitest run",
 		"test:coverage": "vitest run --coverage",
+		"test:deploy": "bash tests/deploy/test-debug-unit.sh && bash tests/deploy/test-prod-unit.sh && bash tests/deploy/test-check-exposure.sh",
 		"test:pw": "playwright test",
 		"test:pw:chromium": "playwright test --project=chromium-android",
 		"test:pw:webkit": "playwright test --project=webkit-iphone",
+		"ci-check": "pnpm run test:coverage && pnpm run build:dist && pnpm run test:pw && pnpm run check && pnpm run lint:ox && pnpm run lint:typos && pnpm run lint:knip && pnpm run lint:publint && pnpm exec tsc --noEmit",
 		"release": "semantic-release",
 		"prepublishOnly": "pnpm run lint:ox && pnpm run lint:knip && pnpm run build:dist && pnpm run lint:publint"
 	},
