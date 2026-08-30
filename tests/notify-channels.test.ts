@@ -61,6 +61,7 @@ describe('notify channel content', () => {
 			'【完成】Done\nFinished\n会话：dev\n原因：exit 0',
 		],
 		['test label', { kind: 'test' as const, title: 'Test' }, '【测试】Test'],
+		['patrol label', { kind: 'patrol' as const, title: '【巡查·超限】' }, '【巡查】【巡查·超限】'],
 	] as const)('assembles %s without extra blank lines', (_name, input, expected) => {
 		expect(buildNotifyContent({ v: 1, id: 'content', ts: 1, ...input })).toBe(expected)
 	})

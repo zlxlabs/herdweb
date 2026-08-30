@@ -999,3 +999,63 @@ test('away-mode toggle is disabled while the PUT is in flight', async () => {
 	expect(toggle.disabled).toBe(false)
 	expect(toggle.checked).toBe(true)
 })
+
+test('history renders patrol events with the 巡查 badge', async () => {
+	Object.defineProperty(navigator, 'serviceWorker', {
+		value: {
+			ready: Promise.resolve({
+				active: {},
+				pushManager: {
+					getSubscription: vi.fn(() => Promise.resolve(null)),
+					subscribe: vi.fn(),
+				},
+			}),
+			getRegistration: vi.fn(() =>
+				Promise.resolve({
+					active: {},
+					pushManager: {
+						getSubscription: vi.fn(() => Promise.resolve(null)),
+						subscribe: vi.fn(),
+					},
+				}),
+			),
+		},
+		configurable: true,
+	})
+
+	const fetchMock = vi.fn(async (url: string) => {
+		if (url.includes('/api/events/history')) {
+			return {
+				ok: true,
+				json: async () => ({
+					events: [
+						{
+							v: 1,
+							id: 'overflow:1788090200',
+							kind: 'patrol',
+							title: '【巡查·超限】',
+							ts: 1_788_090_200,
+							task_id: 'overflow',
+							drift: 'overflow',
+							body: 'truncated lost=0 stalled=0 stranded=13',
+						},
+					],
+				}),
+			}
+		}
+		if (url.includes('/api/notify/settings')) {
+			return { ok: true, json: async () => ({ awayMode: false }) }
+		}
+		return { ok: false, status: 500 }
+	})
+
+	const panel = createNotifyPanel({ basePath: '/', fetchFn: fetchMock as unknown as typeof fetch })
+	document.body.appendChild(panel.element)
+	panel.open()
+	await new Promise((resolve) => setTimeout(resolve, 50))
+
+	const badge = panel.element.querySelector('.wt-notify-kind-badge')
+	expect(badge?.textContent).toBe('巡查')
+	expect(badge?.className).toContain('wt-notify-kind-patrol')
+	expect(panel.element.querySelector('.wt-notify-history-title')?.textContent).toBe('【巡查·超限】')
+})

@@ -8,6 +8,7 @@ const KIND_LABELS: Record<NotifyKind, string> = {
 	silence: '可能完工或卡住',
 	health: '服务状态',
 	test: '测试',
+	patrol: '巡查',
 }
 
 const CHANNEL_TIMEOUT_MS = 10_000
