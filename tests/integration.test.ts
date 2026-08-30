@@ -503,6 +503,11 @@ describe('build output', () => {
 		expect(result).toContain('<link rel="stylesheet"')
 		expect(result).toContain('id="terminal-container"')
 		expect(result).toContain('id="terminal"')
+		const fontLink = result.split('\n').find((line) => line.includes('data-herdweb-font'))
+		expect(fontLink).toBe(
+			`<link rel="stylesheet" href="${defaultConfig.font.cdnUrl}" media="print" data-herdweb-font>`,
+		)
+		expect(fontLink).not.toMatch(/\son\w+=/)
 	})
 
 	test('renderClientHtml includes PWA tags when pwa.enabled', async () => {

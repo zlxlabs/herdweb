@@ -29,6 +29,20 @@ import type {
 import { el } from './util/dom'
 import { onTap } from './util/tap'
 
+/**
+ * Apply the print-media font stylesheet as soon as this bundle runs.
+ * `data-herdweb-font` is the stable selector written by renderClientHtml.
+ * CSP `script-src` has no `unsafe-inline`, so this cannot be an inline onload.
+ */
+function applyDeferredFontStylesheet(): void {
+	const fontLink = document.querySelector('link[data-herdweb-font]')
+	if (fontLink instanceof HTMLLinkElement) {
+		fontLink.media = 'all'
+	}
+}
+
+applyDeferredFontStylesheet()
+
 const NOTIFY_TARGET_MESSAGE_TYPE = 'herdweb-notify-target'
 
 declare const __herdwebConfig: ClientConfigProjection

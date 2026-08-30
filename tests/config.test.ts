@@ -12,6 +12,8 @@ describe('defineConfig', () => {
 	test('returns default config when called with no args', () => {
 		const config = defineConfig()
 		expect(config).toEqual(defaultConfig)
+		expect(config.font.cdnUrl).not.toContain('@latest')
+		expect(config.font.cdnUrl).toContain('nerdfont-webfonts@v3.3.0')
 	})
 
 	test('overrides font family', () => {

@@ -182,7 +182,11 @@ export function renderClientHtml(
 		? `${generatePwaHtml(config.name, config.pwa, basePath)}
 `
 		: ''
-	const fontLink = `<link rel="stylesheet" href="${escapeAttr(config.font.cdnUrl)}">`
+	// media="print" keeps this stylesheet off the render-blocking path so a
+	// hung third-party CDN cannot stall first paint / DOMContentLoaded.
+	// data-herdweb-font is the stable selector the client bundle uses to
+	// switch media back to "all" (CSP forbids inline onload handlers).
+	const fontLink = `<link rel="stylesheet" href="${escapeAttr(config.font.cdnUrl)}" media="print" data-herdweb-font>`
 	const safeJs = js.replace(/<(?=\/script)/gi, '\\x3c')
 
 	return [
