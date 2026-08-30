@@ -1,4 +1,12 @@
-export const NOTIFY_KINDS = ['asking', 'done', 'ci-red', 'silence', 'health', 'test'] as const
+export const NOTIFY_KINDS = [
+	'asking',
+	'done',
+	'ci-red',
+	'silence',
+	'health',
+	'test',
+	'patrol',
+] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
 export type NotifyTaskRole = 'root' | 'child'
 
@@ -31,6 +39,9 @@ interface NotifyEventFields {
 	readonly startedAt?: number
 	readonly presence?: NotifyPresence
 	readonly presenceAt?: number
+	readonly task_id?: string
+	readonly dispatch_id?: string
+	readonly drift?: string
 }
 
 export interface NotifyEventV1 extends NotifyEventFields {
@@ -59,6 +70,9 @@ const ALLOWED_FIELDS = new Set([
 	'startedAt',
 	'presence',
 	'presenceAt',
+	'task_id',
+	'dispatch_id',
+	'drift',
 ])
 const NOTIFY_TASK_ROLES = ['root', 'child'] as const
 
@@ -186,6 +200,18 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('presenceAt must be a finite number', 400)
 	}
 
+	if (obj.task_id !== undefined && typeof obj.task_id !== 'string') {
+		throw new NotifyEventError('task_id must be a string', 400)
+	}
+
+	if (obj.dispatch_id !== undefined && typeof obj.dispatch_id !== 'string') {
+		throw new NotifyEventError('dispatch_id must be a string', 400)
+	}
+
+	if (obj.drift !== undefined && typeof obj.drift !== 'string') {
+		throw new NotifyEventError('drift must be a string', 400)
+	}
+
 	const id = typeof obj.id === 'string' && obj.id.length > 0 ? obj.id : undefined
 	if (obj.kind !== 'test' && id === undefined) {
 		throw new NotifyEventError('id is required', 400)
@@ -213,6 +239,9 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		...(typeof obj.presenceAt === 'number' && Number.isFinite(obj.presenceAt)
 			? { presenceAt: obj.presenceAt }
 			: {}),
+		...(typeof obj.task_id === 'string' ? { task_id: obj.task_id } : {}),
+		...(typeof obj.dispatch_id === 'string' ? { dispatch_id: obj.dispatch_id } : {}),
+		...(typeof obj.drift === 'string' ? { drift: obj.drift } : {}),
 	}
 
 	return obj.v === 2
