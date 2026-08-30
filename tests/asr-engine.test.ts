@@ -1294,6 +1294,7 @@ describe('DoubaoEngine', () => {
 		afterEach(() => {
 			FakeAudioNode.ackFlush = true
 			FakeAudioContext.initialState = 'running'
+			vi.useRealTimers()
 			vi.unstubAllGlobals()
 		})
 
@@ -1429,6 +1430,174 @@ describe('DoubaoEngine', () => {
 				expect(errors).toEqual(['audio-interrupted'])
 			}
 			vi.useRealTimers()
+			await engine.dispose()
+		})
+
+		test('releases keep-alive capture after idle timeout when stop flush ack times out', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			FakeAudioNode.ackFlush = false
+			const { stream, engine } = liveSession()
+			await engine.start()
+			const stop = engine.stop()
+			await vi.advanceTimersByTimeAsync(3_000)
+			await stop
+			expect(stream.track.readyState).toBe('live')
+			expect(stream.track.stopCalls).toBe(0)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(stream.track.readyState).toBe('ended')
+			expect(stream.track.stopCalls).toBe(1)
+			await engine.dispose()
+		})
+
+		test('releases a paused keep-alive capture after the idle timeout', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const { stream, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(0)
+			expect(stream.track.readyState).toBe('live')
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(0)
+			await vi.advanceTimersByTimeAsync(59_999)
+			expect(stream.track.readyState).toBe('live')
+			expect(stream.track.stopCalls).toBe(0)
+			await vi.advanceTimersByTimeAsync(1)
+			expect(stream.track.readyState).toBe('ended')
+			expect(stream.track.stopCalls).toBe(1)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(1)
+			await engine.dispose()
+		})
+
+		test('recaptures after idle release and delivers PCM on the new stream', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const first = new FakeStream()
+			const second = new FakeStream()
+			let current = first
+			const sockets: CountingFinalSocket[] = []
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => {
+				const socket = new CountingFinalSocket()
+				sockets.push(socket)
+				return socket
+			})
+			await engine.start()
+			await engine.stop()
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(first.track.readyState).toBe('ended')
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			current = second
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			const node = FakeAudioNode.instances[1]
+			const socket = sockets[1]
+			if (!node || !socket) throw new Error('missing second session')
+			const sent = socket.sentFrames.length
+			node.port.triggerMessage({ type: 'pcm', samples: new Int16Array(1600), posted: 1 })
+			expect(socket.sentFrames.length).toBeGreaterThan(sent)
+			await engine.stop()
+			await engine.dispose()
+			expect(second.track.stopCalls).toBe(1)
+		})
+
+		test('pagehide after idle release does not throw', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const { stream, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(stream.track.readyState).toBe('ended')
+			expect(() => globalThis.dispatchEvent(new Event('pagehide'))).not.toThrow()
+			await engine.dispose()
+		})
+
+		test('keeps pagehide hooked after idle release so a later session still ends', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const first = new FakeStream()
+			const second = new FakeStream()
+			let current = first
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			await engine.start()
+			await engine.stop()
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(first.track.readyState).toBe('ended')
+			current = second
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			expect(second.track.readyState).toBe('live')
+			globalThis.dispatchEvent(new Event('pagehide'))
+			await Promise.resolve()
+			await Promise.resolve()
+			expect(second.track.readyState).toBe('ended')
+			expect(second.track.stopCalls).toBe(1)
+			await engine.dispose()
+		})
+
+		test('clears the idle timer on start so a reused capture stays live past the idle window', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const { stream, getUserMedia, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(stream.track.readyState).toBe('live')
+			expect(stream.track.stopCalls).toBe(0)
+			await engine.stop()
+			await engine.dispose()
+		})
+
+		test('clears the idle timer on dispose so a late timeout does not throw', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const { stream, engine } = liveSession()
+			await engine.start()
+			await engine.stop()
+			expect(stream.track.stopCalls).toBe(0)
+			await engine.dispose()
+			expect(stream.track.stopCalls).toBe(1)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(stream.track.stopCalls).toBe(1)
+		})
+
+		test('releaseCapture ends a paused keep-alive track without unhooking pagehide', async () => {
+			const first = new FakeStream()
+			const second = new FakeStream()
+			let current = first
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			await engine.start()
+			await engine.stop()
+			expect(first.track.readyState).toBe('live')
+			await engine.releaseCapture()
+			expect(first.track.readyState).toBe('ended')
+			expect(first.track.stopCalls).toBe(1)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(1)
+			current = second
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			expect(second.track.readyState).toBe('live')
+			globalThis.dispatchEvent(new Event('pagehide'))
+			await Promise.resolve()
+			await Promise.resolve()
+			expect(second.track.readyState).toBe('ended')
+			await engine.dispose()
+		})
+
+		test('does not start an idle timer when keep-alive is off', async () => {
+			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+			const stream = new FakeStream()
+			const getUserMedia = stubGetUserMedia(() => stream)
+			const engine = new DoubaoEngine({
+				apiKey: 'test-api-key',
+				resourceId: 'volc.seedasr.sauc.duration',
+				websocketFactory: () => new CountingFinalSocket(),
+			})
+			await engine.start()
+			await engine.stop()
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(stream.track.stopCalls).toBe(1)
+			await vi.advanceTimersByTimeAsync(60_000)
+			expect(getUserMedia).toHaveBeenCalledTimes(1)
+			expect(stream.track.stopCalls).toBe(1)
 			await engine.dispose()
 		})
 
