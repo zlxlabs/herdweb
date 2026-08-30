@@ -76,7 +76,7 @@ See `docs/architecture/publishing.md`.
 - Drawer takes a flat `readonly ControlButton[]` — rendered as a single grid, with a heading row inserted whenever adjacent buttons' `section` changes
 - Help overlay is config-driven and must be fail-safe (never break core controls if help fails)
 - Mobile viewport handling: see `docs/architecture/mobile-viewport.md`.
-- Changelog and versioning are fully automated by semantic-release — do not manually edit `CHANGELOG.md`. Use conventional commit types to control releases: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major. Non-release types: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`
+- Versioning and release notes are automated by semantic-release (git tags + GitHub Releases) — do not manually edit `CHANGELOG.md`. In-repo `CHANGELOG.md` is no longer automatically updated because `@semantic-release/git` cannot push to the protected `main` branch under `GITHUB_TOKEN`; historical and latest release notes are tracked on the GitHub Releases page (re-enabling automated in-repo changelog commits requires configuring an admin PAT for the release job). Use conventional commit types to control releases: `feat:` → minor, `fix:` → patch, `BREAKING CHANGE` → major. Non-release types: `chore:`, `docs:`, `refactor:`, `test:`, `ci:`
 - All DOM creation in `util/dom.ts` helpers
 - Keyboard state preserved: capture `isKeyboardOpen()` before action, use `conditionalFocus()` after
 - Tests use happy-dom for DOM environment (e2e/CLI tests use node environment)
