@@ -246,9 +246,22 @@ test('brief hidden then visible reuses the live socket without attach-target', a
 
 test('killing the socket while hidden reconnects behind a banner that keeps the old screen', async ({
 	page,
-	context,
+	serve,
 }) => {
-	await installSocketProbe(page)
+	// Route must wrap WebSocket from first navigation. installSocketProbe captures
+	// window.WebSocket in an init script and bypasses a later routeWebSocket.
+	let holdReconnect = false
+	let releaseHold!: () => void
+	const held = new Promise<void>((resolve) => {
+		releaseHold = resolve
+	})
+	await page.routeWebSocket(`${serve.url.replace('http', 'ws')}/ws`, async (socket) => {
+		if (holdReconnect) await held
+		const upstream = socket.connectToServer()
+		socket.onMessage((message) => upstream.send(message))
+		upstream.onMessage((message) => socket.send(message))
+	})
+
 	await page.goto('/')
 	await page.waitForSelector('#terminal .xterm')
 	await waitForSynced(page)
@@ -256,8 +269,12 @@ test('killing the socket while hidden reconnects behind a banner that keeps the 
 	await page.evaluate((value) => window.term?.input(`printf "${value}\\n"\r`, true), marker)
 	await expect(page.locator('body')).toContainText(marker)
 
+	// Hold the next handshake so the banner stays observable. context.setOffline(true)
+	// does not block loopback WebSockets on WebKit: navigator.onLine goes false and
+	// fetch fails, but ws://127.0.0.1 still opens, reconnect finishes in ~25ms, and
+	// the overlay is already data-connection-state="synced" by the text assertion.
+	holdReconnect = true
 	await setPageVisibility(page, 'hidden')
-	await context.setOffline(true)
 	await page.evaluate(() => window.__herdwebSockets?.[0]?.close())
 	await setPageVisibility(page, 'visible')
 
@@ -265,11 +282,19 @@ test('killing the socket while hidden reconnects behind a banner that keeps the 
 	await expect(overlay).toBeVisible({ timeout: 15_000 })
 	await expect(overlay).toHaveAttribute('data-layout', 'banner')
 	await expect(overlay).toContainText(/Reconnecting|Syncing|Disconnected/)
+	// The hold must keep the banner in a non-synced state; without it this
+	// window is ~25ms on WebKit and the next assertion races.
+	await page.waitForTimeout(300)
+	await expect(overlay).toHaveAttribute(
+		'data-connection-state',
+		/disconnected|reconnecting|syncing/,
+	)
+	await expect(overlay).toBeVisible()
 	await expect(page.locator('#terminal .xterm')).toBeVisible()
 	await expect(page.locator('body')).toContainText(marker)
 	await page.screenshot({ path: 'test-results/reconnect-banner-after-sync.png' })
 
-	await context.setOffline(false)
+	releaseHold()
 	await waitForSynced(page)
 	await expect(overlay).toBeHidden()
 	await expect(page.locator('body')).toContainText(marker)
