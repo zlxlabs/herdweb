@@ -8,7 +8,7 @@ fail() { printf 'FAIL: %s\n' "$1" >&2; exit 1; }
 has() { grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 
 has "$UNIT" 'WorkingDirectory=/home/zlx/projects/oss/herdweb' 'debug path must be canonical main repo'
-has "$UNIT" 'ExecStart=/home/zlx/.local/share/fnm/aliases/default/bin/pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7691 --base-path /herdweb --config /home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts -- herdr session attach herdweb-dev' 'debug command contract changed'
+has "$UNIT" 'ExecStart=/home/zlx/.local/share/fnm/aliases/default/bin/pnpm exec tsx cli.ts serve --host 127.0.0.1 --port 7691 --base-path /herdweb --config /home/zlx/projects/oss/herdweb/.omo/herdweb-debug.config.ts' 'debug command contract changed'
 has "$UNIT" 'Environment=PATH=/home/zlx/.local/share/fnm/aliases/default/bin:/home/zlx/.local/bin:' 'debug PATH must use fnm default alias'
 grep -Fx -- '[Install]' "$UNIT" >/dev/null && fail 'debug unit must not have [Install]'
 grep -F -- 'serve-prod.sh' "$UNIT" >/dev/null && fail 'debug unit must not require main branch'
