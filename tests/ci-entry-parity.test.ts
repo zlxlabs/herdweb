@@ -233,9 +233,7 @@ describe('CI check job ↔ ci-check parity', () => {
 		const missing = EXPECTED_CI_CHECK_COMMANDS.filter(
 			(command) => !ciCheckCommands.includes(command),
 		)
-		const extra = ciCheckCommands.filter(
-			(command) => !EXPECTED_CI_CHECK_COMMANDS.includes(command),
-		)
+		const extra = ciCheckCommands.filter((command) => !EXPECTED_CI_CHECK_COMMANDS.includes(command))
 		expect(missing, 'ci-check is missing a locked verification command').toEqual([])
 		expect(extra, 'ci-check has a command not in the locked composition').toEqual([])
 	})
