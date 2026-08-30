@@ -19,3 +19,13 @@
 关键决策与已否决方案：用 `grep -qxF` 而不是逐行读。否决只加「不含 ` -- `」的否定断言。`has()` 三个调用共用行锚定，不为 ExecStart 另做包装函数。
 
 下一步唯一动作：加固 `extractJobRunCommands` 识别 `- name` 后接 `run`、去 YAML 引号并规范化空格，再做指定红验 4。
+
+## 2026-08-30 F3 识别 named-step 与 YAML 标量写法
+
+当前阶段：repairing（F3）
+
+本段结论：`extractJobRunCommands` 现在接受 `- name` 后换行 `run:`，并去掉 YAML 引号、把内部空白收成单空格。指定红验 4：把 `- run: pnpm run ci-check` 改成 `- name: CI check` + `run: pnpm run ci-check` 后 parity 仍 6 passed；额外用带引号和双空格的标量也绿。已还原 `ci.yml`，未提交 workflow。
+
+关键决策与已否决方案：继续手写解析器，不引入 YAML 库（本仓无 yaml 依赖，且只抽 check job 的 run 命令）。否决用 fixture 替代真实 `ci.yml`。
+
+下一步唯一动作：在双向 `includes` 比较处写明集合相等契约（接受重排与重复），作为 F4 提交。

@@ -74,6 +74,22 @@ function referencedScriptName(command: string): string | undefined {
 	return command.match(PNPM_RUN_INVOCATION)?.[1]
 }
 
+function unquoteYamlScalar(value: string): string {
+	const trimmed = value.trim()
+	if (trimmed.length >= 2) {
+		const first = trimmed[0]
+		const last = trimmed[trimmed.length - 1]
+		if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+			return trimmed.slice(1, -1)
+		}
+	}
+	return trimmed
+}
+
+function normalizeRunCommand(value: string): string {
+	return unquoteYamlScalar(value).replace(/\s+/g, ' ').trim()
+}
+
 function extractJobRunCommands(yaml: string, jobName: string): string[] {
 	const lines = yaml.split('\n')
 	const jobHeader = new RegExp(`^ {2}${jobName}:\\s*$`)
@@ -95,15 +111,16 @@ function extractJobRunCommands(yaml: string, jobName: string): string[] {
 			const content = line.trim()
 			if (content === '') continue
 			if (indent > literalIndent) {
-				commands.push(content)
+				commands.push(normalizeRunCommand(content))
 				continue
 			}
 			inLiteralBlock = false
 		}
 
-		const inline = line.match(/^\s+- run:\s+(\S.*)$/)
+		// `- run: ...` and the `- name: ...` / `run: ...` split form.
+		const inline = line.match(/^\s+(?:-\s+)?run:\s+(\S.*)$/)
 		if (inline?.[1] && !inline[1].startsWith('|') && !inline[1].startsWith('>')) {
-			commands.push(inline[1].trim())
+			commands.push(normalizeRunCommand(inline[1]))
 			continue
 		}
 
