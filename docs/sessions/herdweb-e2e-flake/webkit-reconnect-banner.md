@@ -52,7 +52,13 @@ because `setOffline` actually blocks the socket.
 
 ## Fix
 
-The product state machine is fine. The test now holds the next `/ws` handshake
+The product state machine is fine. The test holds the next `/ws` handshake
 with `page.routeWebSocket` (same pattern as the modal overlay test in this file)
 so the banner stays in a non-synced state until assertions finish, then
 releases and waits for `synced`. `Synced` is not added to the text regex.
+
+The route is installed **before** `page.goto`. `installSocketProbe` is not used
+in this test: it captures `window.WebSocket` in an init script, so a
+`routeWebSocket` registered after load never sees the reconnect. An earlier
+revision that routed after load still failed 2/6 full-spec rounds with the
+same `Synced` text.
