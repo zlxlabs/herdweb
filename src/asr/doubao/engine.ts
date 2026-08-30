@@ -608,6 +608,14 @@ export class DoubaoEngine implements AsrEngine {
 		}
 	}
 
+	/**
+	 * Release keep-alive held capture without disposing the engine.
+	 * pagehide stays registered so a later start() can still fully tear down.
+	 */
+	async releaseCapture(): Promise<void> {
+		await this.ownedCapture?.releaseCaptureResources()
+	}
+
 	/** Release keep-alive capture resources. Idle stop() is a no-op; this always tears down. */
 	async dispose(): Promise<void> {
 		await this.stop()

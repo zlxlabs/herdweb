@@ -1542,6 +1542,30 @@ describe('DoubaoEngine', () => {
 			expect(stream.track.stopCalls).toBe(1)
 		})
 
+		test('releaseCapture ends a paused keep-alive track without unhooking pagehide', async () => {
+			const first = new FakeStream()
+			const second = new FakeStream()
+			let current = first
+			const getUserMedia = stubGetUserMedia(() => current)
+			const engine = createKeepAliveEngine(() => new CountingFinalSocket())
+			await engine.start()
+			await engine.stop()
+			expect(first.track.readyState).toBe('live')
+			await engine.releaseCapture()
+			expect(first.track.readyState).toBe('ended')
+			expect(first.track.stopCalls).toBe(1)
+			expect(FakeAudioContext.instances[0]?.closeCalls).toBe(1)
+			current = second
+			await engine.start()
+			expect(getUserMedia).toHaveBeenCalledTimes(2)
+			expect(second.track.readyState).toBe('live')
+			globalThis.dispatchEvent(new Event('pagehide'))
+			await Promise.resolve()
+			await Promise.resolve()
+			expect(second.track.readyState).toBe('ended')
+			await engine.dispose()
+		})
+
 		test('does not start an idle timer when keep-alive is off', async () => {
 			vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
 			const stream = new FakeStream()
