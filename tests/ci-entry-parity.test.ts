@@ -202,6 +202,12 @@ describe('CI check job ↔ ci-check parity', () => {
 		const uniqueEntry =
 			verificationCommands.length === 1 && verificationCommands[0] === UNIQUE_ENTRY
 
+		// Set equality, not sequence: `&&` order in ci-check is not a contract
+		// (lint-then-test and test-then-lint are both valid). Duplicates are not
+		// expected in real maintenance and would not produce a false-green
+		// (every locked command would still be present). Both directions use
+		// Array.includes, which accepts reorder and repeats by design.
+
 		if (uniqueEntry) {
 			const missingFromEntry = EXPECTED_CI_CHECK_COMMANDS.filter(
 				(command) => !ciCheckCommands.includes(command),
