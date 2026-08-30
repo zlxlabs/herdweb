@@ -180,10 +180,72 @@ When the same CSS URL **does** complete in this suite, it takes ~500–560 ms (m
 
 ## Observer effect
 
-Round 1 was run with `--trace retain-on-failure`. Chromium navigation timeouts **reproduced** (4 goto-hangs + 2 other suite timeouts). Trace did not make candidate 1 disappear, so these traces are valid evidence for the hang, not a substitute borrowed from the no-trace baseline.
-
-A second full-suite round with the same flags is recorded below if it finished before this file was closed; otherwise it is appended in a later commit.
+Round 1 was run with `--trace retain-on-failure`. Chromium navigation timeouts **reproduced** (4 goto-hangs + 2 other suite timeouts). Round 2 with the same flags reproduced two more goto-hangs (woff2 stage). Trace did not make candidate 1 disappear, so these traces are valid evidence for the hang, not a substitute borrowed from the no-trace baseline.
 
 ## Round 2
 
-*(placeholder — filled after the second full-suite run completes)*
+Same command as round 1 (`--trace retain-on-failure`). Start `2026-08-31T01:25:29+08:00`, `WALL_SECONDS=121.92 EXIT=1`. JSON: `expected=104 skipped=8 unexpected=4 flaky=0`. Status mix: `passed=104 timedOut=3 failed=1 skipped=8`. Chromium `timedOut=2`, both `page.goto` still waiting until `load`. Neither contains `while setting up "serve"`.
+
+### Evidence group 5 — `asr.spec.ts:186`, waiting until `load` (CSS done, woff2 pending)
+
+- **Spec / line:** `tests/playwright/asr.spec.ts` test at line 182 (`socket error followed by close emits one disconnected transition`); hang is line 186 `page.goto(serve.url)`.
+- **Project:** `chromium-android`
+- **JSON:** `status=timedOut` duration `30207` ms
+- **Error first line:** `Test timeout of 30000ms exceeded.`
+- **Second error:** `Error: page.goto: Test timeout of 30000ms exceeded.` Call log: `navigating to "http://127.0.0.1:44567/", waiting until "load"`.
+- **Trace:** `/tmp/herdweb-chromium-nav/r2/test-results/asr-Voice-composer-tap-to--e1220-one-disconnected-transition-chromium-android/trace.zip`
+- **Pending requests:**
+  1. `GET http://127.0.0.1:44567/` — **done**, `10.8` ms, 200
+  2. `GET https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@latest/build/jetbrainsmono-nfm.css` — **done**, `539.0` ms, 200
+  3. `GET http://127.0.0.1:44567/sw.js` — **done**, `24.6` ms, 200
+  4. `GET https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@latest/build/fonts/JetBrainsMonoNerdFontMono-Regular.woff2` — **pending**, HAR `time=-1`, `status=-1`
+- **`load`:** not fired (`goto` still waiting until `load`). CSS had already completed, so this is not the same pending row as groups 1–4.
+
+### Evidence group 6 — `smoke.spec.ts:63`, waiting until `load` (same woff2)
+
+- **Spec / line:** `tests/playwright/smoke.spec.ts` test at line 62 (`help overlay shows version`); hang is line 63 `page.goto('/')`.
+- **Project:** `chromium-android`
+- **JSON:** `status=timedOut` duration `30226` ms
+- **Error first line:** `Test timeout of 30000ms exceeded.`
+- **Second error:** `Error: page.goto: Test timeout of 30000ms exceeded.` Call log: `navigating to "http://127.0.0.1:43445/", waiting until "load"`.
+- **Trace:** `/tmp/herdweb-chromium-nav/r2/test-results/smoke-help-overlay-shows-version-chromium-android/trace.zip`
+- **Pending requests:** document `9.9` ms 200; `/sw.js` `20.5` ms 200; jsDelivr CSS `560.3` ms 200; **pending** the same `JetBrainsMonoNerdFontMono-Regular.woff2` (`time=-1`).
+- **`load`:** not fired.
+
+Round 2 also had a webkit `smoke.spec.ts:52` `page.goto` timeout (same call log, waiting until `load`) and the known webkit reconnect-banner `failed`. Out of scope; not opened here.
+
+The woff2 URL is the Regular face declared by that CSS. A curl of the CSS during this session (`2026-08-30T17:28:45Z`, 1050 bytes, HTTP 200 in <1 s) shows four `@font-face` rules, relative `url("fonts/JetBrainsMonoNerdFontMono-Regular.woff2")`, **no `font-display`**. `local("JetBrainsMonoNerdFontMono-Regular")` is listed first; headless Chromium on this machine does not have that family, so it fetches.
+
+## What is stuck
+
+Two stages, one origin.
+
+1. **Stylesheet stall (groups 1–4).** Document HTML returns in 5–12 ms. `page.goto` stays on `waiting until "load"` (group 2: `waiting until "domcontentloaded"`) because `GET https://cdn.jsdelivr.net/gh/mshaugh/nerdfont-webfonts@latest/build/jetbrainsmono-nfm.css` never gets a response (`HAR time=-1`, `status=-1`, empty headers). Local `/sw.js` is not in those four network logs at all — the parser never got past the stylesheet to run the inline script that would register the SW.
+2. **Font stall (groups 5–6).** The CSS **does** return (~540–560 ms). Then `GET …/fonts/JetBrainsMonoNerdFontMono-Regular.woff2` stays `time=-1`, and `waitUntil: 'load'` still does not complete.
+
+Not claimed: “jsDelivr is down.” A curl of the CSS from this machine between the two rounds succeeded. The failure mode is an **individual browser request that never receives a response** while other tests in the same suite often get the same URL in ~500 ms.
+
+`DOMContentLoaded` / `load` events are not present as Playwright `event` records in these traces (the library log only has `Frame.goto` + HAR). The waitUntil string on the still-open `goto` is the evidence that the named lifecycle event has not fired.
+
+## Why `domcontentloaded` also waits (group 2)
+
+`build.ts` `renderClientHtml` emits, in order:
+
+1. `<head>`: `<link rel="stylesheet" href="{config.font.cdnUrl}">` (`cdnUrl` default in `src/config.ts` is the jsDelivr jetbrainsmono-nfm.css).
+2. `<body>`: `#terminal-container`, then a **classic inline** `<script nonce=…>` with the whole client bundle (~500 KB). No `src`, no `type="module"`, no `defer`/`async`.
+
+HTML: a classic script must wait for pending stylesheets before it runs. DCL waits for that script. So a hung stylesheet blocks **both** `DOMContentLoaded` and `load`. Switching tests to `waitUntil: 'domcontentloaded'` cannot fix groups 1–4; group 2 is already on DCL and still timed out on the same pending CSS.
+
+After the CSS arrives, the script can run and DCL can fire. `load` can then still wait on the `@font-face` woff2 (groups 5–6). That is why group 2 (DCL) and groups 5–6 (`load` after CSS) are the same dependency, different stage.
+
+Service worker is not the pending resource on any of the six goto-hang traces. When `/sw.js` appears, it finishes in 8–25 ms.
+
+## Next-card candidates (do not do them here)
+
+A repair card can pick **one** of these and re-run a JSON walk like `baseline.md` (not a single spec).
+
+1. **Take the font off the document load path (product).** Stop emitting a render-blocking third-party `<link rel="stylesheet">` in `renderClientHtml`. Self-host the CSS+woff2, or inject the font after first paint (`media`/`onload`, or `font-display: optional` **plus** not blocking DCL on the CSS — `font-display` alone does not fix groups 1–4). **Red → green:** chromium rows that today die as `status=timedOut` at 30.0–30.3 s on `page.goto` should finish navigation; they will either pass or fail the 10 s `waitForSelector` as `status=failed`. The 10 s vs 30 s contrast in `baseline.md` is the check.
+2. **Stub jsDelivr in Playwright (test isolation only).** Fulfill or abort `cdn.jsdelivr.net` in the fixture so e2e does not need the internet. This would green the suite without changing what a phone does on a bad CDN day. Do not treat it as a product fix for candidate 1.
+3. **Not sufficient:** only changing `page.goto` to `waitUntil: 'domcontentloaded'` (group 2). **Not in scope:** raising `timeout`, enabling `retries`, single-spec loops, blaming `/sw.js`.
+
+Suggested first repair: (1), because the HTML critical path currently requires a live jsDelivr GET before the client script may run. (2) is a valid e2e-hygiene follow-up so a future CDN stall cannot reopen issue #135 even if someone puts a CDN link back.
