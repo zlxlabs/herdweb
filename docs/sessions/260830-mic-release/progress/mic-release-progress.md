@@ -29,3 +29,23 @@
 关键决策与已否决方案：释放调用放在 `currentState !== 'idle'` 守卫之外。否决把释放塞进 `cancelSession`（idle 根本不会进 cancel，主缺陷就在 idle）。
 
 下一步唯一动作：提交里程碑 ③，再同步生命周期迁移表注释并跑 lint。
+
+## 2026-08-30 生命周期注释与 lint
+
+当前阶段：implementing（里程碑 ④）
+
+本段结论：生命周期迁移表已写上 idle timeout / `releaseCapture()` / pagehide 不摘监听的语义。`pnpm run check`、`pnpm run lint:knip`、`pnpm run lint:ox` 三条全绿。测试里空构造函数被 biome 拦下，已删掉。
+
+关键决策与已否决方案：无。
+
+下一步唯一动作：提交里程碑 ④，再做两条红验并跑仓库全量 `pnpm test`。
+
+## 2026-08-30 红验与全量测试
+
+当前阶段：implementing（里程碑收尾）
+
+本段结论：红验 ① 注释 `disposeStartResources` 的 `track.stop()` 后闲置释放测试以 AssertionError（live≠ended）转红；红验 ② 注释 hidden 的 `releaseCapture()` 后 idle hidden 测试以「called 0 times」转红。均已按单行还原。`pnpm test` 76 files / 1315 tests 全绿。
+
+关键决策与已否决方案：无。
+
+下一步唯一动作：无，本卡实现与验证完成，等候验收。
