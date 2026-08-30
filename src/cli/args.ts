@@ -1,4 +1,5 @@
 import { normalizeBasePath } from '../base-path'
+import type { TargetMode } from '../types'
 
 type CliCommand = 'build' | 'inject' | 'init' | 'serve' | 'help' | 'version'
 
@@ -170,6 +171,16 @@ const actionCommands = new Set<string>(['build', 'inject', 'init', 'serve'])
 
 function isActionCommand(value: string): value is ActionCommand {
 	return actionCommands.has(value)
+}
+
+/** Reject explicit-mode serve with a trailing command after `--` (issue #118 crash-loop). */
+export function assertServeCommandCompatible(
+	targetMode: TargetMode,
+	trailingCommand: readonly string[],
+): void {
+	if (targetMode === 'explicit' && trailingCommand.length > 0) {
+		throw new Error('Explicit targets cannot be combined with a trailing command after --')
+	}
 }
 
 export function parseCliArgs(args: readonly string[]): ParseCliResult {
