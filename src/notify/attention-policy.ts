@@ -28,7 +28,7 @@ export function isFreshLikelyPresent(event: NotifyEvent, now: number): boolean {
 }
 
 /**
- * Gate order: silence withholds -> child-done withholds -> presence defer ->
+ * Gate order: silence/patrol withholds -> child-done withholds -> presence defer ->
  * existing role rules. `ignorePresence` skips the defer lane for the second
  * pass after a deferred event is released.
  */
@@ -36,7 +36,7 @@ export function decideOutbound(
 	event: NotifyEvent,
 	opts: { awayMode: boolean; now: number; ignorePresence?: boolean },
 ): OutboundDecision {
-	if (event.kind === 'silence') {
+	if (event.kind === 'silence' || event.kind === 'patrol') {
 		return { action: 'withhold', reason: 'not-attention' }
 	}
 	if (event.kind === 'done' && event.role === 'child') {

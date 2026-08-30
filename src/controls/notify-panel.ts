@@ -26,6 +26,7 @@ const KIND_LABELS: Record<Exclude<NotifyKind, 'test'>, string> = {
 	'ci-red': 'CI 变红',
 	silence: '可能完工',
 	health: '服务状态',
+	patrol: '巡查',
 }
 
 function kindLabel(kind: NotifyKind): string {

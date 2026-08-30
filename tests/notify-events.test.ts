@@ -85,6 +85,7 @@ describe('parseNotifyEvent', () => {
 		['silence', 'silence'],
 		['health', 'health'],
 		['test', 'test'],
+		['patrol', 'patrol'],
 	])('accepts kind=%s', (kind, expected) => {
 		const event = parseNotifyEvent(JSON.stringify({ ...validBase, kind }))
 		expect(event.kind).toBe(expected)
@@ -154,6 +155,9 @@ describe('parseNotifyEvent', () => {
 		['string presenceAt', { ...validBase, presenceAt: '1700000000000' }],
 		['NaN presenceAt', { ...validBase, presenceAt: Number.NaN }],
 		['non-finite presenceAt', { ...validBase, presenceAt: Number.POSITIVE_INFINITY }],
+		['non-string task_id', { ...validBase, task_id: 1 }],
+		['non-string dispatch_id', { ...validBase, dispatch_id: 1 }],
+		['non-string drift', { ...validBase, drift: 1 }],
 	])('rejects %s with 400', (_label, payload) => {
 		try {
 			parseNotifyEvent(JSON.stringify(payload))
@@ -190,6 +194,54 @@ describe('parseNotifyEvent', () => {
 	})
 })
 
+describe('parseNotifyEvent patrol producer fields', () => {
+	// issue #127 measured producer payload — keep this string literal byte-for-byte.
+	const AGENT_CONFIG_PATROL_PAYLOAD =
+		'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
+
+	test('accepts the agent-config patrol producer payload verbatim', () => {
+		const event = parseNotifyEvent(AGENT_CONFIG_PATROL_PAYLOAD)
+		expect(event.kind).toBe('patrol')
+		expect(event.id).toBe('overflow:1788090200')
+		expect(event.task_id).toBe('overflow')
+		expect(event.drift).toBe('overflow')
+	})
+
+	test('accepts task_id alone without 400', () => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, task_id: 'overflow' }))
+		expect(event.task_id).toBe('overflow')
+		expect(event.kind).toBe('asking')
+	})
+
+	test('accepts dispatch_id alone without 400', () => {
+		const event = parseNotifyEvent(
+			JSON.stringify({ ...validBase, dispatch_id: 'dlg-20260830-121041-afb841' }),
+		)
+		expect(event.dispatch_id).toBe('dlg-20260830-121041-afb841')
+	})
+
+	test('accepts drift alone without 400', () => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, drift: 'lost' }))
+		expect(event.drift).toBe('lost')
+	})
+
+	test('accepts a drift value outside the current producer set', () => {
+		const event = parseNotifyEvent(
+			JSON.stringify({ ...validBase, kind: 'patrol', drift: 'future-kind' }),
+		)
+		expect(event.kind).toBe('patrol')
+		expect(event.drift).toBe('future-kind')
+	})
+
+	test('accepts kind=patrol with no optional producer fields', () => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, kind: 'patrol' }))
+		expect(event.kind).toBe('patrol')
+		expect(event.task_id).toBeUndefined()
+		expect(event.dispatch_id).toBeUndefined()
+		expect(event.drift).toBeUndefined()
+	})
+})
+
 describe('POST /api/events', () => {
 	let harness: TestHarness
 
@@ -211,6 +263,28 @@ describe('POST /api/events', () => {
 		expect(decisionLines(logSpy)).toContain(
 			'herdweb: notify decision skipped kind=done id=persist-1 reason=done-coalesced',
 		)
+		logSpy.mockRestore()
+	})
+
+	test('accepts the agent-config patrol producer payload over HTTP', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const body =
+			'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body,
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as { kind?: string; task_id?: string; drift?: string }
+		expect(stored).toMatchObject({
+			kind: 'patrol',
+			task_id: 'overflow',
+			drift: 'overflow',
+		})
 		logSpy.mockRestore()
 	})
 
