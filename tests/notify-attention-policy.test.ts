@@ -79,6 +79,8 @@ describe('decideOutbound', () => {
 		['ci-red', 'child', { action: 'send-now' }],
 		['silence', undefined, { action: 'withhold', reason: 'not-attention' }],
 		['silence', 'root', { action: 'withhold', reason: 'not-attention' }],
+		['patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+		['patrol', 'root', { action: 'withhold', reason: 'not-attention' }],
 		['done', 'root', { action: 'send-now' }],
 		['done', 'child', { action: 'withhold', reason: 'child-done' }],
 		['done', undefined, { action: 'coalesce', reason: 'done-coalesced' }],
@@ -106,6 +108,20 @@ describe('decideOutbound', () => {
 
 	test('likely-present does not change the silence withhold', () => {
 		expect(decideOutbound(event('silence', { presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'withhold',
+			reason: 'not-attention',
+		})
+	})
+
+	test('likely-present does not change the patrol withhold', () => {
+		expect(decideOutbound(event('patrol', { presence: 'likely-present' }), OPTS)).toEqual({
+			action: 'withhold',
+			reason: 'not-attention',
+		})
+	})
+
+	test('patrol withholds as not-attention even in away mode', () => {
+		expect(decideOutbound(event('patrol'), { awayMode: true, now: NOW })).toEqual({
 			action: 'withhold',
 			reason: 'not-attention',
 		})
@@ -318,6 +334,25 @@ describe('notify service outbound gate', () => {
 		)
 		expect(
 			decisionLines(h.logSpy).some((line) => line.includes('accepted') && line.includes('sil-1')),
+		).toBe(false)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('patrol writes history but does not POST', async () => {
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(parsedEvent({ id: 'patrol-1', kind: 'patrol' }))
+		await h.service.awaitInFlight(1000)
+		expect(readJsonl(h.stateDir)).toHaveLength(1)
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=patrol id=patrol-1 reason=not-attention',
+		)
+		expect(
+			decisionLines(h.logSpy).some(
+				(line) => line.includes('accepted') && line.includes('patrol-1'),
+			),
 		).toBe(false)
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
