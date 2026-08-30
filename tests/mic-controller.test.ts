@@ -1,5 +1,6 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
+import { DoubaoEngine } from '../src/asr/doubao/engine'
 import type {
 	AsrEngine,
 	AsrErrorCode,
@@ -936,6 +937,91 @@ describe('preview injection', () => {
 		expect(harness.controller.preview.getText()).toBe('send despite storage failure')
 		expect(errorSpy).toHaveBeenCalledTimes(1)
 		harness.controller.dispose()
+	})
+})
+
+describe('createdEngine capture release on hidden', () => {
+	function stubOwnedEngineEnv(): void {
+		Object.defineProperty(globalThis, 'isSecureContext', { configurable: true, value: true })
+		Object.defineProperty(navigator, 'mediaDevices', {
+			configurable: true,
+			value: { getUserMedia: async () => ({ getTracks: () => [] }) },
+		})
+		vi.stubGlobal(
+			'AudioContext',
+			class {
+				constructor() {}
+			},
+		)
+		vi.stubGlobal(
+			'AudioWorkletNode',
+			class {
+				constructor() {}
+			},
+		)
+		vi.stubGlobal(
+			'WebSocket',
+			class {
+				readyState = 1
+				send(): void {}
+				close(): void {}
+			},
+		)
+	}
+
+	function createOwnedController() {
+		stubOwnedEngineEnv()
+		const releaseCapture = vi
+			.spyOn(DoubaoEngine.prototype, 'releaseCapture')
+			.mockResolvedValue(undefined)
+		vi.spyOn(DoubaoEngine.prototype, 'start').mockResolvedValue(undefined)
+		vi.spyOn(DoubaoEngine.prototype, 'stop').mockResolvedValue(undefined)
+		vi.spyOn(DoubaoEngine.prototype, 'dispose').mockResolvedValue(undefined)
+		const term = mockTerminalWithSent()
+		const config = defineConfig({
+			asr: { enabled: true, doubao: { apiKey: 'test-key' } },
+		})
+		const controller = createMicController({
+			term,
+			config,
+			hooks: createHookRegistry(),
+		})
+		if (!controller) throw new Error('expected created DoubaoEngine controller')
+		const button = document.createElement('button')
+		controller.attachMicButton(button)
+		document.body.append(button)
+		return { controller, button, releaseCapture }
+	}
+
+	test('releases capture when hidden while idle', () => {
+		const { controller, releaseCapture } = createOwnedController()
+		expect(controller.state).toBe('idle')
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+		document.dispatchEvent(new Event('visibilitychange'))
+		expect(releaseCapture).toHaveBeenCalledTimes(1)
+		controller.dispose()
+	})
+
+	test('cancels a live session and releases capture when hidden', async () => {
+		const { controller, button, releaseCapture } = createOwnedController()
+		dispatchTap(button)
+		await Promise.resolve()
+		await Promise.resolve()
+		expect(controller.state).toBe('recording')
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' })
+		document.dispatchEvent(new Event('visibilitychange'))
+		expect(controller.state).toBe('idle')
+		expect(controller.preview.message.textContent).toContain('background')
+		expect(releaseCapture).toHaveBeenCalledTimes(1)
+		controller.dispose()
+	})
+
+	test('does not release capture when returning to visible', () => {
+		const { controller, releaseCapture } = createOwnedController()
+		Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' })
+		document.dispatchEvent(new Event('visibilitychange'))
+		expect(releaseCapture).not.toHaveBeenCalled()
+		controller.dispose()
 	})
 })
 

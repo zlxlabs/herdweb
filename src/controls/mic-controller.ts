@@ -685,13 +685,17 @@ export function createMicController(options: MicControllerOptions): MicControlle
 	}
 
 	function onVisibilityChange(): void {
-		if (document.visibilityState === 'hidden' && currentState !== 'idle') {
+		if (document.visibilityState !== 'hidden') return
+		if (currentState !== 'idle') {
 			const preservedDraft = baseDraft
 			cancelSession(generation)
 			if (preservedDraft) preview.show(preservedDraft)
 			preview.showMessage('Recording cancelled because the app went into the background.')
 			setComposerExpanded(true)
 		}
+		void createdEngine?.releaseCapture().catch((error: unknown) => {
+			console.error('herdweb: ASR capture release failed', error)
+		})
 	}
 
 	function onPageShow(): void {
