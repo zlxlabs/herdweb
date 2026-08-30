@@ -1,3 +1,12 @@
+# [1.19.0](https://github.com/zlxlabs/herdweb/compare/v1.18.1...v1.19.0) (2026-08-30)
+
+
+### Features
+
+* **notify:** accept kind=patrol and snake_case producer fields ([61af84c](https://github.com/zlxlabs/herdweb/commit/61af84c3b9fbc6f2fdf3ae37fc0553acccf9d2d8))
+* **notify:** label patrol events as 巡查 in panel and channels ([5b21106](https://github.com/zlxlabs/herdweb/commit/5b2110691f8398931fe07560fb3e82e4c87b55e4))
+* **notify:** withhold patrol events from outbound push ([9acaab1](https://github.com/zlxlabs/herdweb/commit/9acaab17799bd10dbf517128563a6075fb3dee4d))
+
 ## [1.18.1](https://github.com/zlxlabs/herdweb/compare/v1.18.0...v1.18.1) (2026-08-30)
 
 
