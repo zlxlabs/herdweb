@@ -39,3 +39,13 @@
 关键决策与已否决方案：纯函数放 `src/cli/args.ts` 而不是 `cli.ts`（knip project 含 `src/**`，且测试可直接 import）。层二不用 vite `import()`（仓外路径失败）。否决为层二新增生产代码加载器。
 
 下一步唯一动作：`ci.yml` check job 改为 `pnpm run ci-check`，文档 Key Commands 收敛到该入口，并把 `test:deploy` 链进 `ci-check`。
+
+## 2026-08-30 CI 改调 ci-check 且文档收敛到唯一入口
+
+当前阶段：implementing（里程碑 ⑤）
+
+本段结论：check job 环境准备之后只跑 `pnpm run ci-check`；`test:deploy` 已链进 ci-check。`AGENTS.md` / `CLAUDE.md` 的 Key Commands 不再罗列 knip/ox/tsc，提 PR 前只指向 `pnpm run ci-check`。parity 在唯一入口模式下用 `EXPECTED_CI_CHECK_COMMANDS` 锁组成，正向 5 条绿。指定红验 3/4 与层二 skip 均已完成并还原。
+
+关键决策与已否决方案：文档那一行写「与 CI check job 一致、由 parity 测试锁死」，不抄组成。否决在文档里列出 ci-check 内部命令。
+
+下一步唯一动作：收尾跑完整 `pnpm run ci-check` 并写报告。
