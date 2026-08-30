@@ -19,6 +19,8 @@ const BACKPRESSURE_INTERVAL_MS = 100
 const BACKPRESSURE_LIMIT_BYTES = PCM_SAMPLE_RATE * 2 * 2
 const FINAL_TIMEOUT_MS = 3_000
 const CAPTURE_FLUSH_TIMEOUT_MS = 3_000
+/** Keep-alive holds the mic this long after stop(); not a user config. */
+const KEEP_ALIVE_IDLE_MS = 60_000
 
 export interface WebSocketLike {
 	readonly readyState: number
@@ -154,6 +156,8 @@ class BrowserPcmCapture implements PcmCapture {
 	private workletPosted = 0
 	private workletReceived = 0
 	private readonly muteTimers = new Map<MediaStreamTrack, ReturnType<typeof setTimeout>>()
+	private idleTimer: ReturnType<typeof setTimeout> | undefined
+	private idleGeneration = 0
 	private readonly onPageHide = (): void => {
 		void this.release()
 	}
@@ -165,6 +169,8 @@ class BrowserPcmCapture implements PcmCapture {
 	}
 
 	async start(onSamples: (samples: Int16Array) => void, onError: AsrErrorHandler): Promise<void> {
+		this.clearIdleTimer()
+		this.idleGeneration++
 		const previousStop = this.stopPromise
 		if (previousStop) {
 			await previousStop
@@ -444,6 +450,7 @@ class BrowserPcmCapture implements PcmCapture {
 		void promise.then(
 			() => {
 				if (this.stopPromise === promise) this.stopPromise = undefined
+				if (pause) this.scheduleIdleRelease()
 			},
 			() => {
 				if (this.stopPromise === promise) this.stopPromise = undefined
@@ -452,15 +459,48 @@ class BrowserPcmCapture implements PcmCapture {
 		return promise
 	}
 
-	async release(): Promise<void> {
-		if (this.keepAlive) globalThis.removeEventListener('pagehide', this.onPageHide)
+	/**
+	 * Release held capture resources without unhooking pagehide.
+	 * The capture can start again; pagehide still fully releases a later session.
+	 */
+	async releaseCaptureResources(): Promise<void> {
+		this.clearIdleTimer()
+		const generation = ++this.idleGeneration
 		const previousStop = this.stopPromise
 		if (previousStop) {
 			await previousStop
 			if (this.stopPromise === previousStop) this.stopPromise = undefined
 		}
+		this.clearIdleTimer()
+		if (generation !== this.idleGeneration) return
 		this.epoch++
 		await this.releaseHeldResources()
+	}
+
+	async release(): Promise<void> {
+		if (this.keepAlive) globalThis.removeEventListener('pagehide', this.onPageHide)
+		await this.releaseCaptureResources()
+	}
+
+	private clearIdleTimer(): void {
+		if (this.idleTimer === undefined) return
+		clearTimeout(this.idleTimer)
+		this.idleTimer = undefined
+	}
+
+	private scheduleIdleRelease(): void {
+		if (!this.keepAlive) return
+		this.clearIdleTimer()
+		const generation = this.idleGeneration
+		this.idleTimer = setTimeout(() => {
+			this.idleTimer = undefined
+			void this.releaseCaptureResourcesFromIdle(generation)
+		}, KEEP_ALIVE_IDLE_MS)
+	}
+
+	private async releaseCaptureResourcesFromIdle(generation: number): Promise<void> {
+		if (generation !== this.idleGeneration) return
+		await this.releaseCaptureResources()
 	}
 
 	private async stopCurrentEpoch(
