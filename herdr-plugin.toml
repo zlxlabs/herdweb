@@ -1,0 +1,25 @@
+id = "zlxlabs.herdweb"
+name = "herdweb"
+version = "1.2.1"
+min_herdr_version = "0.8.2"
+description = "Mobile web UI for herdr — localhost only by default, you decide what to expose"
+platforms = ["linux", "macos"]
+
+[[build]]
+command = ["node", "scripts/plugin/check-prereqs.mjs"]
+[[build]]
+command = ["npx", "--yes", "pnpm@10", "install", "--frozen-lockfile"]
+[[build]]
+command = ["npx", "--yes", "pnpm@10", "run", "build:dist"]
+
+[[panes]]
+id = "serve"
+title = "herdweb"
+placement = "tab"
+command = ["node", "scripts/plugin/serve.mjs"]
+
+[[actions]]
+id = "start"
+title = "Start herdweb"
+contexts = ["workspace"]
+command = ["node", "scripts/plugin/open-pane.mjs", "serve"]
