@@ -102,6 +102,62 @@ deploy behind a trusted proxy or tunnel — see [Deploying herdweb](docs/deploy-
 herdr captures mouse input by default, so touch scroll and tap-to-focus work
 with no extra multiplexer configuration.
 
+## Install as a herdr plugin
+
+If you already run herdr, you can install herdweb as a plugin instead of cloning
+by hand:
+
+```bash
+herdr plugin install zlxlabs/herdweb
+herdr plugin action invoke zlxlabs.herdweb.start
+```
+
+`install` clones this repository, runs a preflight check, builds, and registers
+the plugin. `start` launches herdweb in a herdr tab; the server's lifetime is
+that pane's.
+
+The `git clone` path in [Quick start](#quick-start) still works. Both paths are
+valid.
+
+### Platform notes
+
+Node.js ≥ 22 is required on every platform — see [Requirements](#requirements).
+
+**macOS.** The `node-pty` npm package ships darwin prebuilds, so install usually
+does not need a local compile.
+
+**Linux.** That package ships **no linux prebuilds**. Install therefore compiles
+`node-pty` on the machine, which needs Python 3, make, and a C++ compiler:
+
+| Distro | Command |
+| --- | --- |
+| Debian/Ubuntu | `sudo apt install python3 make g++` |
+| Fedora | `sudo dnf install python3 make gcc-c++` |
+| Arch | `sudo pacman -S python make gcc` |
+| Alpine | `sudo apk add python3 make g++` |
+
+The plugin checks for these before it builds and names anything missing, so you
+are not left guessing from a long npm log.
+
+### Optional keybinding
+
+The plugin manifest does not declare keybindings. To add a shortcut, paste this
+into your own herdr `config.toml` — it is optional:
+
+```toml
+[[keys.command]]
+key = "prefix+u"          # example; prefix+w is already herdr's workspace_picker — do not use it
+type = "plugin_action"
+command = "zlxlabs.herdweb.show"
+description = "show herdweb URL"
+```
+
+Without a shortcut, this still works:
+
+```bash
+herdr plugin action invoke zlxlabs.herdweb.show
+```
+
 ## Pick your setup
 
 **Single device, several servers** — each named session is its own Herdr server:
@@ -152,6 +208,9 @@ herdweb is a remote-control surface for your terminal. Anyone who can reach it
 can drive the attached Herdr server with your user privileges.
 
 - `herdweb serve` binds to `127.0.0.1` by default.
+- Plugin-installed herdweb also binds `127.0.0.1` by default. The plugin does not
+  provide any one-click way to expose it on the network; phone access still goes
+  through a trusted tunnel or VPN.
 - The inner PTY-backed session stays local to the herdweb process.
 - There is no built-in login, password, or ACL in herdweb itself.
 - Safe default: keep it on localhost and publish it through a trusted layer like Tailscale Serve.
