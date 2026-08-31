@@ -67,7 +67,7 @@ test.describe('explicit target picker (T5)', () => {
 		await expect(page.locator('body')).toContainText('target-two-ready')
 
 		// The commit persisted the choice: URL param + lastTargetId.
-		expect(page.url()).toContain('target=two')
+		await expect.poll(() => page.evaluate(() => window.location.href)).toContain('target=two')
 		const lastTargetId = await page.evaluate(() => localStorage.getItem('herdweb:lastTargetId:/'))
 		expect(lastTargetId).toBe('two')
 
