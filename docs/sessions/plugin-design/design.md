@@ -1,9 +1,12 @@
 # 方案：把 herdweb 做成 herdr plugin
 
-状态：**r3**，已过一轮独立评审 + 两轮真机实测。日期 2026-08-31。
+状态：**r4**，实现已合入主干。经两轮独立评审 + 两轮真机实测 + 一次真实 `plugin install` 验证。
+日期 2026-09-01。
 
 相关记录：
-- 评审：`docs/sessions/plugin-design/reviews/plugin-design-verdict.md`（r1 verdict：暂不通过）
+- 方案评审：`docs/sessions/plugin-design/reviews/plugin-design-verdict.md`（暂不通过）
+- 实现评审 r1：`docs/sessions/plugin-design/reviews/plugin-core-verdict.md`（FAIL，1 P1 + 4 P2）
+- 实现评审 r2：`docs/sessions/plugin-design/reviews/plugin-core-verdict-r2.md`（PASS，无新增 P1）
 - 实测：`docs/sessions/plugin-design/probes/build-matrix.md`（干净机器构建门槛）
 - 实测：`docs/sessions/plugin-design/probes/runtime-matrix.md`（flock 账本 × herdr 运行时）
 
@@ -19,6 +22,14 @@
   4. §2.5 定死 **action 只能当触发器**——实测 `plugin action invoke` 恒 EXIT 0 且不回显
   5. §1.1 修正「`herdr --session <新名字>` 自动拉 server」——仅 TUI 入口成立
   6. §4 待实测大幅收敛：已测的移出，只留真未测成的
+- **r4**（本版）：实现落地（PR #155）后按两轮实现评审与真实安装验证修订。主要变更：
+  1. **§2.8 锁语义改正**：锁的持有者是**实际提供服务的进程**，runner 死 ≠ 锁释放（r1 P1 的修复改变了这条）
+  2. **§2.8 新增 INV-SVC 不变式**：锁必须覆盖「服务行为」，不只是「账本写入」
+  3. §3.3 的 `exec` 改为 **spawn + 把 lock fd 传给 child**，并说明为什么
+  4. §2.12 前置检查改为**全平台**校验 flock 能力（python3 或 perl）
+  5. **端口那条是设计写错了**：herdweb 的 config schema 是 strict object，没有 `port` 字段，
+     「从生效配置读取端口」不可实现 —— 改为 `HERDWEB_PLUGIN_PORT`，非法值 fail-loud
+  6. 新增 §7 backlog（评审接受不修的 P2/P3）
 
 ## 0. 背景与目标
 
@@ -196,10 +207,15 @@ herdweb 无 login / password / ACL，`--host 0.0.0.0` 等于把用户权限下�
 | 单例作用域 | **user × plugin id**（config/state 目录跨 named session 共享，实测 D13）。namespace 只影响 bind，不是锁的事实源 |
 | 互斥手段 | `HERDR_PLUGIN_STATE_DIR/herdweb.lock` 上的非阻塞 `flock` |
 | owner 元数据 | `HERDR_PLUGIN_STATE_DIR/herdweb.owner.json`：`{pid, starttime, mode: "pane"\|"service", port, config_path, started_at}` |
-| 端口 | 从生效配置读取，**不硬编码 7681**；owner.json 记录实际值 |
+| 端口 | `HERDWEB_PLUGIN_PORT` 环境变量；未设则用 herdweb CLI 默认（7681）。显式给了非法值 → **fail-loud**，不静默回退。owner.json 记录实际生效值 |
 
-**启动顺序**：`mkdir -p STATE_DIR` → 取 flock → 读配置定端口 → **无条件覆写 owner.json**
-→ bind → 服务运行。
+**启动顺序**：`mkdir -p STATE_DIR` → 取 flock → 定端口 → **无条件覆写 owner.json**
+→ spawn 服务进程（带 lock fd）→ 覆写 owner.json 为服务进程 pid → 服务运行。
+
+**r4 更正（端口的事实源）**：r2/r3 写的「从生效配置读取端口，不硬编码 7681」**不可实现** ——
+herdweb 的 `herdwebConfigOverridesBaseSchema` 是 strict object，**没有 `port` 字段**，
+端口只能经 CLI `--port` 传入。把 `port` 写进 `herdweb.config.ts` 会被本体校验拒绝。
+故改为 `HERDWEB_PLUGIN_PORT` 环境变量。这是设计写错了，不是实现偷懒。
 
 **r3 改正的三处**：
 
@@ -208,8 +224,10 @@ herdweb 无 login / password / ACL，`--host 0.0.0.0` 等于把用户权限下�
    因此：锁文件创建后永不删除，fd 持有到进程退出；
    **`STATE_DIR` 不得放在会被周期性清空的 tmpfs 上**，doctor 应能查出这种配置。
 2. **owner.json 是「获锁后无条件覆写」，不是「退出时清理」**（实测 A2）。
-   SIGKILL 做不到退出清理，但内核会立刻释放 flock —— **拿到锁本身就证明前任已死**。
-   清理只是礼貌，不是正确性条件。
+   SIGKILL 做不到退出清理，清理只是礼貌，不是正确性条件。
+   **r4 更正**：原文写的「拿到锁本身就证明前任已死」现在只对**服务进程**成立。
+   锁的持有者是实际提供服务的 herdweb 进程（通过继承 fd，见 §2.8a），
+   **runner 死 ≠ 锁释放** —— runner 被 SIGKILL 后，只要服务进程还活着，锁就还在。
 3. **`/proc` 判据只用于报告路径**：拿不到锁时，读 owner.json 的 `pid` + `starttime`
    （Linux：`/proc/<pid>/stat` 字段 22；macOS：`kill -0` + `ps -p PID -o lstart=`）
    判断是否可信 —— 一致则报「谁在跑」，不一致则报「锁被持有但 owner 元数据不可信」，
@@ -222,6 +240,33 @@ herdweb 无 login / password / ACL，`--host 0.0.0.0` 等于把用户权限下�
 
 **边界情形**（实测 A3）：`STATE_DIR` 不存在要先 `mkdir -p`；目录只读时无法创建锁文件，
 应 fail-loud（只读的锁**文件**本身仍可 flock，不是问题）。
+
+### 2.8a INV-SVC：锁必须覆盖「服务行为」，不只是「账本写入」（r4 新增）
+
+**来自实现评审 r1 的 P1。** 最初的实现让 runner 持锁、再 `spawn` 一个 herdweb 子进程去服务。
+L1/L2/L3 三条不变式字面上都成立，但它们锁的是**账本写入**。
+评审做了独立降层实测：runner 被 SIGKILL 后内核释放 runner 的锁，后来者立即获锁，
+而**旧子进程仍在监听** —— 两个 herdweb 同时服务，owner.json 只记录第二个：
+
+```
+after runner SIGKILL: runner_alive=no child_alive=yes port1=listening
+both_ports=127.0.0.1:17881 127.0.0.1:17880
+```
+
+**INV-SVC（不变式）**：runner 被 SIGKILL 后，**不允许出现「后来者起来了且旧服务进程还在监听」**。
+
+**实现方式**：`flock` 绑定在 open file description 上，父子进程继承 fd 即共享同一个 OFD。
+把 lock fd 放进子进程的 `stdio[3]`，runner 死后锁仍由实际服务的进程持有，后来者拿不到锁。
+owner.json 在 spawn 成功后覆写为 **child pid**，使报告路径指向真正在服务的进程。
+
+**两种形态各自的防线（r4 实测厘清）**：
+
+| 形态 | runner 被杀后为什么不会双服务 |
+|---|---|
+| herdr pane | pty 关闭 → 子进程也随之停止 → 锁释放。真实 `plugin install` 验证走的是这条路 |
+| systemd service | **无 pty，子进程会活下来** → 锁继承是唯一防线。单元测试用 stub child 模拟的正是这条路 |
+
+两条路都验过，但分别在真实环境和单元测试里 —— 这是结论的边界，不要含糊成「都在真机验过」。
 
 `show` / `doctor` 一律以 owner.json + 实际 listen 结果为事实源，不自行探端口猜测。
 
@@ -291,11 +336,21 @@ Restart=on-failure
 herdr 的 build 命令按顺序执行、失败即中止，所以检查不过就不会进入 pnpm install，
 用户看到的就是那几行明确指引，无论截断头尾都看得见。
 
-检查内容（Linux；macOS 与 Windows 因包内有预编译而跳过）：
+检查内容：
 
-- `python3`、`make`、`c++`/`g++` 三者都要**真能跑起来**（执行 `--version` 并看退出码），
-  不是只判断命令是否在 PATH，更不是只看环境变量键是否存在
-- Node 版本 ≥ 22
+- **全平台**：Node ≥ 22；**flock 能力**（`python3` 的 `import fcntl` 或 `perl` 的 `use Fcntl`
+  至少有一个可用）—— runner 靠它做进程互斥，见下方 r4 更正
+- **仅 Linux**（node-pty 本地编译）：`python3`、`make`、`c++`/`g++`
+
+三者都要**真能跑起来**（执行 `--version` 并看退出码），不是只判断命令是否在 PATH，
+更不是只看环境变量键是否存在。
+
+**r4 更正（来自实现评审 r1 的 P2）**：最初只在 Linux 检查工具链，但 runner 在**所有平台**
+都需要 flock 能力 —— macOS 装得上却起不来。根因是**前置检查检查的东西，与 runner 运行时
+真正依赖的东西不一致**。现在 runner 走 python3 优先、**perl 兜底**（macOS 系统自带
+`/usr/bin/perl`，flock 是 perl 内建），两个平台的用户都不必为互斥另装东西。
+评审用两个各自独立 `open` 的进程实测过跨实现互斥：python3 持锁时 perl 竞争者确定性失败，
+反向亦然 —— 这是**能力探测**，不是掩盖错误的 fallback。
 
 失败输出形如（保持在 10 行以内）：
 
@@ -404,8 +459,13 @@ command = ["node", "scripts/plugin/open-pane.mjs", "serve"]
    **锁文件永不 unlink**；拿不到锁则按 §2.8 的报告路径输出 `LOCK_HELD …` 并退出
 2. `HERDR_PLUGIN_CONFIG_DIR` 无 `herdweb.config.ts` 则生成默认配置（**不含 rescue target**）
 3. 从生效配置解析端口，**无条件覆写** owner.json
-4. `exec node dist/cli.mjs serve --config $HERDR_PLUGIN_CONFIG_DIR/herdweb.config.ts`；
+4. `spawn node dist/cli.mjs serve --config … --port <port>`，
+   并**把 lock fd 放进子进程的 `stdio[3]`**（§2.8a）；spawn 成功后把 owner.json 覆写为 child pid；
    bind 失败按 §2.8 报 `PORT_OCCUPIED …`
+
+   **r4 更正**：原文写 `exec`。改用 `spawn` 是因为要读子进程 stderr 才能把 `EADDRINUSE`
+   判成 `PORT_OCCUPIED`；`exec` 会丢掉这条判定。代价是多一个进程层，
+   由 §2.8a 的 fd 继承补上锁的覆盖面。
 
 **show.mjs** —— 以 owner.json + 实际 listen 结果为事实源，按 §2.6 的显示契约输出，
 仅在真监听非回环时出二维码。
@@ -467,17 +527,24 @@ herdr plugin action invoke zlxlabs.herdweb.start  # 开 tab 跑起来
 4. **TUI toast**：action 失败时 TUI 里是否有可见提示（探针 session 无客户端附着，未测成）
 5. **linux arm64 / musl 补齐工具链后**能否链接成功；**Windows** 全链（包内有 win32 预编译，未跑）
 6. **PWA 五路径**在有认证代理与无代理两种情形下 doctor 的判定正确性
-7. **marketplace 收录**：manifest 落地后确认被索引、显示的版本/路径/commit 正确
+7. **marketplace 收录**：manifest 已于 2026-09-01 进入默认分支，topic 也已就位，
+   两个收录条件均满足；索引 30 分钟刷新一次，尚未确认列表里真的出现
+
+**已完成（r4，移出待办）**：真实 `herdr plugin install zlxlabs/herdweb --yes` 端到端 ——
+42 秒完成 clone + 前置检查 + build + 注册；preview 正确列出 3 条 build 命令与入口；
+pane 在 17801 起服务、HTTP 200；owner.json 记录的是实际监听进程；`uninstall` 后 checkout
+清除、config/state 按契约保留；本机既有 herdweb（7681）全程未受影响。
+注意该次安装复用了本机 pnpm store 缓存，**不代表干净机器的构建耗时**
+（那个由 `probes/build-matrix.md` 覆盖）。
 
 ## 5. 落地拆卡
 
 - ~~**卡零**：打 GitHub topic `herdr-plugin`~~ —— **已完成**（2026-08-31）
-- **卡一（M）**：`herdr-plugin.toml` + `check-prereqs.mjs` + `serve.mjs` + `open-pane.mjs`，
-  含 §2.8 资源账本全部三条改正；自带针对锁语义的回归测试
-  （至少锁定：unlink 后不得双持有、获锁后覆写 owner.json、两类失败分开归因）
+- ~~**卡一（M）**：`herdr-plugin.toml` + `check-prereqs.mjs` + `serve.mjs` + `open-pane.mjs`~~
+  —— **已完成**（PR #155，含一轮修复；测试锁定 L1/L2/L3 + INV-SVC）
 - **卡二（M）**：`show.mjs` + `doctor.mjs` + `install-service.mjs`，含 §2.9 三条改正
-- **卡三（S）**：README plugin 一节 + §3.6 安全模型 + keybinding opt-in 示例
-  （不得用 `prefix+w`）+ 平台差异说明（Linux 需工具链、macOS 免编译）
+- ~~**卡三（S）**：README plugin 一节 + 平台差异说明~~ —— **已完成**（PR #154）。
+  **待跟进**：README 的 macOS 说明需补一句「plugin 用系统自带的 perl 或 python3 做进程互斥」
 - **卡四（S）**：manifest `version` 与 `package.json` 版本一致性的 CI 检查
   （semantic-release 只改后者，marketplace 读前者）
 
@@ -509,3 +576,27 @@ herdr plugin action invoke zlxlabs.herdweb.start  # 开 tab 跑起来
 | pnpm 版本不锁 | r1 | P3 | backlog：构建契约写明版本策略 |
 | manifest 版本不同步 | r1 | P3 | §5 卡四：CI 检查 |
 | `allowBuilds` 是 pnpm 11 字段但用 pnpm@10 | build | P3 | backlog |
+
+## 7. Backlog（评审登记、判定接受不修）
+
+来自实现评审 r2，均已按本仓 P1 两问重判为 P2/P3，不阻塞合入：
+
+| 条目 | 级别 | 为什么接受不修 |
+|---|---|---|
+| `P2-NEW-OWNER`：owner.json 的 runner→child 两阶段发布有崩溃中间态 | P2 | 窗口是 spawn 到第二次 `writeOwner` 之间的毫秒级；互斥不破、不会双开；后来者会得到 `LOCK_HELD (owner metadata untrusted)` 而非把死 pid 报成活服务。修它需要引入 child-ready 握手 = **新增机制**，违反「禁止为修复 P2 新增状态/机制」 |
+| `P3-TEST-CLEANUP`：测试清理失败被静默吞掉（`ss` 缺失或杀进程失败时不 fail-loud） | P3 | 当前 Linux 实测 `ss` 存在，且 `allocPort()` 会跳过仍占用的端口，无证据表明会误绿。下次动这些测试时顺手改成清理失败 fail-loud |
+| `pnpm-workspace.yaml` 的 `allowBuilds` 是 pnpm 11 字段，本链用 pnpm@10 未生效 | P3 | 存量问题，与本批改动无关 |
+| `npx --yes pnpm@10` 不锁 pnpm 补丁版本 | P3 | 构建契约里写明版本策略即可，暂不加 CI 检查 |
+| manifest `version` 与 `package.json` 版本需保持一致 | P3 | 见 §5 卡四；semantic-release 只改后者，marketplace 读前者 |
+
+## 8. 这一批的经验（留给下一批）
+
+1. **不变式要定在「行为」层，不是「写入」层。** §2.8 最初三条不变式（L1/L2/L3）全部成立，
+   测试也真的锁死了，但它们保护的是账本写入。真正要保证的「同一时刻只有一个 herdweb 在服务」
+   直到评审的降层第三问（保护覆盖的是写入还是行为）才被逼出来。**拆卡时就该问这一问。**
+2. **实测推翻纸面推演的比例很高。** 本批被实测推翻的初稿假设至少 8 条
+   （linux 无预编译、`.env.local` 不被读、`herdr --session` 只在 TUI 入口自动拉 server、
+   systemd unit 搜索路径、popup 的 CLI help 与实际能力不符、`prefix+w` 冲突、
+   端口不在 config schema、action invoke 恒 EXIT 0）。**infra 类设计先派实测卡再拆实现卡。**
+3. **「验证走的哪条路」要写清楚。** pane 形态靠 pty 兜底、systemd 形态靠锁继承兜底，
+   真实安装验证只走到了前者。把这个边界写下来，比笼统说「已在真机验证」诚实。
