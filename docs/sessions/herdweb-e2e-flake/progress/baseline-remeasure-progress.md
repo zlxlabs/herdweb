@@ -28,7 +28,7 @@ No Playwright / vitest / tsdown worker was running. Rounds will be serial. Shell
 
 `pnpm install` completed before round 1 (`@playwright/test` 1.58.2). Suite list: **118 tests in 16 files** (baseline was 116 in 15; `font-stylesheet.spec.ts` is new). Every counted round: `env -u CI pnpm exec playwright test --reporter=json`, wrapped in `/usr/bin/time -f 'WALL_SECONDS=%e'`. Counts walked from JSON `suites[].specs[].tests[].results[]`.
 
-Failed-count sequence so far: **4 / 1 / 3 / 0**. Dirty 3/4; round 4 is the first clean round.
+Failed-count sequence so far: **4 / 1 / 3 / 0 / 2 / 3 / 4 / 3**. Dirty 7/8; only round 4 is clean.
 
 ### After round 2 (2026-08-31T11:59:12+08:00)
 
@@ -66,3 +66,43 @@ Round 3 failures:
 Round 4: no failures. First clean full suite in this remeasure.
 
 Candidate 3 (`webkit-iphone` `dpad.spec.ts:75`) is 1/4 so far. Kind (a) still appears in 3 of 4 rounds. Round 5 started 2026-08-31T12:02:01+08:00.
+
+### After round 6 (2026-08-31T12:04:56+08:00)
+
+| Round | wall (s) | passed | failed | skipped | timedOut | unexpected | dirty? |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 5 | 95.46 | 108 | 2 | 8 | 1 | 2 | dirty |
+| 6 | 80.34 | 107 | 3 | 8 | 2 | 3 | dirty |
+
+Round 5 failures:
+
+- `webkit-iphone` `dpad.spec.ts:75` failed 7470 ms kind (b)
+- `chromium-android` `prefix.spec.ts:23` timedOut 30130 ms kind (a) beforeEach
+
+Round 6 failures:
+
+- `chromium-android` `dpad.spec.ts:111` timedOut 30064 ms kind (a)
+- `chromium-android` `smoke.spec.ts:3` timedOut 30065 ms kind (a)
+- `webkit-iphone` `target-switch.spec.ts:48` failed 1541 ms kind (b)
+
+### After round 8 (2026-08-31T12:07:49+08:00)
+
+| Round | wall (s) | passed | failed | skipped | timedOut | unexpected | dirty? |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 7 | 82.50 | 106 | 4 | 8 | 3 | 4 | dirty |
+| 8 | 90.01 | 107 | 3 | 8 | 2 | 3 | dirty |
+
+Round 7 failures:
+
+- `chromium-android` `notify.spec.ts:112` timedOut 30043 ms kind (a)
+- `webkit-iphone` `target-switch.spec.ts:48` failed 1453 ms kind (b)
+- `chromium-android` `touch.spec.ts:35` timedOut 30053 ms kind (a) beforeEach
+- `chromium-android` `touch.spec.ts:93` timedOut 30062 ms kind (a) beforeEach
+
+Round 8 failures:
+
+- `chromium-android` `asr.spec.ts:182` timedOut 30141 ms kind (a)
+- `chromium-android` `smoke.spec.ts:52` timedOut 30160 ms kind (a)
+- `webkit-iphone` `weak-network.spec.ts:140` failed 6435 ms kind (b)
+
+`webkit-iphone` `dpad.spec.ts:75` is 2/8. `webkit-iphone` `target-switch.spec.ts:48` is 3/8. Candidate 2 (`weak-network.spec.ts:247` reconnect banner) has not failed. Kind (a) still in 7 of 8 rounds. Round 9 started 2026-08-31T12:07:49+08:00.
