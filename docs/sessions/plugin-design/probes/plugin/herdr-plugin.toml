@@ -1,0 +1,32 @@
+id = "probe.runtime"
+name = "Runtime Probe"
+version = "0.1.0"
+min_herdr_version = "0.8.2"
+description = "Temporary probe plugin; not the herdweb product."
+platforms = ["linux"]
+
+[[actions]]
+id = "dump-env"
+title = "Dump HERDR env"
+contexts = ["workspace", "global"]
+command = ["bash", "dump-env.sh"]
+
+[[actions]]
+id = "fail-now"
+title = "Fail on purpose"
+contexts = ["workspace", "global"]
+command = ["bash", "fail.sh"]
+
+[[actions]]
+id = "try-serve"
+title = "Try ledger serve"
+contexts = ["workspace", "global"]
+command = ["bash", "try-serve.sh"]
+
+[[panes]]
+id = "hold"
+title = "Hold popup"
+placement = "popup"
+width = 80
+height = 12
+command = ["bash", "hold-pane.sh"]
