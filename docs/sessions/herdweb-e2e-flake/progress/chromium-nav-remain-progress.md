@@ -31,4 +31,26 @@ The one failure is `chromium-android` `keyboard-toggle.spec.ts:60`, JSON `status
 
 ## 10-round verification
 
-Not started. Waiting on the single product change.
+Command for every counted round:
+
+```bash
+PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/herdweb-chromium-nav-remain-20260831/round-N.json \
+  /usr/bin/time -f 'WALL_SECONDS=%e' \
+  env -u CI pnpm exec playwright test --reporter=line --reporter=json
+```
+
+Counts walked from JSON `suites[].specs[].tests[].results[]`. `retry` was `{0}` in every walked round so far. Kind (a) = `status=timedOut` and duration ≥ 29_000 ms.
+
+### After round 2 (2026-08-31T13:55:58+08:00)
+
+| Round | JSON path | bytes | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | `/tmp/herdweb-chromium-nav-remain-20260831/round-1.json` | 152711 | 65.62 | 108 | 2 | 8 | 0 | 0 | dirty |
+| 2 | `/tmp/herdweb-chromium-nav-remain-20260831/round-2.json` | 152739 | 63.88 | 108 | 2 | 8 | 0 | 0 | dirty |
+
+Round 1 and 2 failures (kind (b) assertions, out of this card's product change):
+
+- `chromium-android` `dpad.spec.ts:75` failed ~6.5 s (`expect.poll(...).toContain('0a')`)
+- `webkit-iphone` `touch.spec.ts:93` failed ~1.3 s (`expect(clicks.length).toBeGreaterThan(0)`)
+
+No Chromium `page.goto` 30 s hang. Kind (a) running total: **0** (baseline-after-c1-c2 was 14).

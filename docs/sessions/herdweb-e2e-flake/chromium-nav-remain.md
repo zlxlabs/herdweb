@@ -84,4 +84,8 @@ The captured HTML resource in the same zip (`resources/9c79d265236b925f631613abe
 
 The leftover Chromium kind (a) hang is still the font CSS URL, even after `media="print"`. Chromium still waits for that `rel="stylesheet"` on `window` `load`. The pending resource is the CSS file itself, not a later woff2. Switching `media` to `all` in the bundle cannot be the first-order cause of *this* capture: the request is already outstanding from the initial HTML tag.
 
-The one product change this card will make: stop emitting a font `rel="stylesheet"` in the initial HTML, and inject that stylesheet only after the `load` event so a hung jsDelivr CSS cannot stall `page.goto({ waitUntil: 'load' })`.
+The one product change this card made: stop emitting a font `rel="stylesheet"` in the initial HTML, and inject that stylesheet only after the `load` event so a hung jsDelivr CSS cannot stall `page.goto({ waitUntil: 'load' })`.
+
+## 10-round JSON walk (after the change)
+
+See `docs/sessions/herdweb-e2e-flake/progress/chromium-nav-remain-progress.md` for the running table. Command for every counted round: `env -u CI pnpm exec playwright test --reporter=json` (via `PLAYWRIGHT_JSON_OUTPUT_NAME`, wrapped in `/usr/bin/time`). `retry` is 0. Success metric is kind (a) instances vs 14, not a clean funnel.
