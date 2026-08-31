@@ -44,7 +44,7 @@ describe('notify service awaitInFlight drain', () => {
 		})
 
 		const event = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'drain-1', kind: 'done', title: 'T', ts: 1 }),
+			JSON.stringify({ v: 1, id: 'drain-1', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
 		notifyService.dispatchEvent(event)
 
@@ -76,7 +76,7 @@ describe('notify service awaitInFlight drain', () => {
 		})
 
 		const event = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'drain-2', kind: 'done', title: 'T', ts: 1 }),
+			JSON.stringify({ v: 1, id: 'drain-2', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
 		notifyService.dispatchEvent(event)
 
@@ -108,7 +108,13 @@ describe('notify service awaitInFlight drain', () => {
 		})
 
 		const event = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'drain-channel', kind: 'done', title: 'T', ts: 1 }),
+			JSON.stringify({
+				v: 1,
+				id: 'drain-channel',
+				kind: 'done',
+				title: 'T',
+				ts: 1_700_000_000_000,
+			}),
 		)
 		notifyService.dispatchEvent(event)
 
@@ -142,7 +148,13 @@ describe('notify service awaitInFlight drain', () => {
 		})
 		notifyService.dispatchEvent(
 			parseNotifyEvent(
-				JSON.stringify({ v: 1, id: 'drain-flush', kind: 'done', title: 'T', ts: 1 }),
+				JSON.stringify({
+					v: 1,
+					id: 'drain-flush',
+					kind: 'done',
+					title: 'T',
+					ts: 1_700_000_000_000,
+				}),
 			),
 		)
 		expect(sendPush).not.toHaveBeenCalled()
@@ -169,10 +181,14 @@ describe('notify service awaitInFlight drain', () => {
 			sendPush,
 		})
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'first', kind: 'done', title: 'T', ts: 1 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'first', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'last', kind: 'done', title: 'T', ts: 2 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'last', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		expect(sendPush).not.toHaveBeenCalled()
 		notifyService.dispose()
@@ -215,7 +231,7 @@ describe('presence defer drain', () => {
 					id: 'defer-drain',
 					kind: 'asking',
 					title: 'T',
-					ts: 1,
+					ts: 1_700_000_000_000,
 					presence: 'likely-present',
 				}),
 			),
@@ -236,7 +252,7 @@ describe('presence defer drain', () => {
 					id: 'defer-dispose',
 					kind: 'asking',
 					title: 'T',
-					ts: 1,
+					ts: 1_700_000_000_000,
 					presence: 'likely-present',
 				}),
 			),
@@ -259,7 +275,7 @@ describe('presence defer drain', () => {
 					id: 'defer-done',
 					kind: 'done',
 					title: 'T',
-					ts: 1,
+					ts: 1_700_000_000_000,
 					presence: 'likely-present',
 				}),
 			),

@@ -419,11 +419,10 @@ agent-config badge outbound) must run on the **same machine** as herdweb —
 cross-host posting is not supported in v1.
 
 `ts` is epoch milliseconds. The curl examples below already emit that unit
-via `$(date +%s000)` (Unix seconds with three trailing zeros). Ingress does
-not range-check `ts`: a Unix-seconds value is accepted (HTTP 202, stored)
-and the notify panel renders it as a date in 1970. Do not send seconds.
-Known producer defect: [herdweb#129](https://github.com/zlxlabs/herdweb/issues/129);
-cross-repo close-out: [agent-config#1022](https://github.com/zlxlabs/agent-config/issues/1022).
+via `$(date +%s000)` (Unix seconds with three trailing zeros). Ingress
+range-checks `ts` and returns HTTP 400 when the value is below
+`1_000_000_000_000` (too small to be epoch milliseconds). Unix-seconds
+values are rejected and not stored.
 
 Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on
 a device; **single-only**):
