@@ -92,18 +92,34 @@ test('drawer open → close → re-open cycle', async ({ page }) => {
 
 test('synthesised click from tap() hits backdrop (regression guard)', async ({ page }) => {
 	// Proves the mechanism that caused the open-then-close bug still exists:
-	// after touchend opens the drawer, synthesised mousedown/click land on the
-	// backdrop. The module-level touch guard in tap.ts suppresses the onTap
+	// after touchend opens the drawer, synthesised mouse/click events fire at the
+	// tap coordinates now covered by the backdrop.
+	// In Chromium, mousedown/mouseup/click all target #wt-backdrop.
+	// In WebKit (per W3C UI Events spec LCA rule), mousedown targets the original
+	// button and mouseup targets #wt-backdrop, so the click event targets <body>
+	// with coordinates over #wt-backdrop.
+	// In both browsers, the module-level touch guard in tap.ts suppresses the onTap
 	// click handler, so the drawer stays open despite the click reaching it.
 	await page.evaluate(() => {
-		const w = window as unknown as { __backdropClicks: { isTrusted: boolean }[] }
-		w.__backdropClicks = []
+		const w = window as unknown as {
+			__synthesisedClicks: {
+				isTrusted: boolean
+				targetId: string
+				targetTag: string
+				elementIdAtPoint: string
+			}[]
+		}
+		w.__synthesisedClicks = []
 		document.addEventListener(
 			'click',
 			(e) => {
-				if ((e.target as HTMLElement)?.id === 'wt-backdrop') {
-					w.__backdropClicks.push({ isTrusted: e.isTrusted })
-				}
+				const elementAtPoint = document.elementFromPoint(e.clientX, e.clientY)
+				w.__synthesisedClicks.push({
+					isTrusted: e.isTrusted,
+					targetId: (e.target as HTMLElement)?.id ?? '',
+					targetTag: (e.target as HTMLElement)?.tagName ?? '',
+					elementIdAtPoint: elementAtPoint?.id ?? '',
+				})
 			},
 			{ capture: true },
 		)
@@ -114,11 +130,22 @@ test('synthesised click from tap() hits backdrop (regression guard)', async ({ p
 	await page.waitForTimeout(200)
 
 	const clicks = await page.evaluate(
-		() => (window as unknown as { __backdropClicks: { isTrusted: boolean }[] }).__backdropClicks,
+		() =>
+			(
+				window as unknown as {
+					__synthesisedClicks: {
+						isTrusted: boolean
+						targetId: string
+						targetTag: string
+						elementIdAtPoint: string
+					}[]
+				}
+			).__synthesisedClicks,
 	)
-	// Synthesised click should have reached the backdrop
+	// Synthesised click must be dispatched over the backdrop coordinates
 	expect(clicks.length).toBeGreaterThan(0)
 	expect(clicks[0]?.isTrusted).toBe(true)
+	expect(clicks[0]?.elementIdAtPoint).toBe('wt-backdrop')
 
 	// But the drawer should still be open (guard blocked the close)
 	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
