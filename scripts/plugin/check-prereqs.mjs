@@ -2,6 +2,7 @@
 /**
  * Manifest build step 1: fail fast with a short, specific message.
  * Output is capped at 10 lines so herdr truncation still shows the cause.
+ * Checked tools must match what the runner actually needs at runtime.
  */
 import { spawnSync } from 'node:child_process'
 
@@ -20,6 +21,19 @@ function canRun(cmd) {
 		stdio: ['ignore', 'pipe', 'pipe'],
 	})
 	return result.status === 0
+}
+
+function canFlockHelper() {
+	const py = spawnSync('python3', ['-c', 'import fcntl'], {
+		timeout: 8_000,
+		stdio: 'ignore',
+	})
+	if (py.status === 0) return true
+	const pl = spawnSync('perl', ['-e', 'use Fcntl qw(:flock)'], {
+		timeout: 8_000,
+		stdio: 'ignore',
+	})
+	return pl.status === 0
 }
 
 function nodeMajor() {
@@ -45,15 +59,20 @@ const major = nodeMajor()
 const nodeTooOld = major < MIN_NODE_MAJOR
 const checkToolchain = process.platform === 'linux'
 const missing = checkToolchain ? missingToolchain() : []
+const flockMissing = !canFlockHelper()
 
-if (!nodeTooOld && missing.length === 0) {
-	const extra = checkToolchain ? ', linux toolchain present' : ''
+if (!nodeTooOld && missing.length === 0 && !flockMissing) {
+	const extra = checkToolchain ? ', linux toolchain present' : ', flock helper present'
 	console.log(`herdweb plugin prerequisites ok (node v${process.versions.node}${extra})`)
 	process.exit(0)
 }
 
 const lines = []
-if (nodeTooOld && missing.length === 0) {
+if (flockMissing && !nodeTooOld && missing.length === 0) {
+	lines.push('herdweb plugin 需要 python3 或 perl 才能持 flock 锁。')
+	lines.push('macOS 通常自带 /usr/bin/perl。Linux 装 python3 即可（编译 node-pty 也需要）。')
+	lines.push('装好后重跑：herdr plugin install zlxlabs/herdweb')
+} else if (nodeTooOld && missing.length === 0) {
 	lines.push(
 		`herdweb plugin 需要 Node.js >= ${MIN_NODE_MAJOR}（当前: v${process.versions.node}）。`,
 	)
@@ -66,12 +85,16 @@ if (nodeTooOld && missing.length === 0) {
 	} else {
 		lines.push('herdweb 在 Linux 上需要本地编译 node-pty（npm 包不带 Linux 预编译）。')
 	}
-	const items = [...(nodeTooOld ? [`node>=${MIN_NODE_MAJOR}`] : []), ...missing]
+	const items = [
+		...(nodeTooOld ? [`node>=${MIN_NODE_MAJOR}`] : []),
+		...missing,
+		...(flockMissing ? ['python3|perl'] : []),
+	]
 	lines.push(`缺少：${items.join(', ')}`)
 	lines.push('')
 	lines.push(...INSTALL_HINTS)
 	lines.push('')
-	if (!nodeTooOld) lines.push('macOS 不需要这些（包内已有预编译）。')
+	lines.push('macOS 不需要 C++ 工具链（包内已有预编译），但需要 python3 或 perl。')
 	lines.push('装好后重跑：herdr plugin install zlxlabs/herdweb')
 }
 

@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
  * Plugin serve runner: flock ledger then launch herdweb.
- * Lock file is never unlinked; the fd is held until this process exits.
+ * Lock file is never unlinked. The lock fd is inherited by the service child
+ * so the OFD outlives the runner.
  */
 import { spawn, spawnSync } from 'node:child_process'
 import {
@@ -21,6 +22,8 @@ const CONFIG_NAME = 'herdweb.config.ts'
 const DEFAULT_CONFIG = 'export default {}\n'
 const FLOCK_PY =
 	'import fcntl, sys\ntry:\n    fcntl.flock(3, fcntl.LOCK_EX | fcntl.LOCK_NB)\nexcept BlockingIOError:\n    sys.exit(2)\n'
+const FLOCK_PL =
+	'use Fcntl qw(LOCK_EX LOCK_NB); open(FH, "<&=3") or exit(1); flock(FH, LOCK_EX|LOCK_NB) or exit(2);'
 
 function fail(code, message) {
 	console.error(message)
@@ -41,10 +44,11 @@ function parsePort(raw) {
 }
 
 function resolvePort() {
-	const fromEnv = parsePort(process.env.HERDWEB_PLUGIN_PORT)
-	if (fromEnv !== undefined) return fromEnv
-	// herdweb config schema has no `port` field (strict); CLI default is src/serve.ts DEFAULT_PORT.
-	return 7681
+	const raw = process.env.HERDWEB_PLUGIN_PORT
+	if (raw === undefined) return 7681
+	const port = parsePort(raw)
+	if (port === undefined) fail(1, `ERROR invalid HERDWEB_PLUGIN_PORT: ${raw}`)
+	return port
 }
 
 function processStarttime(pid) {
@@ -99,6 +103,33 @@ function writeOwner(stateDir, payload) {
 	renameSync(tmp, target)
 }
 
+function flockNonblocking(fd) {
+	const opts = { stdio: ['ignore', 'ignore', 'pipe', fd], encoding: 'utf8' }
+	const py = spawnSync('python3', ['-c', FLOCK_PY], opts)
+	if (py.status === 0) return true
+	if (py.status === 2) return false
+	const pl = spawnSync('perl', ['-e', FLOCK_PL], opts)
+	if (pl.status === 0) return true
+	if (pl.status === 2) return false
+	fail(1, 'ERROR python3 or perl is required to take flock')
+}
+
+function openLockFile(lockPath) {
+	try {
+		return openSync(lockPath, 'a+')
+	} catch (error) {
+		const code = error && typeof error === 'object' && 'code' in error ? error.code : ''
+		if (code === 'EACCES' && existsSync(lockPath)) {
+			try {
+				return openSync(lockPath, 'r')
+			} catch (inner) {
+				fail(1, `ERROR cannot open lock file: ${inner instanceof Error ? inner.message : inner}`)
+			}
+		}
+		fail(1, `ERROR cannot open lock file: ${error instanceof Error ? error.message : error}`)
+	}
+}
+
 function acquireLock(stateDir) {
 	try {
 		mkdirSync(stateDir, { recursive: true })
@@ -106,24 +137,11 @@ function acquireLock(stateDir) {
 		fail(1, `ERROR cannot create state dir: ${error instanceof Error ? error.message : error}`)
 	}
 	const lockPath = join(stateDir, LOCK_NAME)
-	let fd
-	try {
-		fd = openSync(lockPath, 'a+')
-	} catch (error) {
-		fail(1, `ERROR cannot open lock file: ${error instanceof Error ? error.message : error}`)
-	}
-	const result = spawnSync('python3', ['-c', FLOCK_PY], {
-		stdio: ['ignore', 'ignore', 'pipe', fd],
-		encoding: 'utf8',
-	})
-	if (result.error?.code === 'ENOENT') {
-		closeSync(fd)
-		fail(1, 'ERROR python3 is required to take flock')
-	}
-	if (result.status === 0) return fd
+	const fd = openLockFile(lockPath)
+	const acquired = flockNonblocking(fd)
+	if (acquired) return fd
 	closeSync(fd)
-	if (result.status === 2) return undefined
-	fail(1, `ERROR flock helper failed: ${result.stderr?.trim() || result.status}`)
+	return undefined
 }
 
 function ensureConfig(configDir) {
@@ -141,14 +159,27 @@ function isAddrInUse(text) {
 	return /EADDRINUSE|already in use/i.test(text)
 }
 
-function runHerdweb(pluginRoot, configPath, port) {
+function ownerPayload(pid, port, configPath) {
+	return {
+		pid,
+		starttime: processStarttime(pid),
+		mode: process.env.HERDWEB_PLUGIN_MODE === 'service' ? 'service' : 'pane',
+		port,
+		config_path: configPath,
+		started_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
+	}
+}
+
+function runHerdweb(pluginRoot, configPath, port, lockFd, stateDir) {
 	const cliPath = join(pluginRoot, 'dist', 'cli.mjs')
 	if (!existsSync(cliPath)) fail(1, `ERROR missing ${cliPath}`)
 	const child = spawn(
 		process.execPath,
 		[cliPath, 'serve', '--config', configPath, '--port', String(port)],
-		{ cwd: pluginRoot, stdio: ['inherit', 'inherit', 'pipe'] },
+		{ cwd: pluginRoot, stdio: ['inherit', 'inherit', 'pipe', lockFd] },
 	)
+	if (child.pid === undefined) fail(1, 'ERROR failed to spawn herdweb')
+	writeOwner(stateDir, ownerPayload(child.pid, port, configPath))
 	let errText = ''
 	child.stderr?.on('data', (chunk) => {
 		errText += chunk.toString()
@@ -169,10 +200,6 @@ function runHerdweb(pluginRoot, configPath, port) {
 	})
 }
 
-function pluginMode() {
-	return process.env.HERDWEB_PLUGIN_MODE === 'service' ? 'service' : 'pane'
-}
-
 const stateDir = requiredDir('HERDR_PLUGIN_STATE_DIR')
 const configDir = requiredDir('HERDR_PLUGIN_CONFIG_DIR')
 const pluginRoot = process.env.HERDR_PLUGIN_ROOT || process.cwd()
@@ -180,20 +207,12 @@ const lockFd = acquireLock(stateDir)
 if (lockFd === undefined) reportLockHeld(stateDir)
 const configPath = ensureConfig(configDir)
 const port = resolvePort()
-const pid = process.pid
-writeOwner(stateDir, {
-	pid,
-	starttime: processStarttime(pid),
-	mode: pluginMode(),
-	port,
-	config_path: configPath,
-	started_at: new Date().toISOString().replace(/\.\d{3}Z$/, 'Z'),
-})
-runHerdweb(pluginRoot, configPath, port)
+writeOwner(stateDir, ownerPayload(process.pid, port, configPath))
+runHerdweb(pluginRoot, configPath, port, lockFd, stateDir)
 process.on('exit', () => {
 	try {
 		closeSync(lockFd)
 	} catch {
-		// process is exiting; fd is closed by the kernel either way
+		// process is exiting; child's inherited fd still holds the OFD if it is alive
 	}
 })
