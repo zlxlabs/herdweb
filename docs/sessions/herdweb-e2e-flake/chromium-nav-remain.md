@@ -88,4 +88,29 @@ The one product change this card made: stop emitting a font `rel="stylesheet"` i
 
 ## 10-round JSON walk (after the change)
 
-See `docs/sessions/herdweb-e2e-flake/progress/chromium-nav-remain-progress.md` for the running table. Command for every counted round: `env -u CI pnpm exec playwright test --reporter=json` (via `PLAYWRIGHT_JSON_OUTPUT_NAME`, wrapped in `/usr/bin/time`). `retry` is 0. Success metric is kind (a) instances vs 14, not a clean funnel.
+Command for every counted round:
+
+```bash
+PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/herdweb-chromium-nav-remain-20260831/round-N.json \
+  /usr/bin/time -f 'WALL_SECONDS=%e' \
+  env -u CI pnpm exec playwright test --reporter=line --reporter=json
+```
+
+Counts walked from JSON `suites[].specs[].tests[].results[]`. Every result has `retry: 0`. Kind (a) = `status=timedOut` and duration ≥ 29_000 ms.
+
+| Round | JSON path | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 1 | `/tmp/herdweb-chromium-nav-remain-20260831/round-1.json` | 65.62 | 108 | 2 | 8 | 0 | 0 | dirty |
+| 2 | `/tmp/herdweb-chromium-nav-remain-20260831/round-2.json` | 63.88 | 108 | 2 | 8 | 0 | 0 | dirty |
+| 3 | `/tmp/herdweb-chromium-nav-remain-20260831/round-3.json` | 63.06 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 4 | `/tmp/herdweb-chromium-nav-remain-20260831/round-4.json` | 62.08 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 5 | `/tmp/herdweb-chromium-nav-remain-20260831/round-5.json` | 62.61 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 6 | `/tmp/herdweb-chromium-nav-remain-20260831/round-6.json` | 62.82 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 7 | `/tmp/herdweb-chromium-nav-remain-20260831/round-7.json` | 66.57 | 108 | 2 | 8 | 0 | 0 | dirty |
+| 8 | `/tmp/herdweb-chromium-nav-remain-20260831/round-8.json` | 67.77 | 108 | 2 | 8 | 1 | 1 | dirty |
+| 9 | `/tmp/herdweb-chromium-nav-remain-20260831/round-9.json` | 66.81 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 10 | `/tmp/herdweb-chromium-nav-remain-20260831/round-10.json` | 67.32 | 109 | 1 | 8 | 0 | 0 | dirty |
+
+Kind (a) instances: **1** (baseline-after-c1-c2 was **14**). Dirty rounds: 10/10. The remaining kind (a) is round 8 `chromium-android` `notify.spec.ts:23` (`timedOut` 30069 ms, body timeout, not a font-CSS `page.goto`). Running notes: `docs/sessions/herdweb-e2e-flake/progress/chromium-nav-remain-progress.md`.
+
+The funnel is **not** clean. This card does not claim that.

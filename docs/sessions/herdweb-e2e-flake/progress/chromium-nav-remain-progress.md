@@ -85,3 +85,22 @@ Round 7 failures: `chromium-android` `dpad.spec.ts:85` kind (b); `webkit-iphone`
 Round 8 failures: `chromium-android` `notify.spec.ts:23` **kind (a)** `timedOut` 30069 ms (body timeout, not a `beforeEach` `page.goto`); `webkit-iphone` `touch.spec.ts:93` kind (b).
 
 Kind (a) running total: **1** (baseline-after-c1-c2 was 14).
+
+### After round 10 (2026-08-31T14:06:22+08:00)
+
+| Round | JSON path | bytes | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 9 | `/tmp/herdweb-chromium-nav-remain-20260831/round-9.json` | 149156 | 66.81 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 10 | `/tmp/herdweb-chromium-nav-remain-20260831/round-10.json` | 149146 | 67.32 | 109 | 1 | 8 | 0 | 0 | dirty |
+
+Round 9 and 10 failure: `webkit-iphone` `touch.spec.ts:93` kind (b).
+
+## Kind (a) versus baseline-after-c1-c2
+
+| Metric | baseline-after-c1-c2 | this card |
+| --- | ---: | ---: |
+| Kind (a) instances | 14 | **1** |
+| Dirty rounds / 10 | 8/10 | 10/10 |
+| Clean rounds | 2 | 0 |
+
+Kind (a) dropped from 14 to 1. The remaining kind (a) is round 8 `chromium-android` `notify.spec.ts:23` (body timeout, not a font-CSS `page.goto`). The funnel is **not** clean: every round had at least one kind (b) (`touch.spec.ts:93` webkit 10/10; `dpad.spec.ts:75` chromium 2/10). Those are out of this card.
