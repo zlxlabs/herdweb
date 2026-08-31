@@ -28,7 +28,7 @@ No Playwright / vitest / tsdown worker was running. Rounds will be serial. Shell
 
 `pnpm install` completed before round 1 (`@playwright/test` 1.58.2). Suite list: **118 tests in 16 files** (baseline was 116 in 15; `font-stylesheet.spec.ts` is new). Every counted round: `env -u CI pnpm exec playwright test --reporter=json`, wrapped in `/usr/bin/time -f 'WALL_SECONDS=%e'`. Counts walked from JSON `suites[].specs[].tests[].results[]`.
 
-Failed-count sequence so far: **4 / 1**. Both rounds dirty.
+Failed-count sequence so far: **4 / 1 / 3 / 0**. Dirty 3/4; round 4 is the first clean round.
 
 ### After round 2 (2026-08-31T11:59:12+08:00)
 
@@ -49,3 +49,20 @@ Round 2 failures:
 - `webkit-iphone` `weak-network.spec.ts:317` timedOut 30091 ms kind (a)
 
 `dpad.spec.ts:75` has not failed yet. Kind (a) is not zero after candidate 1. Round 3 started 2026-08-31T11:59:13+08:00.
+
+### After round 4 (2026-08-31T12:02:01+08:00)
+
+| Round | wall (s) | passed | failed | skipped | timedOut | unexpected | dirty? |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 3 | 88.04 | 107 | 3 | 8 | 2 | 3 | dirty |
+| 4 | 79.89 | 110 | 0 | 8 | 0 | 0 | clean |
+
+Round 3 failures:
+
+- `webkit-iphone` `dpad.spec.ts:75` failed 6615 ms kind (b) (`expect(...).toContain`, hold ⏎ → `0a`)
+- `chromium-android` `smoke.spec.ts:62` timedOut 30170 ms kind (a)
+- `chromium-android` `touch.spec.ts:20` timedOut 30166 ms kind (a) beforeEach
+
+Round 4: no failures. First clean full suite in this remeasure.
+
+Candidate 3 (`webkit-iphone` `dpad.spec.ts:75`) is 1/4 so far. Kind (a) still appears in 3 of 4 rounds. Round 5 started 2026-08-31T12:02:01+08:00.
