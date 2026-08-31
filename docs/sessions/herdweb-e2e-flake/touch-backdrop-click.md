@@ -66,3 +66,73 @@ We added a capture-phase diagnostic probe on `document` recording all pointer, t
 ## 5. One-Sentence Fix Plan
 
 Update `tests/playwright/touch.spec.ts:93` to capture trusted synthesised clicks fired during `tap()` and assert that the click event is dispatched over the backdrop coordinates (`document.elementFromPoint(clientX, clientY)?.id === 'wt-backdrop'`) while verifying that the drawer remains open.
+
+## 6. Mutation Testing & Verification Record
+
+### 6.1 Red Test (Mutation Test)
+
+To prove non-tautology and ensure the regression guard strictly detects the issue #19 defect, we mutated `src/util/tap.ts:43` by commenting out `touchFired = true`.
+
+**Execution:**
+```bash
+env -u CI pnpm exec playwright test tests/playwright/touch.spec.ts --project=chromium-android -g "synthesised click"
+```
+
+**Result:** Deterministic assertion failure (drawer was closed by synthesised click hitting backdrop):
+```
+  1) [chromium-android] › tests/playwright/touch.spec.ts:93:1 › synthesised click from tap() hits backdrop (regression guard) 
+
+    Error: expect(locator).toHaveClass(expected) failed
+
+    Locator: locator('#wt-drawer')
+    Expected pattern: /open/
+    Received string:  ""
+    Timeout: 5000ms
+
+    Call log:
+      - Expect "toHaveClass" with timeout 5000ms
+      - waiting for locator('#wt-drawer')
+        9 × locator resolved to <div class="" id="wt-drawer">…</div>
+          - unexpected value ""
+
+      151 | 	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
+```
+Restoring `touchFired = true` immediately restored green across all suites.
+
+### 6.2 10-Round WebKit Verification (`webkit-iphone`)
+
+Full file `tests/playwright/touch.spec.ts` (7 tests/round):
+- **Command:** `PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/herdweb-touch-webkit/r$i.json env -u CI pnpm exec playwright test tests/playwright/touch.spec.ts --project=webkit-iphone --reporter=json`
+- **Result:** 10/10 rounds passed (70/70 tests passed, 0 failures, 0 timeouts, 0 retries).
+
+| Round | Tests Passed | Tests Failed | Retry Max | Duration |
+|:---:|:---:|:---:|:---:|:---:|
+| 1 | 7/7 | 0 | 0 | ~8.0s |
+| 2 | 7/7 | 0 | 0 | ~7.8s |
+| 3 | 7/7 | 0 | 0 | ~7.9s |
+| 4 | 7/7 | 0 | 0 | ~7.9s |
+| 5 | 7/7 | 0 | 0 | ~8.1s |
+| 6 | 7/7 | 0 | 0 | ~7.8s |
+| 7 | 7/7 | 0 | 0 | ~7.9s |
+| 8 | 7/7 | 0 | 0 | ~8.0s |
+| 9 | 7/7 | 0 | 0 | ~8.2s |
+| 10 | 7/7 | 0 | 0 | ~7.8s |
+
+### 6.3 5-Round Chromium Verification (`chromium-android`)
+
+Full file `tests/playwright/touch.spec.ts` (7 tests/round):
+- **Command:** `PLAYWRIGHT_JSON_OUTPUT_NAME=/tmp/herdweb-touch-chromium/r$i.json env -u CI pnpm exec playwright test tests/playwright/touch.spec.ts --project=chromium-android --reporter=json`
+- **Result:** 5/5 rounds passed (35/35 tests passed, 0 failures, 0 timeouts, 0 retries).
+
+| Round | Tests Passed | Tests Failed | Retry Max | Duration |
+|:---:|:---:|:---:|:---:|:---:|
+| 1 | 7/7 | 0 | 0 | ~6.7s |
+| 2 | 7/7 | 0 | 0 | ~6.8s |
+| 3 | 7/7 | 0 | 0 | ~6.9s |
+| 4 | 7/7 | 0 | 0 | ~6.7s |
+| 5 | 7/7 | 0 | 0 | ~6.8s |
+
+### 6.4 Unit Test Suite
+
+- **Command:** `env -u NO_COLOR pnpm test`
+- **Result:** 78/78 test files passed (1363/1363 tests passed).
