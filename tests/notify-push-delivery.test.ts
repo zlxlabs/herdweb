@@ -139,7 +139,13 @@ test('dispatchEvent sends encrypted WebPush to subscription endpoint', async () 
 		})
 		notifyService.dispatchEvent(
 			parseNotifyEvent(
-				JSON.stringify({ v: 1, id: 'delivery-1', kind: 'done', title: 'Done', ts: 1 }),
+				JSON.stringify({
+					v: 1,
+					id: 'delivery-1',
+					kind: 'done',
+					title: 'Done',
+					ts: 1_700_000_000_000,
+				}),
 			),
 		)
 		await notifyService.awaitInFlight(5000)
@@ -243,7 +249,7 @@ test.each(mergeCases)('$name', async (mergeCase) => {
 				kind: 'done',
 				role: 'root',
 				title: 'Done',
-				ts: 1,
+				ts: 1_700_000_000_000,
 			}),
 		),
 	)
@@ -261,7 +267,13 @@ test('skipped push does not overwrite a subscription written after dispatch', as
 	const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
 	notifyService.dispatchEvent(
 		parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'delivery-skipped', kind: 'test', title: 'Test', ts: 1 }),
+			JSON.stringify({
+				v: 1,
+				id: 'delivery-skipped',
+				kind: 'test',
+				title: 'Test',
+				ts: 1_700_000_000_000,
+			}),
 		),
 	)
 	writeSubscriptions(stateDir, [added])

@@ -409,7 +409,7 @@ describe('notify service channel independence', () => {
 		})
 
 		service.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, kind: 'test', title: 'T', ts: 1 })),
+			parseNotifyEvent(JSON.stringify({ v: 1, kind: 'test', title: 'T', ts: 1_700_000_000_000 })),
 		)
 		await service.awaitInFlight(1000)
 

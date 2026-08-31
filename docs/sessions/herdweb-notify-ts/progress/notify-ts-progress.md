@@ -29,3 +29,13 @@
 关键决策与已否决方案：不做秒→毫秒启发式。测试改为 import 该常量作为第二消费者。startedAt / presenceAt 不加下界。
 
 下一步唯一动作：把喂给 `parseNotifyEvent` 的假数据改成 `1_700_000_000_000`，并改 `docs/configuration.md` 删掉 Ingress does not range-check。
+
+## 2026-08-31 millisecond fixtures and docs
+
+当前阶段：implementing（第 4 笔：假数据与 configuration.md）
+
+本段结论：喂给 `parseNotifyEvent` 的秒级/占位 `ts` 改为 `1_700_000_000_000`（本文件内统一该风格）。patrol 样本 `ts` 改为毫秒，id 仍保留实测秒级字符串。直传 `NotifyEvent`（`dispatchEvent`、面板 history mock、健康检查相对时钟、`buildNotifyContent`、service worker helpers、attention-policy `BASE`）未改。`docs/configuration.md` Local events API 改为 ingress 会对低于 1e12 的 `ts` 返回 400。
+
+关键决策与已否决方案：不改 `startedAt` / `presenceAt` 下界。不订正库存。不为 knip 加假 import。
+
+下一步唯一动作：跑 `pnpm test tests/notify-events.test.ts`，绿则跑全量 `pnpm test`、`pnpm exec tsc --noEmit`、`pnpm run check`，再做红验（只删 `ts < NOTIFY_TS_MIN_MS` 判断那一行）。

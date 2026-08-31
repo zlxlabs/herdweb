@@ -71,7 +71,14 @@ async function createHarness(): Promise<TestHarness> {
 
 function deferrableAsking(id: string) {
 	return parseNotifyEvent(
-		JSON.stringify({ v: 1, id, kind: 'asking', title: 'T', ts: 1, presence: 'likely-present' }),
+		JSON.stringify({
+			v: 1,
+			id,
+			kind: 'asking',
+			title: 'T',
+			ts: 1_700_000_000_000,
+			presence: 'likely-present',
+		}),
 	)
 }
 

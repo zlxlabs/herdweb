@@ -113,7 +113,7 @@ describe('notify push delivery', () => {
 			now: () => now,
 		})
 		const event = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'p1', kind: 'done', title: 'T', ts: 1 }),
+			JSON.stringify({ v: 1, id: 'p1', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
 		notifyService.dispatchEvent(event)
 		await notifyService.awaitInFlight(1000)
@@ -137,7 +137,9 @@ describe('notify push delivery', () => {
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p2', kind: 'done', title: 'T', ts: 1 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'p2', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		await notifyService.awaitInFlight(1000)
 		expect(readSubscriptions(stateDir)).toHaveLength(0)
@@ -158,7 +160,9 @@ describe('notify push delivery', () => {
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p-empty', kind: 'test', title: 'T', ts: 1 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'p-empty', kind: 'test', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		await notifyService.awaitInFlight(1000)
 		expect(
@@ -199,7 +203,9 @@ describe('notify push delivery', () => {
 			now: () => 2,
 		})
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p3', kind: 'done', title: 'T', ts: 1 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'p3', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		await notifyService.awaitInFlight(1000)
 		const subs = readSubscriptions(stateDir)
@@ -245,7 +251,7 @@ describe('notify push delivery', () => {
 		const sendPush = vi.fn().mockResolvedValue(undefined)
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
 		const event = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'p-reject', kind: 'done', title: 'T', ts: 1 }),
+			JSON.stringify({ v: 1, id: 'p-reject', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
 		notifyService.dispatchEvent(event)
 		await notifyService.awaitInFlight(1000)
@@ -275,7 +281,9 @@ describe('notify push delivery', () => {
 			now: () => now,
 		})
 		notifyService.dispatchEvent(
-			parseNotifyEvent(JSON.stringify({ v: 1, id: 'p4', kind: 'done', title: 'T', ts: 1 })),
+			parseNotifyEvent(
+				JSON.stringify({ v: 1, id: 'p4', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
+			),
 		)
 		writeSpy.mockClear()
 		vi.advanceTimersByTime(24 * 60 * 60 * 1000)

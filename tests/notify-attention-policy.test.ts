@@ -243,7 +243,7 @@ function decisionLines(spy: ReturnType<typeof vi.spyOn>): string[] {
 }
 
 function parsedEvent(input: Record<string, unknown>): NotifyEvent {
-	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1, ...input }))
+	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1_700_000_000_000, ...input }))
 }
 
 function createOutboundHarness(opts: { isAwayMode?: () => boolean } = {}) {

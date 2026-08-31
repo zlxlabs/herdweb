@@ -74,7 +74,7 @@ const validBase = {
 	id: 'evt-1',
 	kind: 'asking',
 	title: 'Need input',
-	ts: 1_700_000_000,
+	ts: 1_700_000_000_000,
 } as const
 
 describe('parseNotifyEvent', () => {
@@ -97,7 +97,7 @@ describe('parseNotifyEvent', () => {
 		['tool field', { ...validBase, tool: 'grep' }],
 		['unknown field', { ...validBase, extra: true }],
 		['wrong version', { ...validBase, v: 2 }],
-		['missing id for non-test', { v: 1, kind: 'asking', title: 'T', ts: 1 }],
+		['missing id for non-test', { v: 1, kind: 'asking', title: 'T', ts: 1_700_000_000_000 }],
 	])('rejects %s with 400', (_label, payload) => {
 		try {
 			parseNotifyEvent(JSON.stringify(payload))
@@ -238,9 +238,9 @@ describe('parseNotifyEvent', () => {
 })
 
 describe('parseNotifyEvent patrol producer fields', () => {
-	// issue #127 measured producer payload — keep this string literal byte-for-byte.
+	// issue #127 measured producer payload; ts is epoch ms after the ingress lock (#129).
 	const AGENT_CONFIG_PATROL_PAYLOAD =
-		'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
+		'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200000,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
 
 	test('accepts the agent-config patrol producer payload verbatim', () => {
 		const event = parseNotifyEvent(AGENT_CONFIG_PATROL_PAYLOAD)
@@ -298,7 +298,13 @@ describe('POST /api/events', () => {
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
-			body: JSON.stringify({ v: 1, id: 'persist-1', kind: 'done', title: 'Done', ts: 1 }),
+			body: JSON.stringify({
+				v: 1,
+				id: 'persist-1',
+				kind: 'done',
+				title: 'Done',
+				ts: 1_700_000_000_000,
+			}),
 		})
 		expect(response.status).toBe(202)
 		const lines = readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim()
@@ -353,7 +359,7 @@ describe('POST /api/events', () => {
 		harness = await createHarness()
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
 		const body =
-			'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
+			'{"v":1,"id":"overflow:1788090200","kind":"patrol","title":"【巡查·超限】","ts":1788090200000,"task_id":"overflow","drift":"overflow","body":"truncated lost=0 stalled=0 stranded=13"}'
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -382,7 +388,7 @@ describe('POST /api/events', () => {
 				id: 'child-1',
 				kind: 'done',
 				title: 'Child done',
-				ts: 1,
+				ts: 1_700_000_000_000,
 				role: 'child',
 				parentId: 'root-1',
 				startedAt: 99,
@@ -411,7 +417,7 @@ describe('POST /api/events', () => {
 				id: 'presence-1',
 				kind: 'asking',
 				title: 'Need input',
-				ts: 1,
+				ts: 1_700_000_000_000,
 				presence: 'likely-present',
 				presenceAt: 1_700_000_000_000,
 			}),
@@ -445,7 +451,13 @@ describe('POST /api/events', () => {
 	test('requires bearer token when configured', async () => {
 		harness = await createHarness('secret')
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-		const deniedBody = JSON.stringify({ v: 1, id: 'auth-1', kind: 'done', title: 'T', ts: 1 })
+		const deniedBody = JSON.stringify({
+			v: 1,
+			id: 'auth-1',
+			kind: 'done',
+			title: 'T',
+			ts: 1_700_000_000_000,
+		})
 		const denied = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',
 			headers: { 'content-type': 'application/json' },
@@ -463,7 +475,13 @@ describe('POST /api/events', () => {
 				'content-type': 'application/json',
 				authorization: 'Bearer secret',
 			},
-			body: JSON.stringify({ v: 1, id: 'auth-2', kind: 'done', title: 'T', ts: 1 }),
+			body: JSON.stringify({
+				v: 1,
+				id: 'auth-2',
+				kind: 'done',
+				title: 'T',
+				ts: 1_700_000_000_000,
+			}),
 		})
 		expect(allowed.status).toBe(202)
 		logSpy.mockRestore()
@@ -477,7 +495,13 @@ describe('POST /api/events', () => {
 			const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ v: 1, id: `rate-${i}`, kind: 'done', title: 'T', ts: i }),
+				body: JSON.stringify({
+					v: 1,
+					id: `rate-${i}`,
+					kind: 'done',
+					title: 'T',
+					ts: 1_700_000_000_000,
+				}),
 			})
 			lastStatus = response.status
 		}
@@ -491,7 +515,13 @@ describe('POST /api/events', () => {
 	test('duplicate id returns 202 without double append', async () => {
 		harness = await createHarness()
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-		const body = JSON.stringify({ v: 1, id: 'dup', kind: 'done', title: 'T', ts: 1 })
+		const body = JSON.stringify({
+			v: 1,
+			id: 'dup',
+			kind: 'done',
+			title: 'T',
+			ts: 1_700_000_000_000,
+		})
 		expect(
 			(
 				await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
@@ -539,7 +569,14 @@ describe('POST /api/events', () => {
 			'herdweb: notify decision rejected reason=invalid-event status=400',
 		)
 		expect(decisionLines(logSpy).join('\n')).not.toContain('v1-explicit')
-		const v2 = { v: 2, targetId: 'workbox', id: 'v2-explicit', kind: 'done', title: 'Done', ts: 1 }
+		const v2 = {
+			v: 2,
+			targetId: 'workbox',
+			id: 'v2-explicit',
+			kind: 'done',
+			title: 'Done',
+			ts: 1_700_000_000_000,
+		}
 		await post(v2)
 		expect(readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8')).toContain(
 			'"targetId":"workbox"',
@@ -560,7 +597,9 @@ describe('POST /api/events', () => {
 			},
 		])
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
-		const payload = parseNotifyEvent(JSON.stringify({ v: 1, kind: 'test', title: 'T', ts: 1 }))
+		const payload = parseNotifyEvent(
+			JSON.stringify({ v: 1, kind: 'test', title: 'T', ts: 1_700_000_000_000 }),
+		)
 		expect(notifyService.dispatchEvent(payload)).toBe('accepted')
 		expect(notifyService.dispatchEvent(payload)).toBe('accepted')
 		expect(() => readFileSync(join(stateDir, 'events.jsonl'))).toThrow()
@@ -581,12 +620,12 @@ describe('POST /api/events', () => {
 		const notifyService = createNotifyService({ stateDir, historyLimit: 200 })
 		for (let i = 0; i < 1001; i++) {
 			const event = parseNotifyEvent(
-				JSON.stringify({ v: 1, id: `id-${i}`, kind: 'done', title: 'T', ts: i }),
+				JSON.stringify({ v: 1, id: `id-${i}`, kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 			)
 			notifyService.dispatchEvent(event)
 		}
 		const replay = parseNotifyEvent(
-			JSON.stringify({ v: 1, id: 'id-0', kind: 'done', title: 'T', ts: 9999 }),
+			JSON.stringify({ v: 1, id: 'id-0', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
 		expect(notifyService.dispatchEvent(replay)).toBe('accepted')
 		notifyService.dispose()
@@ -597,7 +636,13 @@ describe('POST /api/events', () => {
 	test('rejects non-loopback POST with decision log and no body', async () => {
 		harness = await createHarness()
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
-		const body = JSON.stringify({ v: 1, id: 'remote-1', kind: 'done', title: 'T', ts: 1 })
+		const body = JSON.stringify({
+			v: 1,
+			id: 'remote-1',
+			kind: 'done',
+			title: 'T',
+			ts: 1_700_000_000_000,
+		})
 		const response = await harness.fetchApp(
 			new Request('http://term.example.ts.net/api/events', {
 				method: 'POST',
@@ -622,7 +667,7 @@ describe('POST /api/events', () => {
 			id: 'huge-1',
 			kind: 'done',
 			title: 'T',
-			ts: 1,
+			ts: 1_700_000_000_000,
 			body: 'x'.repeat(5000),
 		})
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
