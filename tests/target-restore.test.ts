@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, test } from 'vitest'
+import { beforeEach, describe, expect, test, vi } from 'vitest'
 import {
 	createTargetRestoreOverlay,
 	lastTargetStorageKey,
 	persistLastTargetId,
+	persistUrlTargetId,
 	readLastTargetId,
 	readUrlTargetId,
 	resolveInitialTarget,
@@ -107,6 +108,39 @@ describe('readUrlTargetId', () => {
 
 	test('keeps an invalid id visible so restore can fail loud', () => {
 		expect(readUrlTargetId('?target=bad%20id')).toBe('bad id')
+	})
+})
+
+describe('persistUrlTargetId', () => {
+	beforeEach(() => {
+		window.history.replaceState(null, '', 'http://localhost:3000/')
+	})
+
+	test('sets target query parameter in window.location', () => {
+		persistUrlTargetId('workbox')
+		expect(window.location.search).toBe('?target=workbox')
+		expect(readUrlTargetId(window.location.search)).toBe('workbox')
+	})
+
+	test('updates existing target query parameter and preserves other params', () => {
+		window.history.replaceState(null, '', 'http://localhost:3000/?foo=bar&target=one')
+		persistUrlTargetId('two')
+		expect(window.location.search).toBe('?foo=bar&target=two')
+		expect(readUrlTargetId(window.location.search)).toBe('two')
+	})
+
+	test('invokes history.replaceState with null, empty title, and updated URL', () => {
+		const replaceStateSpy = vi.spyOn(window.history, 'replaceState')
+		try {
+			persistUrlTargetId('mac')
+			expect(replaceStateSpy).toHaveBeenCalledTimes(1)
+			const [state, title, url] = replaceStateSpy.mock.calls[0] ?? []
+			expect(state).toBeNull()
+			expect(title).toBe('')
+			expect(String(url)).toContain('target=mac')
+		} finally {
+			replaceStateSpy.mockRestore()
+		}
 	})
 })
 
