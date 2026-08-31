@@ -54,3 +54,12 @@ Round 1 and 2 failures (kind (b) assertions, out of this card's product change):
 - `webkit-iphone` `touch.spec.ts:93` failed ~1.3 s (`expect(clicks.length).toBeGreaterThan(0)`)
 
 No Chromium `page.goto` 30 s hang. Kind (a) running total: **0** (baseline-after-c1-c2 was 14).
+
+### After round 4 (2026-08-31T13:58:30+08:00)
+
+| Round | JSON path | bytes | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 3 | `/tmp/herdweb-chromium-nav-remain-20260831/round-3.json` | 149157 | 63.06 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 4 | `/tmp/herdweb-chromium-nav-remain-20260831/round-4.json` | 149144 | 62.08 | 109 | 1 | 8 | 0 | 0 | dirty |
+
+Round 3 and 4 failure: `webkit-iphone` `touch.spec.ts:93` kind (b). Kind (a) running total still **0**.
