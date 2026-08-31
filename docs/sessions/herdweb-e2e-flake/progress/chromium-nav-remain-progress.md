@@ -63,3 +63,12 @@ No Chromium `page.goto` 30 s hang. Kind (a) running total: **0** (baseline-after
 | 4 | `/tmp/herdweb-chromium-nav-remain-20260831/round-4.json` | 149144 | 62.08 | 109 | 1 | 8 | 0 | 0 | dirty |
 
 Round 3 and 4 failure: `webkit-iphone` `touch.spec.ts:93` kind (b). Kind (a) running total still **0**.
+
+### After round 6 (2026-08-31T14:00:52+08:00)
+
+| Round | JSON path | bytes | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 5 | `/tmp/herdweb-chromium-nav-remain-20260831/round-5.json` | 149165 | 62.61 | 109 | 1 | 8 | 0 | 0 | dirty |
+| 6 | `/tmp/herdweb-chromium-nav-remain-20260831/round-6.json` | 149127 | 62.82 | 109 | 1 | 8 | 0 | 0 | dirty |
+
+Round 5 and 6 failure: `webkit-iphone` `touch.spec.ts:93` kind (b). Kind (a) running total still **0**.
