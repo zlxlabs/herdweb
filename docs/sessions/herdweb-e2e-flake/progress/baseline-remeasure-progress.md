@@ -28,7 +28,7 @@ No Playwright / vitest / tsdown worker was running. Rounds will be serial. Shell
 
 `pnpm install` completed before round 1 (`@playwright/test` 1.58.2). Suite list: **118 tests in 16 files** (baseline was 116 in 15; `font-stylesheet.spec.ts` is new). Every counted round: `env -u CI pnpm exec playwright test --reporter=json`, wrapped in `/usr/bin/time -f 'WALL_SECONDS=%e'`. Counts walked from JSON `suites[].specs[].tests[].results[]`.
 
-Failed-count sequence so far: **4 / 1 / 3 / 0 / 2 / 3 / 4 / 3**. Dirty 7/8; only round 4 is clean.
+Failed-count sequence so far: **4 / 1 / 3 / 0 / 2 / 3 / 4 / 3 / 0 / 1**. Dirty **8/10**; clean rounds are 4 and 9.
 
 ### After round 2 (2026-08-31T11:59:12+08:00)
 
@@ -106,3 +106,18 @@ Round 8 failures:
 - `webkit-iphone` `weak-network.spec.ts:140` failed 6435 ms kind (b)
 
 `webkit-iphone` `dpad.spec.ts:75` is 2/8. `webkit-iphone` `target-switch.spec.ts:48` is 3/8. Candidate 2 (`weak-network.spec.ts:247` reconnect banner) has not failed. Kind (a) still in 7 of 8 rounds. Round 9 started 2026-08-31T12:07:49+08:00.
+
+### After round 10 (2026-08-31T12:10:07+08:00)
+
+| Round | wall (s) | passed | failed | skipped | timedOut | unexpected | dirty? |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 9 | 68.35 | 110 | 0 | 8 | 0 | 0 | clean |
+| 10 | 69.48 | 109 | 1 | 8 | 0 | 1 | dirty |
+
+Round 9: no failures. Second clean full suite.
+
+Round 10 failures:
+
+- `webkit-iphone` `target-switch.spec.ts:48` failed 1460 ms kind (b) (URL stayed `target=one`)
+
+Ten JSON files are on disk. Comparison document: `docs/sessions/herdweb-e2e-flake/baseline-after-c1-c2.md`.
