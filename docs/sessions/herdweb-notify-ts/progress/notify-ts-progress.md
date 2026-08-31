@@ -39,3 +39,13 @@
 关键决策与已否决方案：不改 `startedAt` / `presenceAt` 下界。不订正库存。不为 knip 加假 import。
 
 下一步唯一动作：跑 `pnpm test tests/notify-events.test.ts`，绿则跑全量 `pnpm test`、`pnpm exec tsc --noEmit`、`pnpm run check`，再做红验（只删 `ts < NOTIFY_TS_MIN_MS` 判断那一行）。
+
+## 2026-08-31 红验与收尾
+
+当前阶段：implementing（收尾）
+
+本段结论：红验只删 `if (obj.ts < NOTIFY_TS_MIN_MS)` 判断块后，秒级 parse 三条与 HTTP 400 一条均以 AssertionError 转红（parse 不再抛 NotifyEventError；HTTP 收到 202）。已单行还原。`pnpm exec tsc --noEmit` 与 `pnpm run check` 退出码 0。`rg -n "does not range-check" docs/configuration.md` 退出码 1。本会话环境同时设置 `NO_COLOR=1` 与 `FORCE_COLOR=1`，裸 `pnpm test` 会让 `cli-config-validation` 因 Node 警告污染 stderr 红一条；`env -u NO_COLOR pnpm test` 78 files / 1360 tests 全绿。未改该测试文件，未跑 Playwright。
+
+关键决策与已否决方案：无新增抽象。否决入口启发式换算。
+
+下一步唯一动作：无，本卡实现与验证完成，等候验收。
