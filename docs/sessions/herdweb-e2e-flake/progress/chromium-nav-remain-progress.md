@@ -72,3 +72,16 @@ Round 3 and 4 failure: `webkit-iphone` `touch.spec.ts:93` kind (b). Kind (a) run
 | 6 | `/tmp/herdweb-chromium-nav-remain-20260831/round-6.json` | 149127 | 62.82 | 109 | 1 | 8 | 0 | 0 | dirty |
 
 Round 5 and 6 failure: `webkit-iphone` `touch.spec.ts:93` kind (b). Kind (a) running total still **0**.
+
+### After round 8 (2026-08-31T14:03:46+08:00)
+
+| Round | JSON path | bytes | wall (s) | passed | failed | skipped | timedOut | kind (a) | dirty? |
+| ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| 7 | `/tmp/herdweb-chromium-nav-remain-20260831/round-7.json` | 152230 | 66.57 | 108 | 2 | 8 | 0 | 0 | dirty |
+| 8 | `/tmp/herdweb-chromium-nav-remain-20260831/round-8.json` | 149896 | 67.77 | 108 | 2 | 8 | 1 | 1 | dirty |
+
+Round 7 failures: `chromium-android` `dpad.spec.ts:85` kind (b); `webkit-iphone` `touch.spec.ts:93` kind (b).
+
+Round 8 failures: `chromium-android` `notify.spec.ts:23` **kind (a)** `timedOut` 30069 ms (body timeout, not a `beforeEach` `page.goto`); `webkit-iphone` `touch.spec.ts:93` kind (b).
+
+Kind (a) running total: **1** (baseline-after-c1-c2 was 14).
