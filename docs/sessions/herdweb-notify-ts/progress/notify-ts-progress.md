@@ -19,3 +19,13 @@
 关键决策与已否决方案：测试先用字面量锁死轴表数值，不在本笔 import 尚未存在的 `NOTIFY_TS_MIN_MS`。非有限 `ts` 用例在本笔已绿（既有 finite-number 检查）。
 
 下一步唯一动作：在 `parseNotifyEvent` 导出 `NOTIFY_TS_MIN_MS` 并在 finite 检查之后拒绝 `ts < NOTIFY_TS_MIN_MS`。
+
+## 2026-08-31 NOTIFY_TS_MIN_MS lower bound
+
+当前阶段：implementing（第 3 笔：下界实现）
+
+本段结论：`src/notify/events.ts` 导出 `NOTIFY_TS_MIN_MS = 1_000_000_000_000`，在 finite number 检查之后、返回前拒绝 `ts < NOTIFY_TS_MIN_MS`，文案 `ts must be epoch milliseconds`。新加的秒级/边界/`Date.now()` 用例已绿。喂给解析器的既有秒级假数据（`validBase.ts = 1_700_000_000`、`ts: 1` HTTP body、patrol 秒级样本）按预期转红，共 31 failed / 42 passed。
+
+关键决策与已否决方案：不做秒→毫秒启发式。测试改为 import 该常量作为第二消费者。startedAt / presenceAt 不加下界。
+
+下一步唯一动作：把喂给 `parseNotifyEvent` 的假数据改成 `1_700_000_000_000`，并改 `docs/configuration.md` 删掉 Ingress does not range-check。

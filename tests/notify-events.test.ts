@@ -5,7 +5,7 @@ import { join } from 'node:path'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, test, vi } from 'vitest'
-import { NotifyEventError, parseNotifyEvent } from '../src/notify/events'
+import { NOTIFY_TS_MIN_MS, NotifyEventError, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { SlidingWindowRateLimiter } from '../src/notify/rate-limit'
 import { registerNotifyRoutes } from '../src/notify/routes'
@@ -196,7 +196,7 @@ describe('parseNotifyEvent', () => {
 	test.each([
 		['Unix-second sample', 1_788_090_200],
 		['placeholder 1', 1],
-		['just below millisecond lower bound', 999_999_999_999],
+		['just below millisecond lower bound', NOTIFY_TS_MIN_MS - 1],
 	])('rejects %s ts with 400', (_label, ts) => {
 		try {
 			parseNotifyEvent(JSON.stringify({ ...validBase, ts }))
@@ -209,8 +209,9 @@ describe('parseNotifyEvent', () => {
 	})
 
 	test('accepts ts at the millisecond lower bound', () => {
-		const event = parseNotifyEvent(JSON.stringify({ ...validBase, ts: 1_000_000_000_000 }))
-		expect(event.ts).toBe(1_000_000_000_000)
+		expect(NOTIFY_TS_MIN_MS).toBe(1_000_000_000_000)
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, ts: NOTIFY_TS_MIN_MS }))
+		expect(event.ts).toBe(NOTIFY_TS_MIN_MS)
 	})
 
 	test('accepts Date.now() magnitude', () => {

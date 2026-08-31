@@ -20,6 +20,9 @@ export type NotifyPresence = 'likely-present' | 'likely-away' | 'unknown'
 /** A `presenceAt` older than this many ms is stale and downgrades to `unknown`. */
 export const PRESENCE_FRESH_MS = 120_000
 
+/** Ingress lower bound for `ts`: values below this are Unix seconds (or earlier), not epoch ms. */
+export const NOTIFY_TS_MIN_MS = 1_000_000_000_000
+
 const NOTIFY_PRESENCE_VALUES = ['likely-present', 'likely-away', 'unknown'] as const
 
 function isNotifyPresence(value: unknown): value is NotifyPresence {
@@ -153,6 +156,9 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 
 	if (typeof obj.ts !== 'number' || !Number.isFinite(obj.ts)) {
 		throw new NotifyEventError('ts must be a finite number', 400)
+	}
+	if (obj.ts < NOTIFY_TS_MIN_MS) {
+		throw new NotifyEventError('ts must be epoch milliseconds', 400)
 	}
 
 	if (obj.id !== undefined && typeof obj.id !== 'string') {
