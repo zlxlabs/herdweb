@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { serve } from '@hono/node-server'
@@ -192,6 +192,48 @@ describe('parseNotifyEvent', () => {
 			expect((error as NotifyEventError).statusCode).toBe(413)
 		}
 	})
+
+	test.each([
+		['Unix-second sample', 1_788_090_200],
+		['placeholder 1', 1],
+		['just below millisecond lower bound', 999_999_999_999],
+	])('rejects %s ts with 400', (_label, ts) => {
+		try {
+			parseNotifyEvent(JSON.stringify({ ...validBase, ts }))
+			throw new Error('expected throw')
+		} catch (error) {
+			expect(error).toBeInstanceOf(NotifyEventError)
+			expect((error as NotifyEventError).statusCode).toBe(400)
+			expect((error as NotifyEventError).message).toMatch(/milliseconds|epoch ms/i)
+		}
+	})
+
+	test('accepts ts at the millisecond lower bound', () => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, ts: 1_000_000_000_000 }))
+		expect(event.ts).toBe(1_000_000_000_000)
+	})
+
+	test('accepts Date.now() magnitude', () => {
+		const ts = Date.now()
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, ts }))
+		expect(event.ts).toBe(ts)
+	})
+
+	test.each([
+		['NaN', Number.NaN],
+		['Infinity', Number.POSITIVE_INFINITY],
+		['string', '1'],
+		['null', null],
+	])('rejects non-finite ts (%s) with 400', (_label, ts) => {
+		try {
+			parseNotifyEvent(JSON.stringify({ ...validBase, ts }))
+			throw new Error('expected throw')
+		} catch (error) {
+			expect(error).toBeInstanceOf(NotifyEventError)
+			expect((error as NotifyEventError).statusCode).toBe(400)
+			expect((error as NotifyEventError).message).toBe('ts must be a finite number')
+		}
+	})
 })
 
 describe('parseNotifyEvent patrol producer fields', () => {
@@ -263,6 +305,46 @@ describe('POST /api/events', () => {
 		expect(decisionLines(logSpy)).toContain(
 			'herdweb: notify decision skipped kind=done id=persist-1 reason=done-coalesced',
 		)
+		logSpy.mockRestore()
+	})
+
+	test('rejects Unix-second ts over HTTP with 400 and does not persist', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'sec-1',
+				kind: 'done',
+				title: 'Done',
+				ts: 1_788_090_200,
+			}),
+		})
+		expect(response.status).toBe(400)
+		expect(await response.text()).toMatch(/milliseconds|epoch ms/i)
+		expect(existsSync(join(harness.stateDir, 'events.jsonl'))).toBe(false)
+		expect(decisionLines(logSpy)).toContain(
+			'herdweb: notify decision rejected reason=invalid-event status=400',
+		)
+		logSpy.mockRestore()
+	})
+
+	test('accepts Date.now() ts over HTTP with 202 and persists', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const ts = Date.now()
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ v: 1, id: 'persist-ms', kind: 'done', title: 'Done', ts }),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as { id?: string; ts?: number }
+		expect(stored).toMatchObject({ id: 'persist-ms', ts })
 		logSpy.mockRestore()
 	})
 
