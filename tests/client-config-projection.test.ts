@@ -76,6 +76,11 @@ describe('client config projection', () => {
 		expect(assets.js).toContain('client-name-sentinel')
 		expect(assets.js).toContain('client-theme-sentinel')
 		expect(assets.js).toContain('client-font-sentinel')
+		expect(assets.js).toContain(config.font.cdnUrl)
+		const head = html.slice(0, html.indexOf('<body>'))
+		expect(head).not.toMatch(/<link rel="stylesheet"/)
+		expect(head).not.toContain('data-herdweb-font')
+		expect(head).not.toContain('jetbrainsmono-nfm.css')
 		expect(assets.js).toContain('client-toolbar-sentinel')
 		expect(assets.js).toContain('"reconnect":{"enabled":false}')
 		const projectionMatch = assets.js.match(

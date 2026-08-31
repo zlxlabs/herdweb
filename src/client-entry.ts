@@ -30,18 +30,27 @@ import { el } from './util/dom'
 import { onTap } from './util/tap'
 
 /**
- * Apply the print-media font stylesheet as soon as this bundle runs.
- * `data-herdweb-font` is the stable selector written by renderClientHtml.
- * CSP `script-src` has no `unsafe-inline`, so this cannot be an inline onload.
+ * Inject the third-party font stylesheet only after window load.
+ * A rel="stylesheet" in the initial HTML still delays `load` in Chromium
+ * even with media="print"; CSP `script-src` has no `unsafe-inline`, so this
+ * cannot be an inline onload.
  */
-function applyDeferredFontStylesheet(): void {
-	const fontLink = document.querySelector('link[data-herdweb-font]')
-	if (fontLink instanceof HTMLLinkElement) {
+function scheduleDeferredFontStylesheet(cdnUrl: string): void {
+	const apply = (): void => {
+		if (document.querySelector('link[data-herdweb-font]')) return
+		const fontLink = document.createElement('link')
+		fontLink.rel = 'stylesheet'
+		fontLink.href = cdnUrl
 		fontLink.media = 'all'
+		fontLink.setAttribute('data-herdweb-font', '')
+		document.head.appendChild(fontLink)
 	}
+	if (document.readyState === 'complete') {
+		apply()
+		return
+	}
+	window.addEventListener('load', apply, { once: true })
 }
-
-applyDeferredFontStylesheet()
 
 const NOTIFY_TARGET_MESSAGE_TYPE = 'herdweb-notify-target'
 
@@ -246,6 +255,7 @@ function createSessionStatusOverlay(onReload: () => void): SessionStatusOverlay 
 }
 
 function main(config: ClientConfigProjection, version: string | undefined): void {
+	scheduleDeferredFontStylesheet(config.font.cdnUrl)
 	const container = document.getElementById('terminal')
 	if (!(container instanceof HTMLElement)) {
 		throw new Error('herdweb: missing #terminal container')

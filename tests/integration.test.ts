@@ -499,15 +499,11 @@ describe('build output', () => {
 		expect(result).toContain('<style>')
 		expect(result).toContain('<script nonce="test-nonce">')
 		expect(result).toContain('viewport')
-		expect(result).toContain('jetbrainsmono-nfm.css')
-		expect(result).toContain('<link rel="stylesheet"')
 		expect(result).toContain('id="terminal-container"')
 		expect(result).toContain('id="terminal"')
-		const fontLink = result.split('\n').find((line) => line.includes('data-herdweb-font'))
-		expect(fontLink).toBe(
-			`<link rel="stylesheet" href="${defaultConfig.font.cdnUrl}" media="print" data-herdweb-font>`,
-		)
-		expect(fontLink).not.toMatch(/\son\w+=/)
+		expect(result).not.toContain('data-herdweb-font')
+		expect(result).not.toContain(defaultConfig.font.cdnUrl)
+		expect(result).not.toMatch(/<link rel="stylesheet"/)
 	})
 
 	test('renderClientHtml includes PWA tags when pwa.enabled', async () => {
