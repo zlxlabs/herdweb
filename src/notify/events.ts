@@ -109,18 +109,16 @@ function truncateUtf8Bytes(value: string, maxBytes: number): string {
 	const buf = Buffer.from(value, 'utf8')
 	if (buf.byteLength <= maxBytes) return value
 	let end = maxBytes
-	while (end > 0 && (buf[end]! & 0xc0) === 0x80) {
+	while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) {
 		end--
 	}
 	if (end > 0) {
-		const leading = buf[end]!
+		const leading = buf[end] ?? 0
 		let seqLen = 1
 		if ((leading & 0xe0) === 0xc0) seqLen = 2
 		else if ((leading & 0xf0) === 0xe0) seqLen = 3
 		else if ((leading & 0xf8) === 0xf0) seqLen = 4
-		if (end + seqLen > maxBytes) {
-			// sequence does not fit within maxBytes
-		} else {
+		if (end + seqLen <= maxBytes) {
 			end += seqLen
 		}
 	}
@@ -263,12 +261,7 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		...(obj.session !== undefined ? { session: obj.session } : {}),
 		...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
 		...(typeof obj.contentMarkdown === 'string'
-			? {
-					contentMarkdown: truncateUtf8Bytes(
-						obj.contentMarkdown,
-						CONTENT_MARKDOWN_MAX_BYTES,
-					),
-				}
+			? { contentMarkdown: truncateUtf8Bytes(obj.contentMarkdown, CONTENT_MARKDOWN_MAX_BYTES) }
 			: {}),
 		...(obj.reason !== undefined ? { reason: truncate(obj.reason, REASON_MAX) } : {}),
 		...(isNotifyTaskRole(obj.role) ? { role: obj.role } : {}),

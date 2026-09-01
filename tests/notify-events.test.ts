@@ -191,26 +191,26 @@ describe('parseNotifyEvent', () => {
 			JSON.stringify({ ...validBase, contentMarkdown: asciiHuge }),
 		)
 		expect(asciiEvent.contentMarkdown).toHaveLength(4096)
-		expect(Buffer.byteLength(asciiEvent.contentMarkdown!, 'utf8')).toBe(4096)
+		expect(Buffer.byteLength(asciiEvent.contentMarkdown ?? '', 'utf8')).toBe(4096)
 
 		// 3-byte Chinese characters: 4094 ASCII bytes + 1 Chinese char (3 bytes) + extra
 		// Boundary at 4096 cuts through the 3-byte character, so it should be truncated to 4094 bytes.
-		const chineseBoundary = 'a'.repeat(4094) + '中' + 'extra'
+		const chineseBoundary = `${'a'.repeat(4094)}中extra`
 		const chineseEvent = parseNotifyEvent(
 			JSON.stringify({ ...validBase, contentMarkdown: chineseBoundary }),
 		)
 		expect(chineseEvent.contentMarkdown).toBe('a'.repeat(4094))
-		expect(Buffer.byteLength(chineseEvent.contentMarkdown!, 'utf8')).toBe(4094)
+		expect(Buffer.byteLength(chineseEvent.contentMarkdown ?? '', 'utf8')).toBe(4094)
 		expect(chineseEvent.contentMarkdown).not.toContain('\uFFFD')
 
 		// 4-byte Emoji: 4095 ASCII bytes + 1 emoji (4 bytes) + extra
 		// Boundary at 4096 cuts through the 4-byte emoji, so it should be truncated to 4095 bytes.
-		const emojiBoundary = 'a'.repeat(4095) + '🚀' + 'extra'
+		const emojiBoundary = `${'a'.repeat(4095)}🚀extra`
 		const emojiEvent = parseNotifyEvent(
 			JSON.stringify({ ...validBase, contentMarkdown: emojiBoundary }),
 		)
 		expect(emojiEvent.contentMarkdown).toBe('a'.repeat(4095))
-		expect(Buffer.byteLength(emojiEvent.contentMarkdown!, 'utf8')).toBe(4095)
+		expect(Buffer.byteLength(emojiEvent.contentMarkdown ?? '', 'utf8')).toBe(4095)
 		expect(emojiEvent.contentMarkdown).not.toContain('\uFFFD')
 
 		// Entirely Chinese characters: 2000 chars * 3 bytes = 6000 bytes.
@@ -220,7 +220,7 @@ describe('parseNotifyEvent', () => {
 			JSON.stringify({ ...validBase, contentMarkdown: allChinese }),
 		)
 		expect(allChineseEvent.contentMarkdown).toBe('中'.repeat(1365))
-		expect(Buffer.byteLength(allChineseEvent.contentMarkdown!, 'utf8')).toBe(4095)
+		expect(Buffer.byteLength(allChineseEvent.contentMarkdown ?? '', 'utf8')).toBe(4095)
 		expect(allChineseEvent.contentMarkdown).not.toContain('\uFFFD')
 	})
 
