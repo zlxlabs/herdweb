@@ -2,7 +2,7 @@ id = "zlxlabs.herdweb"
 name = "herdweb"
 version = "1.20.0"
 min_herdr_version = "0.8.2"
-description = "Mobile web UI for herdr — localhost only by default, you decide what to expose"
+description = "Monitor and drive your coding agents from your phone — built for thumbs, not a shrunken terminal"
 platforms = ["linux", "macos"]
 
 [[build]]
