@@ -1,7 +1,15 @@
 // @vitest-environment node
 
 import { spawnSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	unlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:http'
 import { createServer as createNetServer } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -47,7 +55,7 @@ function runScript(script: string, env: NodeJS.ProcessEnv) {
 }
 
 async function writeTrustedOwner(stateDir: string, port: number): Promise<void> {
-	const { processStarttime } = await loadPlugin('serve.mjs')
+	const { processStarttime } = await loadPlugin('owner.mjs')
 	writeFileSync(
 		join(stateDir, 'herdweb.owner.json'),
 		`${JSON.stringify({
@@ -208,5 +216,36 @@ describe('plugin info entries', () => {
 		expect(login.evidence).toMatch(/302/)
 		expect(login.evidence).toContain('login.cloudflareaccess.com')
 		expect(json.verdict).not.toBe(login.verdict)
+	})
+
+	test('symlink path and direct path behave the same for serve and show', () => {
+		const linkDir = makeTemp('plugin-sym-')
+		const link = join(linkDir, 'plugin')
+		symlinkSync(join(repo, 'scripts/plugin'), link)
+		const missing = {
+			HERDR_PLUGIN_STATE_DIR: '',
+			HERDR_PLUGIN_CONFIG_DIR: '',
+		}
+		try {
+			const directServe = runScript(plug('serve.mjs'), missing)
+			const linkedServe = runScript(join(link, 'serve.mjs'), missing)
+			expect(directServe.status).toBe(1)
+			expect(linkedServe.status).toBe(directServe.status)
+			expect(directServe.stderr).toMatch(/ERROR HERDR_PLUGIN_STATE_DIR is not set/)
+			expect(linkedServe.stderr).toMatch(/ERROR HERDR_PLUGIN_STATE_DIR is not set/)
+			expect(linkedServe.stdout).toBe(directServe.stdout)
+
+			const stateDir = makeTemp('plugin-sym-show-')
+			const showEnv = { HERDR_PLUGIN_STATE_DIR: stateDir }
+			const directShow = runScript(plug('show.mjs'), showEnv)
+			const linkedShow = runScript(join(link, 'show.mjs'), showEnv)
+			expect(directShow.status).toBe(0)
+			expect(linkedShow.status).toBe(directShow.status)
+			expect(directShow.stdout).toMatch(/当前没有本 plugin 记录的 herdweb 在跑/)
+			expect(linkedShow.stdout).toBe(directShow.stdout)
+			expect(linkedShow.stdout.length).toBeGreaterThan(0)
+		} finally {
+			unlinkSync(link)
+		}
 	})
 })

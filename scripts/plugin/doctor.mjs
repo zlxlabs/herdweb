@@ -3,9 +3,8 @@
 import { spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { homedir, userInfo } from 'node:os'
-import { join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { ownerIsTrusted, readOwner } from './serve.mjs'
+import { join } from 'node:path'
+import { invokedAsMain, ownerIsTrusted, readOwner } from './owner.mjs'
 import { listLanIpv4, parsePort, probeTcp } from './show.mjs'
 
 const PLUGIN_UNIT = 'herdweb-plugin.service'
@@ -258,6 +257,6 @@ export async function runDoctor({ stateDir } = {}) {
 	return chunks.join('\n')
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+if (invokedAsMain(import.meta.url)) {
 	runDoctor({ stateDir: process.env.HERDR_PLUGIN_STATE_DIR }).then((text) => console.log(text))
 }

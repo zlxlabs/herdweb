@@ -4,8 +4,8 @@
  */
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
+import { dirname, join } from 'node:path'
+import { invokedAsMain } from './owner.mjs'
 
 export const UNIT_NAME = 'herdweb-plugin.service'
 export const PLIST_LABEL = 'com.zlxlabs.herdweb-plugin'
@@ -147,4 +147,4 @@ function main() {
 	}
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) main()
+if (invokedAsMain(import.meta.url)) main()

@@ -5,9 +5,7 @@
  */
 import { createConnection } from 'node:net'
 import { networkInterfaces } from 'node:os'
-import { resolve } from 'node:path'
-import { pathToFileURL } from 'node:url'
-import { ownerIsTrusted, readOwner } from './serve.mjs'
+import { invokedAsMain, ownerIsTrusted, readOwner } from './owner.mjs'
 
 const NO_RECORD = '当前没有本 plugin 记录的 herdweb 在跑'
 const LISTENING = '当前正在监听'
@@ -94,6 +92,6 @@ export async function runShow({ stateDir, probe = probeTcp } = {}) {
 	}
 }
 
-if (process.argv[1] && pathToFileURL(resolve(process.argv[1])).href === import.meta.url) {
+if (invokedAsMain(import.meta.url)) {
 	runShow({ stateDir: process.env.HERDR_PLUGIN_STATE_DIR }).then((text) => console.log(text))
 }
