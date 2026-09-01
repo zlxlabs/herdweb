@@ -158,6 +158,10 @@ describe('parseNotifyEvent', () => {
 		['non-string task_id', { ...validBase, task_id: 1 }],
 		['non-string dispatch_id', { ...validBase, dispatch_id: 1 }],
 		['non-string drift', { ...validBase, drift: 1 }],
+		['non-string contentMarkdown', { ...validBase, contentMarkdown: 123 }],
+		['array contentMarkdown', { ...validBase, contentMarkdown: ['markdown'] }],
+		['object contentMarkdown', { ...validBase, contentMarkdown: { text: 'markdown' } }],
+		['boolean contentMarkdown', { ...validBase, contentMarkdown: true }],
 	])('rejects %s with 400', (_label, payload) => {
 		try {
 			parseNotifyEvent(JSON.stringify(payload))
@@ -166,6 +170,58 @@ describe('parseNotifyEvent', () => {
 			expect(error).toBeInstanceOf(NotifyEventError)
 			expect((error as NotifyEventError).statusCode).toBe(400)
 		}
+	})
+
+	test('accepts contentMarkdown verbatim from serialized JSON', () => {
+		const raw =
+			'{"v":1,"id":"md-1","kind":"done","title":"Done","ts":1700000000000,"contentMarkdown":"## Build succeeded\\n\\n- lint: pass\\n- test: pass"}'
+		const event = parseNotifyEvent(raw)
+		expect(event.contentMarkdown).toBe('## Build succeeded\n\n- lint: pass\n- test: pass')
+	})
+
+	test('accepts contentMarkdown with multi-byte characters and emojis', () => {
+		const md = '【巡查·正常】构建完成 🚀 状态：全部就绪'
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, contentMarkdown: md }))
+		expect(event.contentMarkdown).toBe(md)
+	})
+
+	test('truncates contentMarkdown over 4096 UTF-8 bytes and preserves valid UTF-8', () => {
+		const asciiHuge = 'a'.repeat(5000)
+		const asciiEvent = parseNotifyEvent(
+			JSON.stringify({ ...validBase, contentMarkdown: asciiHuge }),
+		)
+		expect(asciiEvent.contentMarkdown).toHaveLength(4096)
+		expect(Buffer.byteLength(asciiEvent.contentMarkdown ?? '', 'utf8')).toBe(4096)
+
+		// 3-byte Chinese characters: 4094 ASCII bytes + 1 Chinese char (3 bytes) + extra
+		// Boundary at 4096 cuts through the 3-byte character, so it should be truncated to 4094 bytes.
+		const chineseBoundary = `${'a'.repeat(4094)}中extra`
+		const chineseEvent = parseNotifyEvent(
+			JSON.stringify({ ...validBase, contentMarkdown: chineseBoundary }),
+		)
+		expect(chineseEvent.contentMarkdown).toBe('a'.repeat(4094))
+		expect(Buffer.byteLength(chineseEvent.contentMarkdown ?? '', 'utf8')).toBe(4094)
+		expect(chineseEvent.contentMarkdown).not.toContain('\uFFFD')
+
+		// 4-byte Emoji: 4095 ASCII bytes + 1 emoji (4 bytes) + extra
+		// Boundary at 4096 cuts through the 4-byte emoji, so it should be truncated to 4095 bytes.
+		const emojiBoundary = `${'a'.repeat(4095)}🚀extra`
+		const emojiEvent = parseNotifyEvent(
+			JSON.stringify({ ...validBase, contentMarkdown: emojiBoundary }),
+		)
+		expect(emojiEvent.contentMarkdown).toBe('a'.repeat(4095))
+		expect(Buffer.byteLength(emojiEvent.contentMarkdown ?? '', 'utf8')).toBe(4095)
+		expect(emojiEvent.contentMarkdown).not.toContain('\uFFFD')
+
+		// Entirely Chinese characters: 2000 chars * 3 bytes = 6000 bytes.
+		// 4096 / 3 = 1365 chars (4095 bytes).
+		const allChinese = '中'.repeat(2000)
+		const allChineseEvent = parseNotifyEvent(
+			JSON.stringify({ ...validBase, contentMarkdown: allChinese }),
+		)
+		expect(allChineseEvent.contentMarkdown).toBe('中'.repeat(1365))
+		expect(Buffer.byteLength(allChineseEvent.contentMarkdown ?? '', 'utf8')).toBe(4095)
+		expect(allChineseEvent.contentMarkdown).not.toContain('\uFFFD')
 	})
 
 	test('truncates title/body/reason', () => {
@@ -182,8 +238,15 @@ describe('parseNotifyEvent', () => {
 		expect(event.reason).toHaveLength(120)
 	})
 
-	test('rejects raw payload over 4 KiB with 413', () => {
-		const huge = JSON.stringify({ ...validBase, body: 'x'.repeat(5000) })
+	test('rejects raw payload over 16 KiB with 413 and accepts up to 16 KiB', () => {
+		const accepted = JSON.stringify({
+			...validBase,
+			contentMarkdown: 'x'.repeat(4000),
+			body: 'b'.repeat(200),
+		})
+		expect(parseNotifyEvent(accepted).contentMarkdown).toHaveLength(4000)
+
+		const huge = JSON.stringify({ ...validBase, contentMarkdown: 'x'.repeat(17 * 1024) })
 		try {
 			parseNotifyEvent(huge)
 			throw new Error('expected throw')
@@ -659,6 +722,32 @@ describe('POST /api/events', () => {
 		logSpy.mockRestore()
 	})
 
+	test('persists contentMarkdown into jsonl', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const md = '## Status Update\n\n- Task completed'
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'md-post-1',
+				kind: 'done',
+				title: 'Task Done',
+				ts: 1_700_000_000_000,
+				contentMarkdown: md,
+			}),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as {
+			contentMarkdown?: string
+		}
+		expect(stored).toMatchObject({ contentMarkdown: md })
+		logSpy.mockRestore()
+	})
+
 	test('rejects oversized payload with decision log and no body', async () => {
 		harness = await createHarness()
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -668,7 +757,7 @@ describe('POST /api/events', () => {
 			kind: 'done',
 			title: 'T',
 			ts: 1_700_000_000_000,
-			body: 'x'.repeat(5000),
+			contentMarkdown: 'x'.repeat(17 * 1024),
 		})
 		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
 			method: 'POST',

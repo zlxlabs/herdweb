@@ -35,6 +35,7 @@ interface NotifyEventFields {
 	readonly session?: string
 	readonly title: string
 	readonly body?: string
+	readonly contentMarkdown?: string
 	readonly reason?: string
 	readonly ts: number
 	readonly role?: NotifyTaskRole
@@ -66,6 +67,7 @@ const ALLOWED_FIELDS = new Set([
 	'session',
 	'title',
 	'body',
+	'contentMarkdown',
 	'reason',
 	'ts',
 	'role',
@@ -82,10 +84,11 @@ const NOTIFY_TASK_ROLES = ['root', 'child'] as const
 function isNotifyTaskRole(value: unknown): value is NotifyTaskRole {
 	return typeof value === 'string' && NOTIFY_TASK_ROLES.some((role) => role === value)
 }
-const MAX_RAW_BYTES = 4 * 1024
+const MAX_RAW_BYTES = 16 * 1024
 const TITLE_MAX = 120
 const BODY_MAX = 200
 const REASON_MAX = 120
+const CONTENT_MARKDOWN_MAX_BYTES = 4096
 
 export class NotifyEventError extends Error {
 	readonly statusCode: 400 | 413
@@ -100,6 +103,26 @@ export class NotifyEventError extends Error {
 function truncate(value: string, max: number): string {
 	if (value.length <= max) return value
 	return value.slice(0, max)
+}
+
+function truncateUtf8Bytes(value: string, maxBytes: number): string {
+	const buf = Buffer.from(value, 'utf8')
+	if (buf.byteLength <= maxBytes) return value
+	let end = maxBytes
+	while (end > 0 && ((buf[end] ?? 0) & 0xc0) === 0x80) {
+		end--
+	}
+	if (end > 0) {
+		const leading = buf[end] ?? 0
+		let seqLen = 1
+		if ((leading & 0xe0) === 0xc0) seqLen = 2
+		else if ((leading & 0xf0) === 0xe0) seqLen = 3
+		else if ((leading & 0xf8) === 0xf0) seqLen = 4
+		if (end + seqLen <= maxBytes) {
+			end += seqLen
+		}
+	}
+	return buf.subarray(0, end).toString('utf8')
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
@@ -173,6 +196,10 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('body must be a string', 400)
 	}
 
+	if (obj.contentMarkdown !== undefined && typeof obj.contentMarkdown !== 'string') {
+		throw new NotifyEventError('contentMarkdown must be a string', 400)
+	}
+
 	if (obj.reason !== undefined && typeof obj.reason !== 'string') {
 		throw new NotifyEventError('reason must be a string', 400)
 	}
@@ -233,6 +260,9 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 	const optional = {
 		...(obj.session !== undefined ? { session: obj.session } : {}),
 		...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
+		...(typeof obj.contentMarkdown === 'string'
+			? { contentMarkdown: truncateUtf8Bytes(obj.contentMarkdown, CONTENT_MARKDOWN_MAX_BYTES) }
+			: {}),
 		...(obj.reason !== undefined ? { reason: truncate(obj.reason, REASON_MAX) } : {}),
 		...(isNotifyTaskRole(obj.role) ? { role: obj.role } : {}),
 		...(typeof obj.parentId === 'string' && obj.parentId.length > 0

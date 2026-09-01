@@ -87,7 +87,9 @@ function requestForChannel(channel: NotifyChannel, event: NotifyEvent, content: 
 					token: channel.token,
 				}
 			: channel.type === 'wecom'
-				? { msgtype: 'text', text: { content } }
+				? event.contentMarkdown !== undefined
+					? { msgtype: 'markdown_v2', markdown_v2: { content: event.contentMarkdown } }
+					: { msgtype: 'text', text: { content } }
 				: event
 
 	const target =

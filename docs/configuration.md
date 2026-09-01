@@ -277,7 +277,7 @@ export default {
 ```
 
 `message-pusher` posts JSON to `{url}/push/{user}` with `{ title, desp, content, token }`.
-`wecom` posts `{ msgtype: 'text', text: { content } }` to the configured URL.
+`wecom` posts `{ msgtype: 'text', text: { content } }` to the configured URL by default. If the event provides the optional `contentMarkdown` field (consumed only by `wecom`), it posts `{ msgtype: 'markdown_v2', markdown_v2: { content: <verbatim> } }` instead. `contentMarkdown` is capped at 4096 UTF-8 bytes and safely truncated at UTF-8 code point boundaries if exceeded. Note that WeChat Work `markdown_v2` is a restricted markdown subset (supports headings, bold text, links, blockquotes, and lists; does not support images or tables).
 `webhook` posts the event object itself and applies the configured headers. All
 requests are JSON and time out after 10 seconds. Keep webhook query keys,
 tokens, and custom header values in a local, uncommitted config file.

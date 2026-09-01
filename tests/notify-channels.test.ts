@@ -129,7 +129,7 @@ describe('notify channel request bytes', () => {
 		expect(requests[0]?.body).not.toContain('description')
 	})
 
-	test('wecom sends plain text content', async () => {
+	test('wecom sends plain text content when contentMarkdown is absent', async () => {
 		const requests = captureFetch()
 
 		await sendNotifyChannels(
@@ -151,8 +151,38 @@ describe('notify channel request bytes', () => {
 		})
 	})
 
-	test('webhook sends the event object and configured headers', async () => {
+	test('wecom sends markdown_v2 verbatim when contentMarkdown is present', async () => {
 		const requests = captureFetch()
+		const md = '### Build Status\n\n> Task finished with success.\n\n- [Link](https://example.com)'
+		const mdEvent: NotifyEvent = { ...event, contentMarkdown: md }
+
+		await sendNotifyChannels(
+			[
+				{
+					type: 'wecom',
+					url: 'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder',
+				},
+			],
+			mdEvent,
+		)
+
+		expect(requests[0]?.request.url).toBe(
+			'https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=key-placeholder',
+		)
+		expect(JSON.parse(requests[0]?.body ?? '')).toEqual({
+			msgtype: 'markdown_v2',
+			markdown_v2: {
+				content: md,
+			},
+		})
+	})
+
+	test('webhook sends the event object including contentMarkdown when present', async () => {
+		const requests = captureFetch()
+		const mdEvent: NotifyEvent = {
+			...event,
+			contentMarkdown: '## Markdown Payload',
+		}
 
 		await sendNotifyChannels(
 			[
@@ -162,12 +192,40 @@ describe('notify channel request bytes', () => {
 					headers: { authorization: 'Bearer header-placeholder', 'x-source': 'herdweb' },
 				},
 			],
-			event,
+			mdEvent,
 		)
 
 		expect(requests[0]?.request.headers.get('authorization')).toBe('Bearer header-placeholder')
 		expect(requests[0]?.request.headers.get('x-source')).toBe('herdweb')
-		expect(JSON.parse(requests[0]?.body ?? '')).toEqual(event)
+		expect(JSON.parse(requests[0]?.body ?? '')).toEqual(mdEvent)
+	})
+
+	test('message-pusher ignores contentMarkdown and maintains standard payload structure', async () => {
+		const requests = captureFetch()
+		const mdEvent: NotifyEvent = {
+			...event,
+			contentMarkdown: '## Markdown Payload',
+		}
+
+		await sendNotifyChannels(
+			[
+				{
+					type: 'message-pusher',
+					url: 'https://push.example.com',
+					user: 'someone',
+					token: 'token-placeholder',
+				},
+			],
+			mdEvent,
+		)
+
+		expect(requests).toHaveLength(1)
+		expect(JSON.parse(requests[0]?.body ?? '')).toEqual({
+			title: 'Build finished',
+			desp: 'All checks passed',
+			content: '【完成】Build finished\nAll checks passed\n会话：dev\n原因：exit 0',
+			token: 'token-placeholder',
+		})
 	})
 })
 
