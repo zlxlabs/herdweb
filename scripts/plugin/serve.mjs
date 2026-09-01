@@ -5,19 +5,11 @@
  * so the OFD outlives the runner.
  */
 import { spawn, spawnSync } from 'node:child_process'
-import {
-	closeSync,
-	existsSync,
-	mkdirSync,
-	openSync,
-	readFileSync,
-	renameSync,
-	writeFileSync,
-} from 'node:fs'
+import { closeSync, existsSync, mkdirSync, openSync, renameSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { OWNER_NAME, ownerIsTrusted, processStarttime, readOwner } from './owner.mjs'
 
 const LOCK_NAME = 'herdweb.lock'
-const OWNER_NAME = 'herdweb.owner.json'
 const CONFIG_NAME = 'herdweb.config.ts'
 const DEFAULT_CONFIG = 'export default {}\n'
 const FLOCK_PY =
@@ -49,43 +41,6 @@ function resolvePort() {
 	const port = parsePort(raw)
 	if (port === undefined) fail(1, `ERROR invalid HERDWEB_PLUGIN_PORT: ${raw}`)
 	return port
-}
-
-function processStarttime(pid) {
-	if (process.platform === 'linux') {
-		try {
-			const text = readFileSync(`/proc/${pid}/stat`, 'utf8')
-			const rest = text.slice(text.lastIndexOf(')') + 2).split(/\s+/)
-			return rest[19] ?? ''
-		} catch {
-			return ''
-		}
-	}
-	const result = spawnSync('ps', ['-p', String(pid), '-o', 'lstart='], { encoding: 'utf8' })
-	return result.status === 0 ? result.stdout.trim() : ''
-}
-
-function readOwner(stateDir) {
-	try {
-		const parsed = JSON.parse(readFileSync(join(stateDir, OWNER_NAME), 'utf8'))
-		return parsed && typeof parsed === 'object' ? parsed : undefined
-	} catch {
-		return undefined
-	}
-}
-
-function ownerIsTrusted(owner) {
-	if (!owner || typeof owner.pid !== 'number') return false
-	const recorded = String(owner.starttime ?? '')
-	if (!recorded) return false
-	if (process.platform === 'linux') {
-		const current = processStarttime(owner.pid)
-		return current !== '' && current === recorded
-	}
-	const alive = spawnSync('kill', ['-0', String(owner.pid)])
-	if (alive.status !== 0) return false
-	const lstart = processStarttime(owner.pid)
-	return lstart !== '' && lstart === recorded
 }
 
 function reportLockHeld(stateDir) {
