@@ -64,8 +64,8 @@ describe('parseNotifyEvent', () => {
 		expect(event.reason).toHaveLength(120)
 	})
 
-	test('rejects raw payload over 4 KiB with 413', () => {
-		const huge = JSON.stringify({ ...validBase, body: 'x'.repeat(5000) })
+	test('rejects raw payload over 16 KiB with 413', () => {
+		const huge = JSON.stringify({ ...validBase, body: 'x'.repeat(17 * 1024) })
 		expect(() => parseNotifyEvent(huge)).toThrow(NotifyEventError)
 		try {
 			parseNotifyEvent(huge)
