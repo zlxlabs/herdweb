@@ -15,9 +15,10 @@ import {
 	writeFileSync,
 } from 'node:fs'
 import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
 
 const LOCK_NAME = 'herdweb.lock'
-const OWNER_NAME = 'herdweb.owner.json'
+export const OWNER_NAME = 'herdweb.owner.json'
 const CONFIG_NAME = 'herdweb.config.ts'
 const DEFAULT_CONFIG = 'export default {}\n'
 const FLOCK_PY =
@@ -51,7 +52,7 @@ function resolvePort() {
 	return port
 }
 
-function processStarttime(pid) {
+export function processStarttime(pid) {
 	if (process.platform === 'linux') {
 		try {
 			const text = readFileSync(`/proc/${pid}/stat`, 'utf8')
@@ -65,7 +66,7 @@ function processStarttime(pid) {
 	return result.status === 0 ? result.stdout.trim() : ''
 }
 
-function readOwner(stateDir) {
+export function readOwner(stateDir) {
 	try {
 		const parsed = JSON.parse(readFileSync(join(stateDir, OWNER_NAME), 'utf8'))
 		return parsed && typeof parsed === 'object' ? parsed : undefined
@@ -74,7 +75,7 @@ function readOwner(stateDir) {
 	}
 }
 
-function ownerIsTrusted(owner) {
+export function ownerIsTrusted(owner) {
 	if (!owner || typeof owner.pid !== 'number') return false
 	const recorded = String(owner.starttime ?? '')
 	if (!recorded) return false
@@ -200,19 +201,27 @@ function runHerdweb(pluginRoot, configPath, port, lockFd, stateDir) {
 	})
 }
 
-const stateDir = requiredDir('HERDR_PLUGIN_STATE_DIR')
-const configDir = requiredDir('HERDR_PLUGIN_CONFIG_DIR')
-const pluginRoot = process.env.HERDR_PLUGIN_ROOT || process.cwd()
-const lockFd = acquireLock(stateDir)
-if (lockFd === undefined) reportLockHeld(stateDir)
-const configPath = ensureConfig(configDir)
-const port = resolvePort()
-writeOwner(stateDir, ownerPayload(process.pid, port, configPath))
-runHerdweb(pluginRoot, configPath, port, lockFd, stateDir)
-process.on('exit', () => {
-	try {
-		closeSync(lockFd)
-	} catch {
-		// process is exiting; child's inherited fd still holds the OFD if it is alive
-	}
-})
+function isMain() {
+	return (
+		Boolean(process.argv[1]) && pathToFileURL(resolve(process.argv[1])).href === import.meta.url
+	)
+}
+
+if (isMain()) {
+	const stateDir = requiredDir('HERDR_PLUGIN_STATE_DIR')
+	const configDir = requiredDir('HERDR_PLUGIN_CONFIG_DIR')
+	const pluginRoot = process.env.HERDR_PLUGIN_ROOT || process.cwd()
+	const lockFd = acquireLock(stateDir)
+	if (lockFd === undefined) reportLockHeld(stateDir)
+	const configPath = ensureConfig(configDir)
+	const port = resolvePort()
+	writeOwner(stateDir, ownerPayload(process.pid, port, configPath))
+	runHerdweb(pluginRoot, configPath, port, lockFd, stateDir)
+	process.on('exit', () => {
+		try {
+			closeSync(lockFd)
+		} catch {
+			// process is exiting; child's inherited fd still holds the OFD if it is alive
+		}
+	})
+}

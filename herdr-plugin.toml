@@ -18,6 +18,36 @@ title = "herdweb"
 placement = "tab"
 command = ["node", "scripts/plugin/serve.mjs"]
 
+[[panes]]
+id = "show"
+title = "herdweb URL"
+placement = "popup"
+width = "60%"
+height = 24
+command = ["node", "scripts/plugin/show.mjs"]
+
+[[panes]]
+id = "doctor"
+title = "herdweb doctor"
+placement = "popup"
+width = "80%"
+height = 28
+command = ["node", "scripts/plugin/doctor.mjs"]
+
+[[panes]]
+id = "install-service"
+title = "Install herdweb service"
+placement = "popup"
+width = "80%"
+height = 28
+command = ["node", "scripts/plugin/install-service.mjs"]
+
+[[actions]]
+id = "show"
+title = "Show herdweb URL"
+contexts = ["workspace"]
+command = ["node", "scripts/plugin/open-pane.mjs", "show"]
+
 [[actions]]
 id = "start"
 title = "Start herdweb"
