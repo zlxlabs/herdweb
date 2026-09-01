@@ -147,6 +147,15 @@ async function waitListening(port: number, want: boolean, timeoutMs: number): Pr
 	throw new Error(`timed out waiting for port ${port} listening=${want}`)
 }
 
+async function waitGone(pid: number, timeoutMs = 8_000): Promise<void> {
+	const deadline = Date.now() + timeoutMs
+	while (Date.now() < deadline) {
+		if (!isAlive(pid)) return
+		await sleep(40)
+	}
+	throw new Error(`timed out waiting for pid ${pid} to exit`)
+}
+
 afterEach(async () => {
 	const roots = [
 		...children.map((child) => child.pid).filter((pid): pid is number => pid !== undefined),
@@ -352,6 +361,7 @@ describe.sequential('plugin ledger flock (L1/L2/L3/INV-SVC)', () => {
 		killTree(first.pid)
 		await waitExit(first).catch(() => undefined)
 		await waitListening(port, false, 8_000)
+		await waitGone(owner1.pid, 8_000)
 		expect(isAlive(owner1.pid)).toBe(false)
 
 		const second = spawnServe(env)
