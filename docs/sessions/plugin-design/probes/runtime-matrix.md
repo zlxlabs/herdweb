@@ -168,6 +168,15 @@ doctor：路径不存在 **或** `ExecMainStatus==203` → stale。不要只看 
 
 `herdr plugin link /tmp/…/plugin`（**不要** `link --enabled PATH`：`--enabled` 会把 PATH 当选项值，报 `unknown option`）。link 后已 enabled。
 
+**复跑时注意（2026-09-01 改名）**：本目录下的探针 manifest 现在叫 `probe-manifest.toml`，
+不再叫 `herdr-plugin.toml` —— 因为 marketplace 索引器按文件名扫全仓，
+会把它当成 herdweb 仓库里的一个真插件收录（展示为「Runtime Probe / Temporary probe plugin;
+not the herdweb product.」）。复跑探针时先拷贝成 herdr 认得的名字再 link：
+
+```bash
+cp docs/sessions/plugin-design/probes/plugin/probe-manifest.toml /tmp/probe-plugin/herdr-plugin.toml
+```
+
 manifest 含 `[[actions]]` 与 `[[panes]] placement=popup width=80 height=12`。`plugin list`：`probe.runtime … enabled [local:…]`。`config-dir`：`~/.config/herdr/plugins/config/probe.runtime`。
 
 ### D13 两个 named session 的 env

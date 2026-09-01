@@ -139,6 +139,12 @@ does not need a local compile.
 The plugin checks for these before it builds and names anything missing, so you
 are not left guessing from a long npm log.
 
+**At runtime** (both platforms) the plugin needs either `perl` or `python3` to take
+the `flock` that keeps a single herdweb serving at a time. macOS and every distro
+above ship at least one of them, so this normally needs no action — but it is a
+*runtime* dependency, separate from the build toolchain above, and `doctor` reports
+the two separately.
+
 ### Optional keybinding
 
 The plugin manifest does not declare keybindings. To add a shortcut, paste this
