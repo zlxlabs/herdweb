@@ -15,14 +15,14 @@
 - **r1**（初稿）：主脑与用户四轮对话产出。
 - **r2**：按 r1 verdict 的 4 条 P1 + 用户对 LAN 入口的决策修订。砍掉 `serve-lan`、
   新增资源账本与 runner 边界契约、改正密钥路径与 systemd unit 位置、rescue 降 opt-in。
-- **r3**（本版）：按两份真机实测矩阵修订，并确定构建门槛的处理方案。主要变更：
+- **r3**：按两份真机实测矩阵修订，并确定构建门槛的处理方案。主要变更：
   1. **构建门槛定为方案 A**：接受 Linux 需本地编译，用**前置检查**把失败提前到一个输出极短的步骤（§2.12）
   2. §2.8 资源账本三处改正，其中「锁文件永不 unlink」是实测发现的**正确性漏洞**
   3. §2.9 写明 systemd 重启的锁空窗；卸载改四件套；stale 判据具体化
   4. §2.5 定死 **action 只能当触发器**——实测 `plugin action invoke` 恒 EXIT 0 且不回显
   5. §1.1 修正「`herdr --session <新名字>` 自动拉 server」——仅 TUI 入口成立
   6. §4 待实测大幅收敛：已测的移出，只留真未测成的
-- **r4**（本版）：实现落地（PR #155）后按两轮实现评审与真实安装验证修订。主要变更：
+- **r4**：实现落地（PR #155）后按两轮实现评审与真实安装验证修订。主要变更：
   1. **§2.8 锁语义改正**：锁的持有者是**实际提供服务的进程**，runner 死 ≠ 锁释放（r1 P1 的修复改变了这条）
   2. **§2.8 新增 INV-SVC 不变式**：锁必须覆盖「服务行为」，不只是「账本写入」
   3. §3.3 的 `exec` 改为 **spawn + 把 lock fd 传给 child**，并说明为什么
@@ -30,6 +30,17 @@
   5. **端口那条是设计写错了**：herdweb 的 config schema 是 strict object，没有 `port` 字段，
      「从生效配置读取端口」不可实现 —— 改为 `HERDWEB_PLUGIN_PORT`，非法值 fail-loud
   6. 新增 §7 backlog（评审接受不修的 P2/P3）
+
+- **r5**（本版）：卡二、卡四落地后修订，并补一条 marketplace 实测发现。主要变更：
+  1. **§2.6 / §3.3 删掉二维码**：本仓无二维码依赖，为一个 popup 装饰新增运行时依赖不划算（主脑决策）
+  2. **§2.9 `Environment=` 补 `HERDWEB_PLUGIN_MODE=service`**：卡二执行器发现的真缺口 ——
+     不快照它，systemd 拉起的 runner 会把 owner.mode 写成 `pane`，`doctor` 的
+     「卸载前 service 仍在跑」会漏报
+  3. §3.3 doctor 的依赖体检措辞对齐 §2.12：运行期依赖是 python3 **或** perl，
+     与构建期的 make / c++ 分开报
+  4. **§4 marketplace 收录已确认落地，同时发现探针 manifest 污染索引**（第 7 条）
+  5. §2.8a 补一条实现约束：核心运行入口不得依赖「是否作为主模块」的启发式判定（来自卡二的 P1）
+  6. §5 卡二、卡四标完成；§7 backlog 补两条；§8 补两条经验
 
 ## 0. 背景与目标
 
@@ -183,7 +194,7 @@ herdweb 无 login / password / ACL，`--host 0.0.0.0` 等于把用户权限下�
 局域网   http://192.168.1.23:7681     ← 未监听（herdweb 只绑了 127.0.0.1）
 ```
 
-只有实际监听非回环地址时，才显示二维码。
+**不出二维码**（r5 决策）：本仓无二维码依赖，为一个 popup 装饰新增运行时依赖不划算。
 
 ### 2.7 rescue target 降为 opt-in
 
@@ -270,6 +281,14 @@ owner.json 在 spawn 成功后覆写为 **child pid**，使报告路径指向真
 
 `show` / `doctor` 一律以 owner.json + 实际 listen 结果为事实源，不自行探端口猜测。
 
+**r5 补的实现约束（来自卡二的 P1）**：`serve.mjs` **不得**依赖任何「我是不是作为主模块被运行」
+的启发式判定。卡二首轮实现给四个脚本都加了
+`pathToFileURL(resolve(process.argv[1])).href === import.meta.url` 守卫，
+而 `resolve()` 不解析符号链接、Node 的 `import.meta.url` 是解析过的 —— 路径任一段是软链，
+脚本就**什么都不做、exit 0、零输出**。信息类入口失效顶多 popup 空白，
+`serve.mjs` 失效是服务起不来且无任何提示。故 owner 判据抽到 `scripts/plugin/owner.mjs`，
+`serve.mjs` 保持纯脚本；其余三个入口共用一份 `invokedAsMain()`，判定用 `realpathSync`。
+
 ### 2.9 两个 runner 的边界契约（r3 补三处）
 
 `HERDR_PLUGIN_*` 只在 herdr 拉起 plugin command 时注入，systemd 拉起的进程拿不到。
@@ -282,10 +301,15 @@ owner.json 在 spawn 成功后覆写为 **child pid**，使报告路径指向真
 Environment=HERDR_PLUGIN_CONFIG_DIR=…
 Environment=HERDR_PLUGIN_STATE_DIR=…
 Environment=HERDR_PLUGIN_ROOT=<plugin checkout>
+Environment=HERDWEB_PLUGIN_MODE=service
 WorkingDirectory=<plugin checkout>
 ExecStart=<绝对 node 路径> scripts/plugin/serve.mjs
 Restart=on-failure
 ```
+
+**r5 补的一处**：`HERDWEB_PLUGIN_MODE=service` 必须一起快照。不写它，systemd 拉起的
+`serve.mjs` 会把 owner.json 的 `mode` 记成 `pane`，`doctor` 的「卸载 plugin 前 service 仍在跑」
+（§2.11）就会漏报。这是卡二执行器实现时发现的，设计原文漏了。
 
 **r3 补的三处**：
 
@@ -467,15 +491,16 @@ command = ["node", "scripts/plugin/open-pane.mjs", "serve"]
    判成 `PORT_OCCUPIED`；`exec` 会丢掉这条判定。代价是多一个进程层，
    由 §2.8a 的 fd 继承补上锁的覆盖面。
 
-**show.mjs** —— 以 owner.json + 实际 listen 结果为事实源，按 §2.6 的显示契约输出，
-仅在真监听非回环时出二维码。
+**show.mjs** —— 以 owner.json + 实际 listen 结果为事实源，按 §2.6 的显示契约输出。不出二维码。
 
 **doctor.mjs** —— 报告事实，不做决定：
 - 当前模式（`pane` / `service` / `none`）、锁持有者与可信度、实际端口与监听地址
 - `STATE_DIR` 是否位于 tmpfs（§2.8 的锁前提）
 - service 模式：unit 是否在正式搜索目录、linger 是否开启、
   是否 stale（`ExecStart` 路径不存在 **或** `ExecMainStatus == 203`）
-- 构建前置：Node 版本、python3 / make / c++ 是否真能跑
+- 依赖体检，**运行期与构建期分开报**（r5 对齐 §2.12）：运行期 flock 需要 python3 **或** perl
+  （二者之一即可）；构建期需要 Node 版本、make、c++。判据是执行 `--version` 看退出码，
+  不是查 PATH 里有没有这个名字
 - **实际请求 `/manifest.json` `/sw.js` `/icon-192.png` `/icon-512.png` `/apple-touch-icon.png`**，
   判断返回的是 JSON/图标还是登录页重定向（把 README FAQ 那条 Cloudflare Access + PWA 的坑
   变成能跑的检查）
@@ -527,8 +552,29 @@ herdr plugin action invoke zlxlabs.herdweb.start  # 开 tab 跑起来
 4. **TUI toast**：action 失败时 TUI 里是否有可见提示（探针 session 无客户端附着，未测成）
 5. **linux arm64 / musl 补齐工具链后**能否链接成功；**Windows** 全链（包内有 win32 预编译，未跑）
 6. **PWA 五路径**在有认证代理与无代理两种情形下 doctor 的判定正确性
-7. **marketplace 收录**：manifest 已于 2026-09-01 进入默认分支，topic 也已就位，
-   两个收录条件均满足；索引 30 分钟刷新一次，尚未确认列表里真的出现
+7. ~~**marketplace 收录**~~ —— **已确认（r5，2026-09-01）**，但**发现一个新问题**。
+   `https://herdr.dev/plugins/` 的索引里已有 `zlxlabs/herdweb`
+   （`topics: ["herdr-plugin"]`，与另外约 870 个插件并列）。但索引解析出的
+   `manifests` 数组里只有一条，且**不是我们的根 manifest**：
+
+   ```json
+   {"path": "docs/sessions/plugin-design/probes/plugin/herdr-plugin.toml",
+    "id": "probe.runtime", "name": "Runtime Probe",
+    "description": "Temporary probe plugin; not the herdweb product."}
+   ```
+
+   两个原因叠加：①索引快照停在 `ad5d250`（PR #154），当时根 manifest 还不存在 ——
+   这一半会随刷新自愈；②**索引器扫描仓库里所有 `herdr-plugin.toml`，探针留下的那份也算**
+   —— 这一半不会自愈，刷新后 herdweb 条目下会同时挂着真 manifest 和一个
+   写着「这不是 herdweb 产品」的临时探针。
+
+   **处置（r5 已做）**：探针 manifest 改名为
+   `docs/sessions/plugin-design/probes/plugin/probe-manifest.toml`，脱离索引器的扫描名。
+   证据价值在内容不在文件名；复跑探针时按 `probes/runtime-matrix.md` 的说明先拷成
+   `herdr-plugin.toml` 再 `herdr plugin link`。
+
+   **教训**：往仓库里放"长得像产品配置"的探针文件，会被产品链路上的自动化当真。
+   仓库根之外的同名文件不是安全的
 
 **已完成（r4，移出待办）**：真实 `herdr plugin install zlxlabs/herdweb --yes` 端到端 ——
 42 秒完成 clone + 前置检查 + build + 注册；preview 正确列出 3 条 build 命令与入口；
@@ -542,14 +588,25 @@ pane 在 17801 起服务、HTTP 200；owner.json 记录的是实际监听进程�
 - ~~**卡零**：打 GitHub topic `herdr-plugin`~~ —— **已完成**（2026-08-31）
 - ~~**卡一（M）**：`herdr-plugin.toml` + `check-prereqs.mjs` + `serve.mjs` + `open-pane.mjs`~~
   —— **已完成**（PR #155，含一轮修复；测试锁定 L1/L2/L3 + INV-SVC）
-- **卡二（M）**：`show.mjs` + `doctor.mjs` + `install-service.mjs`，含 §2.9 三条改正
+- ~~**卡二（M）**：`show.mjs` + `doctor.mjs` + `install-service.mjs`~~ —— **已完成**（PR #159，含一轮修复）。
+  修复的是一条 P1：isMain 守卫在 symlink 路径下静默失效（详见 §2.8a 的 r5 补充）
 - ~~**卡三（S）**：README plugin 一节 + 平台差异说明~~ —— **已完成**（PR #154）。
   **待跟进**：README 的 macOS 说明需补一句「plugin 用系统自带的 perl 或 python3 做进程互斥」
-- **卡四（S）**：manifest `version` 与 `package.json` 版本一致性的 CI 检查
-  （semantic-release 只改后者，marketplace 读前者）
+- ~~**卡四（S）**：manifest `version` 与 `package.json` 版本一致性检查~~ —— **已完成**（PR #158）。
+  **立项理由的前提是错的**：本仓 release 配置里没有 `@semantic-release/npm`，
+  semantic-release **两个文件都不改**，真实版本源是 git tag。实际状况是两个文件都停在
+  `1.2.1`、而 tag 已到 `v1.20.0`，marketplace 展示给用户的正是那个 `1.2.1`。
+  故卡四不只加检查，还把两处对齐到当时最新 tag。检查本身只锁「两个文件彼此一致」，
+  **不锁「等于最新 tag」** —— 那样每次发版 tag 前进而文件不动，下一个 PR 就会无端变红
 
 卡一与卡二有产出依赖（卡二的 doctor 要读卡一定义的 owner.json 格式），**串行**。
 卡三、卡四与前两张无依赖，可并行。
+
+**本批剩余**：
+- **README 待跟进**（卡三遗留）：macOS 说明补一句「plugin 用系统自带的 perl 或 python3 做进程互斥」——
+  **r5 已做**
+- **flaky 修复卡（S）**：`tests/plugin-ledger.test.ts` 的 L2 用例约 1/4 概率随机红，
+  根因是等待判据与断言量纲不一致（等端口关闭、断言进程已死，中间隔着 zombie 窗口）
 
 ## 6. 评审与实测的处置对照
 
@@ -587,7 +644,9 @@ pane 在 17801 起服务、HTTP 200；owner.json 记录的是实际监听进程�
 | `P3-TEST-CLEANUP`：测试清理失败被静默吞掉（`ss` 缺失或杀进程失败时不 fail-loud） | P3 | 当前 Linux 实测 `ss` 存在，且 `allocPort()` 会跳过仍占用的端口，无证据表明会误绿。下次动这些测试时顺手改成清理失败 fail-loud |
 | `pnpm-workspace.yaml` 的 `allowBuilds` 是 pnpm 11 字段，本链用 pnpm@10 未生效 | P3 | 存量问题，与本批改动无关 |
 | `npx --yes pnpm@10` 不锁 pnpm 补丁版本 | P3 | 构建契约里写明版本策略即可，暂不加 CI 检查 |
-| manifest `version` 与 `package.json` 版本需保持一致 | P3 | 见 §5 卡四；semantic-release 只改后者，marketplace 读前者 |
+| ~~manifest `version` 与 `package.json` 版本需保持一致~~ | P3 | **已做**（PR #158）。原始理由「semantic-release 只改后者」是错的，见 §5 卡四 |
+| `tests/plugin-ledger.test.ts` L2 用例约 1/4 概率 flaky | P2 | 等的是「端口不再监听」、断言的是「进程已死」，中间隔着 zombie 被 init 回收的窗口。`kill(pid,0)` 对 zombie 返回成功，机器负载高时就红。已拆修复卡 |
+| 本机跑 `pnpm test` 需 `env -u FORCE_COLOR -u NO_COLOR` | P3 | 否则 Node 的 NO_COLOR/FORCE_COLOR 警告污染 stderr，`cli-config-validation` 误红。CI 环境无此变量、不受影响，属本机环境问题 |
 
 ## 8. 这一批的经验（留给下一批）
 
@@ -598,5 +657,15 @@ pane 在 17801 起服务、HTTP 200；owner.json 记录的是实际监听进程�
    （linux 无预编译、`.env.local` 不被读、`herdr --session` 只在 TUI 入口自动拉 server、
    systemd unit 搜索路径、popup 的 CLI help 与实际能力不符、`prefix+w` 冲突、
    端口不在 config schema、action invoke 恒 EXIT 0）。**infra 类设计先派实测卡再拆实现卡。**
-3. **「验证走的哪条路」要写清楚。** pane 形态靠 pty 兜底、systemd 形态靠锁继承兜底，
+3. **测试全绿不代表调用形态覆盖全。** 卡二的 P1（symlink 下四个入口静默失效）在报告、红验、
+   `ci-check` 里全是绿的 —— 因为测试路径里恰好没有软链。暴露它的只有「换一种调用形态
+   实际跑一次」。**验收 CLI 类产物时，除了跑它的测试，还要用不同的调用路径亲手跑一次。**
+4. **等待判据必须与断言对象同量纲。** L2 用例等的是「端口不再监听」、断言的是「进程已死」，
+   两者之间隔着 zombie 窗口，于是约 1/4 概率随机红。这条差点被误判成卡二引入的回归 ——
+   如果只跑一次组合就下结论，就会回派一张修错方向的卡。**flaky 的第一步是确认它是不是 flaky。**
+5. **别往仓库里放"长得像产品配置"的探针文件。** 探针留下的
+   `probes/plugin/herdr-plugin.toml` 被 marketplace 索引器当成了一个真插件收录，
+   展示名是「Runtime Probe / Temporary probe plugin; not the herdweb product.」。
+   仓库根之外的同名文件不是安全的 —— 自动化按文件名扫全仓。
+6. **「验证走的哪条路」要写清楚。** pane 形态靠 pty 兜底、systemd 形态靠锁继承兜底，
    真实安装验证只走到了前者。把这个边界写下来，比笼统说「已在真机验证」诚实。
