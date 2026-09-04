@@ -248,4 +248,4 @@ d4c101d feat(notify): accept urgency level on events
 d43639d test(notify): cover urgency history rendering
 ```
 
-报告写入前工作树干净，`grep -n "level" src/notify/events.ts` 实际命中白名单、校验和保存逻辑；报告文件将作为下一次独立提交入库。
+报告写入前工作树干净，`grep -n "level" src/notify/events.ts` 实际命中白名单、校验和保存逻辑；报告已作为独立提交入库并随本卡分支推送。
