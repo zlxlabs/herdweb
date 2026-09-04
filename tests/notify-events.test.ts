@@ -91,6 +91,18 @@ describe('parseNotifyEvent', () => {
 		expect(event.kind).toBe(expected)
 	})
 
+	test('preserves the legacy parsed shape when level is omitted', () => {
+		const event = parseNotifyEvent(JSON.stringify(validBase))
+
+		expect(JSON.stringify(event)).toBe(JSON.stringify(validBase))
+		expect(Object.hasOwn(event, 'level')).toBe(false)
+	})
+
+	test.each(['act_now', 'act_soon', 'collect', 'fyi'] as const)('accepts level=%s', (level) => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, level }))
+		expect(event.level).toBe(level)
+	})
+
 	test.each([
 		['failed kind', { ...validBase, kind: 'failed' }],
 		['unknown kind', { ...validBase, kind: 'unknown' }],
@@ -169,6 +181,22 @@ describe('parseNotifyEvent', () => {
 		} catch (error) {
 			expect(error).toBeInstanceOf(NotifyEventError)
 			expect((error as NotifyEventError).statusCode).toBe(400)
+		}
+	})
+
+	test.each([
+		['P0', 'P0'],
+		['uppercase act_now', 'ACT_NOW'],
+		['number', 123],
+		['null', null],
+	] as const)('rejects invalid level (%s) with 400', (_label, level) => {
+		try {
+			parseNotifyEvent(JSON.stringify({ ...validBase, level }))
+			throw new Error('expected throw')
+		} catch (error) {
+			expect(error).toBeInstanceOf(NotifyEventError)
+			expect((error as NotifyEventError).statusCode).toBe(400)
+			expect((error as NotifyEventError).message).toBe('invalid level')
 		}
 	})
 
@@ -493,6 +521,29 @@ describe('POST /api/events', () => {
 			presenceAt?: number
 		}
 		expect(stored).toMatchObject({ presence: 'likely-present', presenceAt: 1_700_000_000_000 })
+		logSpy.mockRestore()
+	})
+
+	test('persists level into jsonl', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'level-1',
+				kind: 'asking',
+				level: 'act_soon',
+				title: 'Need input',
+				ts: 1_700_000_000_000,
+			}),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as { level?: string }
+		expect(stored.level).toBe('act_soon')
 		logSpy.mockRestore()
 	})
 
