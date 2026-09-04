@@ -9,6 +9,7 @@ export const NOTIFY_KINDS = [
 ] as const
 export type NotifyKind = (typeof NOTIFY_KINDS)[number]
 export type NotifyTaskRole = 'root' | 'child'
+export type NotifyLevel = 'act_now' | 'act_soon' | 'collect' | 'fyi'
 
 /**
  * Producer-side guess about whether the user is at the keyboard. The `likely-`
@@ -24,14 +25,20 @@ export const PRESENCE_FRESH_MS = 120_000
 export const NOTIFY_TS_MIN_MS = 1_000_000_000_000
 
 const NOTIFY_PRESENCE_VALUES = ['likely-present', 'likely-away', 'unknown'] as const
+const NOTIFY_LEVEL_VALUES = ['act_now', 'act_soon', 'collect', 'fyi'] as const
 
 function isNotifyPresence(value: unknown): value is NotifyPresence {
 	return typeof value === 'string' && NOTIFY_PRESENCE_VALUES.some((p) => p === value)
 }
 
+function isNotifyLevel(value: unknown): value is NotifyLevel {
+	return typeof value === 'string' && NOTIFY_LEVEL_VALUES.some((level) => level === value)
+}
+
 interface NotifyEventFields {
 	readonly id: string
 	readonly kind: NotifyKind
+	readonly level?: NotifyLevel
 	readonly session?: string
 	readonly title: string
 	readonly body?: string
@@ -64,6 +71,7 @@ const ALLOWED_FIELDS = new Set([
 	'targetId',
 	'id',
 	'kind',
+	'level',
 	'session',
 	'title',
 	'body',
@@ -173,6 +181,10 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		throw new NotifyEventError('invalid kind', 400)
 	}
 
+	if (obj.level !== undefined && !isNotifyLevel(obj.level)) {
+		throw new NotifyEventError('invalid level', 400)
+	}
+
 	if (typeof obj.title !== 'string') {
 		throw new NotifyEventError('title must be a string', 400)
 	}
@@ -258,6 +270,7 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 	}
 
 	const optional = {
+		...(isNotifyLevel(obj.level) ? { level: obj.level } : {}),
 		...(obj.session !== undefined ? { session: obj.session } : {}),
 		...(obj.body !== undefined ? { body: truncate(obj.body, BODY_MAX) } : {}),
 		...(typeof obj.contentMarkdown === 'string'

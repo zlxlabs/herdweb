@@ -1,10 +1,12 @@
-// @vitest-environment node
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+// @vitest-environment node
+import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { serve } from '@hono/node-server'
 import { Hono } from 'hono'
 import { afterEach, describe, expect, test, vi } from 'vitest'
+import { createNotifyPanel } from '../src/controls/notify-panel'
 import { NOTIFY_TS_MIN_MS, NotifyEventError, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { SlidingWindowRateLimiter } from '../src/notify/rate-limit'
@@ -91,6 +93,18 @@ describe('parseNotifyEvent', () => {
 		expect(event.kind).toBe(expected)
 	})
 
+	test('preserves the legacy parsed shape when level is omitted', () => {
+		const event = parseNotifyEvent(JSON.stringify(validBase))
+
+		expect(JSON.stringify(event)).toBe(JSON.stringify(validBase))
+		expect(Object.hasOwn(event, 'level')).toBe(false)
+	})
+
+	test.each(['act_now', 'act_soon', 'collect', 'fyi'] as const)('accepts level=%s', (level) => {
+		const event = parseNotifyEvent(JSON.stringify({ ...validBase, level }))
+		expect(event.level).toBe(level)
+	})
+
 	test.each([
 		['failed kind', { ...validBase, kind: 'failed' }],
 		['unknown kind', { ...validBase, kind: 'unknown' }],
@@ -169,6 +183,22 @@ describe('parseNotifyEvent', () => {
 		} catch (error) {
 			expect(error).toBeInstanceOf(NotifyEventError)
 			expect((error as NotifyEventError).statusCode).toBe(400)
+		}
+	})
+
+	test.each([
+		['P0', 'P0'],
+		['uppercase act_now', 'ACT_NOW'],
+		['number', 123],
+		['null', null],
+	] as const)('rejects invalid level (%s) with 400', (_label, level) => {
+		try {
+			parseNotifyEvent(JSON.stringify({ ...validBase, level }))
+			throw new Error('expected throw')
+		} catch (error) {
+			expect(error).toBeInstanceOf(NotifyEventError)
+			expect((error as NotifyEventError).statusCode).toBe(400)
+			expect((error as NotifyEventError).message).toBe('invalid level')
 		}
 	})
 
@@ -493,6 +523,29 @@ describe('POST /api/events', () => {
 			presenceAt?: number
 		}
 		expect(stored).toMatchObject({ presence: 'likely-present', presenceAt: 1_700_000_000_000 })
+		logSpy.mockRestore()
+	})
+
+	test('persists level into jsonl', async () => {
+		harness = await createHarness()
+		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({
+				v: 1,
+				id: 'level-1',
+				kind: 'asking',
+				level: 'act_soon',
+				title: 'Need input',
+				ts: 1_700_000_000_000,
+			}),
+		})
+		expect(response.status).toBe(202)
+		const stored = JSON.parse(
+			readFileSync(join(harness.stateDir, 'events.jsonl'), 'utf-8').trim(),
+		) as { level?: string }
+		expect(stored.level).toBe('act_soon')
 		logSpy.mockRestore()
 	})
 
@@ -878,5 +931,45 @@ describe('POST /api/push/test', () => {
 		expect((await post()).status).toBe(400)
 		expect((await post('?targetId=nope')).status).toBe(400)
 		logSpy.mockRestore()
+	})
+})
+
+describe('notify history panel level rendering', () => {
+	test('omits level UI for legacy events and shows it for leveled events', async () => {
+		GlobalRegistrator.register()
+		try {
+			const fetchMock = vi.fn(async (url: string) => {
+				if (url.includes('/api/events/history')) {
+					return {
+						ok: true,
+						json: async () => ({
+							events: [
+								{ ...validBase, id: 'legacy-panel' },
+								{ ...validBase, id: 'level-panel', level: 'act_now' },
+							],
+						}),
+					}
+				}
+				return { ok: false, status: 500 }
+			})
+
+			const panel = createNotifyPanel({
+				basePath: '/',
+				fetchFn: fetchMock as unknown as typeof fetch,
+			})
+			document.body.appendChild(panel.element)
+			panel.open()
+			await new Promise((resolve) => setTimeout(resolve, 20))
+
+			const items = panel.element.querySelectorAll('.wt-notify-history-item')
+			expect(items[0]?.querySelector('.wt-notify-level-badge')).toBeNull()
+			expect(items[0]?.textContent).not.toContain('undefined')
+			expect(items[1]?.querySelector('.wt-notify-level-badge')?.textContent).toBe('level: act_now')
+			expect(items[1]?.querySelector('.wt-notify-level-badge')?.getAttribute('title')).toBe(
+				'立即处理',
+			)
+		} finally {
+			GlobalRegistrator.unregister()
+		}
 	})
 })
