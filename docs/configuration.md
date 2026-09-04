@@ -424,6 +424,25 @@ range-checks `ts` and returns HTTP 400 when the value is below
 `1_000_000_000_000` (too small to be epoch milliseconds). Unix-seconds
 values are rejected and not stored.
 
+**Notify event fields**
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `v` | yes | Event schema version: `1` for single mode or `2` for explicit target mode. |
+| `targetId` | v2 only | Target id configured by the herdweb instance. |
+| `id` | yes except `kind=test` | Producer event id used for de-duplication. |
+| `kind` | yes | `asking`, `done`, `ci-red`, `silence`, `health`, `test`, or `patrol`. |
+| `title` | yes | Short event title. |
+| `body` | no | Optional plain-text event body. |
+| `contentMarkdown` | no | Optional WeCom `markdown_v2` content, capped at 4096 UTF-8 bytes. |
+| `level` | no | Urgency and routing metadata: `act_now` (立即处理), `act_soon` (尽快处理), `collect` (汇总处理), or `fyi` (仅供知悉). It is stored in history and displayed in the panel; it does not change herdweb's outbound gate. |
+| `reason` | no | Optional reason text, used by health events. |
+| `ts` | yes | Epoch timestamp in milliseconds. |
+| `role` | no | `root` or `child`; used by the attention gate for `done`. |
+| `parentId`, `startedAt` | no | Optional task relationship and start timestamp metadata. |
+| `presence`, `presenceAt` | no | Optional presence signal and its epoch-millisecond timestamp; see presence-aware deferral below. |
+| `session`, `task_id`, `dispatch_id`, `drift` | no | Optional producer metadata stored with the event. |
+
 Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on
 a device; **single-only**):
 

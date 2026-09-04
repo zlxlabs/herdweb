@@ -1,5 +1,5 @@
 import { joinBasePath } from '../base-path'
-import { type NotifyEvent, type NotifyKind, isRecord } from '../notify/events'
+import { type NotifyEvent, type NotifyKind, type NotifyLevel, isRecord } from '../notify/events'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
 
@@ -27,6 +27,13 @@ const KIND_LABELS: Record<Exclude<NotifyKind, 'test'>, string> = {
 	silence: '可能完工',
 	health: '服务状态',
 	patrol: '巡查',
+}
+
+const LEVEL_LABELS: Record<NotifyLevel, string> = {
+	act_now: '立即处理',
+	act_soon: '尽快处理',
+	collect: '汇总处理',
+	fyi: '仅供知悉',
 }
 
 function kindLabel(kind: NotifyKind): string {
@@ -121,6 +128,17 @@ function renderHistoryItem(event: NotifyEvent, now: number): HTMLDivElement {
 		kindLabel(event.kind),
 	)
 	const content = el('div', { class: 'wt-notify-history-content' })
+	const levelBadge =
+		event.level === undefined
+			? undefined
+			: el(
+					'span',
+					{
+						class: `wt-notify-kind-badge wt-notify-level-badge wt-notify-level-${event.level}`,
+						title: LEVEL_LABELS[event.level],
+					},
+					`level: ${event.level}`,
+				)
 	const titleRow = el('div', { class: 'wt-notify-history-title-row' })
 	const titleEl = el('span', { class: 'wt-notify-history-title' }, event.title)
 	const timeEl = el(
@@ -136,7 +154,9 @@ function renderHistoryItem(event: NotifyEvent, now: number): HTMLDivElement {
 	if (event.body !== undefined && event.body.length > 0) {
 		content.append(el('p', { class: 'wt-notify-history-body' }, event.body))
 	}
-	item.append(badge, content)
+	item.append(badge)
+	if (levelBadge !== undefined) item.append(levelBadge)
+	item.append(content)
 	return item
 }
 
