@@ -13,6 +13,7 @@ export type NotifyDecisionReason =
 	| 'payload-too-large'
 	| 'not-attention'
 	| 'child-done'
+	| 'fyi'
 	| 'done-coalesced'
 	| 'user-present'
 
@@ -33,6 +34,7 @@ export const NOTIFY_DECISION_REASONS = [
 	'payload-too-large',
 	'not-attention',
 	'child-done',
+	'fyi',
 	'done-coalesced',
 	'user-present',
 ] as const satisfies readonly NotifyDecisionReason[]

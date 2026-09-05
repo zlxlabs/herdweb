@@ -7,7 +7,7 @@ export const PRESENCE_DEFER_MS = 300_000
 
 export type OutboundDecision =
 	| { action: 'send-now' }
-	| { action: 'withhold'; reason: 'not-attention' | 'child-done' }
+	| { action: 'withhold'; reason: 'not-attention' | 'child-done' | 'fyi' }
 	| { action: 'coalesce'; reason: 'done-coalesced' }
 	| { action: 'defer'; reason: 'user-present' }
 
@@ -28,7 +28,7 @@ export function isFreshLikelyPresent(event: NotifyEvent, now: number): boolean {
 }
 
 /**
- * Gate order: silence/patrol withholds -> child-done withholds -> presence defer ->
+ * Gate order: silence/patrol withholds -> child-done withholds -> fyi withholds -> presence defer ->
  * existing role rules. `ignorePresence` skips the defer lane for the second
  * pass after a deferred event is released.
  */
@@ -41,6 +41,9 @@ export function decideOutbound(
 	}
 	if (event.kind === 'done' && event.role === 'child') {
 		return { action: 'withhold', reason: 'child-done' }
+	}
+	if (event.level === 'fyi') {
+		return { action: 'withhold', reason: 'fyi' }
 	}
 	if (!opts.awayMode && opts.ignorePresence !== true && isFreshLikelyPresent(event, opts.now)) {
 		return { action: 'defer', reason: 'user-present' }

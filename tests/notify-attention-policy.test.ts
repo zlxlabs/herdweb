@@ -10,7 +10,7 @@ import {
 	coalesceSessionKey,
 	decideOutbound,
 } from '../src/notify/attention-policy'
-import type { NotifyEvent, NotifyKind, NotifyPresence } from '../src/notify/events'
+import type { NotifyEvent, NotifyKind, NotifyLevel, NotifyPresence } from '../src/notify/events'
 import { PRESENCE_FRESH_MS, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
@@ -26,6 +26,7 @@ function event(
 	kind: NotifyKind,
 	extra: {
 		role?: NotifyTaskRole
+		level?: NotifyLevel
 		session?: string
 		id?: string
 		presence?: NotifyPresence
@@ -34,6 +35,73 @@ function event(
 ): NotifyEvent {
 	return { ...BASE, kind, ...extra }
 }
+
+const OUTBOUND_MATRIX = [
+	['act_now', 'asking', undefined, { action: 'send-now' }],
+	['act_now', 'done', 'root', { action: 'send-now' }],
+	['act_now', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['act_now', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_now', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_soon', 'asking', undefined, { action: 'send-now' }],
+	['act_soon', 'done', 'root', { action: 'send-now' }],
+	['act_soon', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['act_soon', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_soon', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['collect', 'asking', undefined, { action: 'send-now' }],
+	['collect', 'done', 'root', { action: 'send-now' }],
+	['collect', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['collect', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['collect', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['fyi', 'asking', undefined, { action: 'withhold', reason: 'fyi' }],
+	['fyi', 'done', 'root', { action: 'withhold', reason: 'fyi' }],
+	['fyi', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['fyi', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['fyi', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['missing', 'asking', undefined, { action: 'send-now' }],
+	['missing', 'done', 'root', { action: 'send-now' }],
+	['missing', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['missing', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['missing', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['unknown', 'asking', undefined, { action: 'send-now' }],
+	['unknown', 'done', 'root', { action: 'send-now' }],
+	['unknown', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['unknown', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['unknown', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+] as const satisfies ReadonlyArray<
+	readonly [
+		'act_now' | 'act_soon' | 'collect' | 'fyi' | 'missing' | 'unknown',
+		NotifyKind,
+		NotifyTaskRole | undefined,
+		OutboundDecision,
+	]
+>
+
+describe('level × kind outbound matrix', () => {
+	test.each(OUTBOUND_MATRIX)('%s × %s (%s)', (level, kind, role, expected) => {
+		const base = event(kind, role === undefined ? {} : { role })
+		const candidate =
+			level === 'missing' ? base : { ...base, level: level === 'unknown' ? 'unexpected' : level }
+		expect(decideOutbound(candidate as unknown as NotifyEvent, OPTS)).toEqual(expected)
+	})
+})
+
+describe('missing or malformed level remains fail-open', () => {
+	test('missing level remains send-now', () => {
+		expect(decideOutbound(event('asking'), OPTS)).toEqual({ action: 'send-now' })
+	})
+
+	test('explicit undefined level remains send-now', () => {
+		expect(decideOutbound({ ...event('asking'), level: undefined }, OPTS)).toEqual({
+			action: 'send-now',
+		})
+	})
+
+	test('unknown level remains send-now', () => {
+		expect(
+			decideOutbound({ ...event('asking'), level: 'unexpected' } as unknown as NotifyEvent, OPTS),
+		).toEqual({ action: 'send-now' })
+	})
+})
 
 describe('DONE_COALESCE_MS', () => {
 	test('is a 600s sliding quiet period', () => {
@@ -246,6 +314,22 @@ function parsedEvent(input: Record<string, unknown>): NotifyEvent {
 	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1_700_000_000_000, ...input }))
 }
 
+// Captured from ~/.local/state/herdweb/7681/events.jsonl and redacted for the fixture.
+const REAL_PRODUCER_FYI_EVENT = parseNotifyEvent(
+	JSON.stringify({
+		v: 1,
+		id: 'redacted-event-id',
+		kind: 'asking',
+		level: 'fyi',
+		session: 'redacted-session-id',
+		title: '⚪ 不用管 · agent-config #56 压缩阈值调整',
+		body: '全量测试运行中待后续\nCI全量测试中，等结果自动推进；另两件拍板事项均不阻塞当前工作\n⏱️ 闲置 11 分钟 · 📋 卡 0/0 终局 · 🌿 main',
+		contentMarkdown:
+			'# ⚪ 不用管 · agent-config #56 压缩阈值调整\n**全量测试运行中待后续**——CI全量测试中，等结果自动推进；另两件拍板事项均不阻塞当前工作\n\n> 闲置 11 分钟\n\n<redacted-url>',
+		ts: 1_788_572_562_258,
+	}),
+)
+
 function createOutboundHarness(opts: { isAwayMode?: () => boolean } = {}) {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-attention-'))
 	writeSubscriptions(stateDir, [
@@ -318,6 +402,20 @@ describe('notify service outbound gate', () => {
 		expect(readJsonl(h.stateDir)).toHaveLength(1)
 		expect(h.sendPush).toHaveBeenCalledTimes(1)
 		expect(h.requests).toHaveLength(1)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('real producer fyi fixture stays in history but never POSTs', async () => {
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(REAL_PRODUCER_FYI_EVENT)
+		await h.service.awaitInFlight(1000)
+		expect(readJsonl(h.stateDir)).toEqual([REAL_PRODUCER_FYI_EVENT])
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=asking id=redacted-event-id reason=fyi',
+		)
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})

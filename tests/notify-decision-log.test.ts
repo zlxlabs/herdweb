@@ -80,6 +80,7 @@ describe('logNotifyDecision', () => {
 			'payload-too-large',
 			'not-attention',
 			'child-done',
+			'fyi',
 			'done-coalesced',
 			'user-present',
 		])
@@ -111,6 +112,7 @@ describe('logNotifyDecision', () => {
 				case 'payload-too-large':
 				case 'not-attention':
 				case 'child-done':
+				case 'fyi':
 				case 'done-coalesced':
 				case 'user-present':
 					return reason
