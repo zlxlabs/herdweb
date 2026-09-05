@@ -10,7 +10,7 @@ import {
 	coalesceSessionKey,
 	decideOutbound,
 } from '../src/notify/attention-policy'
-import type { NotifyEvent, NotifyKind, NotifyPresence } from '../src/notify/events'
+import type { NotifyEvent, NotifyKind, NotifyLevel, NotifyPresence } from '../src/notify/events'
 import { PRESENCE_FRESH_MS, parseNotifyEvent } from '../src/notify/events'
 import { writeSubscriptions } from '../src/notify/push'
 import { createNotifyService } from '../src/notify/service'
@@ -26,6 +26,7 @@ function event(
 	kind: NotifyKind,
 	extra: {
 		role?: NotifyTaskRole
+		level?: NotifyLevel
 		session?: string
 		id?: string
 		presence?: NotifyPresence
@@ -34,6 +35,73 @@ function event(
 ): NotifyEvent {
 	return { ...BASE, kind, ...extra }
 }
+
+const OUTBOUND_MATRIX = [
+	['act_now', 'asking', undefined, { action: 'send-now' }],
+	['act_now', 'done', 'root', { action: 'send-now' }],
+	['act_now', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['act_now', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_now', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_soon', 'asking', undefined, { action: 'send-now' }],
+	['act_soon', 'done', 'root', { action: 'send-now' }],
+	['act_soon', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['act_soon', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['act_soon', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['collect', 'asking', undefined, { action: 'send-now' }],
+	['collect', 'done', 'root', { action: 'send-now' }],
+	['collect', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['collect', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['collect', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['fyi', 'asking', undefined, { action: 'withhold', reason: 'fyi' }],
+	['fyi', 'done', 'root', { action: 'withhold', reason: 'fyi' }],
+	['fyi', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['fyi', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['fyi', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['missing', 'asking', undefined, { action: 'send-now' }],
+	['missing', 'done', 'root', { action: 'send-now' }],
+	['missing', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['missing', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['missing', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['unknown', 'asking', undefined, { action: 'send-now' }],
+	['unknown', 'done', 'root', { action: 'send-now' }],
+	['unknown', 'done', 'child', { action: 'withhold', reason: 'child-done' }],
+	['unknown', 'patrol', undefined, { action: 'withhold', reason: 'not-attention' }],
+	['unknown', 'silence', undefined, { action: 'withhold', reason: 'not-attention' }],
+] as const satisfies ReadonlyArray<
+	readonly [
+		'act_now' | 'act_soon' | 'collect' | 'fyi' | 'missing' | 'unknown',
+		NotifyKind,
+		NotifyTaskRole | undefined,
+		OutboundDecision,
+	]
+>
+
+describe('level × kind outbound matrix', () => {
+	test.each(OUTBOUND_MATRIX)('%s × %s (%s)', (level, kind, role, expected) => {
+		const base = event(kind, role === undefined ? {} : { role })
+		const candidate =
+			level === 'missing' ? base : { ...base, level: level === 'unknown' ? 'unexpected' : level }
+		expect(decideOutbound(candidate as NotifyEvent, OPTS)).toEqual(expected)
+	})
+})
+
+describe('missing or malformed level remains fail-open', () => {
+	test('missing level remains send-now', () => {
+		expect(decideOutbound(event('asking'), OPTS)).toEqual({ action: 'send-now' })
+	})
+
+	test('explicit undefined level remains send-now', () => {
+		expect(decideOutbound({ ...event('asking'), level: undefined }, OPTS)).toEqual({
+			action: 'send-now',
+		})
+	})
+
+	test('unknown level remains send-now', () => {
+		expect(
+			decideOutbound({ ...event('asking'), level: 'unexpected' } as NotifyEvent, OPTS),
+		).toEqual({ action: 'send-now' })
+	})
+})
 
 describe('DONE_COALESCE_MS', () => {
 	test('is a 600s sliding quiet period', () => {
