@@ -314,6 +314,22 @@ function parsedEvent(input: Record<string, unknown>): NotifyEvent {
 	return parseNotifyEvent(JSON.stringify({ v: 1, title: 'T', ts: 1_700_000_000_000, ...input }))
 }
 
+// Captured from ~/.local/state/herdweb/7681/events.jsonl and redacted for the fixture.
+const REAL_PRODUCER_FYI_EVENT = parseNotifyEvent(
+	JSON.stringify({
+		v: 1,
+		id: 'redacted-event-id',
+		kind: 'asking',
+		level: 'fyi',
+		session: 'redacted-session-id',
+		title: '⚪ 不用管 · agent-config #56 压缩阈值调整',
+		body: '全量测试运行中待后续\nCI全量测试中，等结果自动推进；另两件拍板事项均不阻塞当前工作\n⏱️ 闲置 11 分钟 · 📋 卡 0/0 终局 · 🌿 main',
+		contentMarkdown:
+			'# ⚪ 不用管 · agent-config #56 压缩阈值调整\n**全量测试运行中待后续**——CI全量测试中，等结果自动推进；另两件拍板事项均不阻塞当前工作\n\n> 闲置 11 分钟\n\n<redacted-url>',
+		ts: 1_788_572_562_258,
+	}),
+)
+
 function createOutboundHarness(opts: { isAwayMode?: () => boolean } = {}) {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-attention-'))
 	writeSubscriptions(stateDir, [
@@ -386,6 +402,20 @@ describe('notify service outbound gate', () => {
 		expect(readJsonl(h.stateDir)).toHaveLength(1)
 		expect(h.sendPush).toHaveBeenCalledTimes(1)
 		expect(h.requests).toHaveLength(1)
+		h.service.dispose()
+		rmSync(h.stateDir, { recursive: true, force: true })
+	})
+
+	test('real producer fyi fixture stays in history but never POSTs', async () => {
+		const h = createOutboundHarness()
+		h.service.dispatchEvent(REAL_PRODUCER_FYI_EVENT)
+		await h.service.awaitInFlight(1000)
+		expect(readJsonl(h.stateDir)).toEqual([REAL_PRODUCER_FYI_EVENT])
+		expect(h.sendPush).not.toHaveBeenCalled()
+		expect(h.requests).toHaveLength(0)
+		expect(decisionLines(h.logSpy)).toContain(
+			'herdweb: notify decision skipped kind=asking id=redacted-event-id reason=fyi',
+		)
 		h.service.dispose()
 		rmSync(h.stateDir, { recursive: true, force: true })
 	})
