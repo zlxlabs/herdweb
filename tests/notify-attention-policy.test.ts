@@ -81,7 +81,7 @@ describe('level × kind outbound matrix', () => {
 		const base = event(kind, role === undefined ? {} : { role })
 		const candidate =
 			level === 'missing' ? base : { ...base, level: level === 'unknown' ? 'unexpected' : level }
-		expect(decideOutbound(candidate as NotifyEvent, OPTS)).toEqual(expected)
+		expect(decideOutbound(candidate as unknown as NotifyEvent, OPTS)).toEqual(expected)
 	})
 })
 
@@ -98,7 +98,10 @@ describe('missing or malformed level remains fail-open', () => {
 
 	test('unknown level remains send-now', () => {
 		expect(
-			decideOutbound({ ...event('asking'), level: 'unexpected' } as NotifyEvent, OPTS),
+			decideOutbound(
+				{ ...event('asking'), level: 'unexpected' } as unknown as NotifyEvent,
+				OPTS,
+			),
 		).toEqual({ action: 'send-now' })
 	})
 })
