@@ -98,10 +98,7 @@ describe('missing or malformed level remains fail-open', () => {
 
 	test('unknown level remains send-now', () => {
 		expect(
-			decideOutbound(
-				{ ...event('asking'), level: 'unexpected' } as unknown as NotifyEvent,
-				OPTS,
-			),
+			decideOutbound({ ...event('asking'), level: 'unexpected' } as unknown as NotifyEvent, OPTS),
 		).toEqual({ action: 'send-now' })
 	})
 })
