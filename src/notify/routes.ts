@@ -167,10 +167,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 			}
 
 			const result = deps.notifyService.dispatchEvent(event)
-			if (result === 'duplicate') {
-				return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
-			}
-			return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
+			return deps.withSecurityHeaders(c.json(result, 202), securityHeaders)
 		})
 	}
 

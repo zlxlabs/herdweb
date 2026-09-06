@@ -112,8 +112,18 @@ function mergeSubscriptionDeltas(
 	writeSubscriptions(stateDir, merged)
 }
 
+export type NotifyDispatchResult =
+	| { readonly outcome: 'dispatched'; readonly reason: null }
+	| {
+			readonly outcome: 'withheld'
+			readonly reason: 'not-attention' | 'child-done' | 'fyi'
+		}
+	| { readonly outcome: 'deferred'; readonly reason: 'user-present' }
+	| { readonly outcome: 'coalesced'; readonly reason: 'done-coalesced' }
+	| { readonly outcome: 'duplicate'; readonly reason: 'duplicate' }
+
 export interface NotifyService {
-	dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate'
+	dispatchEvent(event: NotifyEvent): NotifyDispatchResult
 	awaitInFlight(timeoutMs: number): Promise<void>
 	flushDeferredPresence(): void
 	lastEventAt(targetId: string, session?: string): number | undefined
@@ -378,7 +388,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 	}
 
 	return {
-		dispatchEvent(event: NotifyEvent): 'accepted' | 'duplicate' {
+		dispatchEvent(event: NotifyEvent): NotifyDispatchResult {
 			validateNotifyEventForMode(event, targetMode, targetIds)
 			const normalized = normalizeEvent(event)
 			const dedupKey = `${targetIdForNotifyEvent(normalized)}\u0000${normalized.id}`
@@ -391,7 +401,7 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 						id: normalized.id,
 						reason: 'duplicate',
 					})
-					return 'duplicate'
+					return { outcome: 'duplicate', reason: 'duplicate' }
 				}
 				dedup.add(dedupKey)
 				appendEventLine(deps.stateDir, normalized, deps.historyLimit)
@@ -420,18 +430,18 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 					id: normalized.id,
 					reason: decision.reason,
 				})
-				return 'accepted'
+				return { outcome: 'withheld', reason: decision.reason }
 			}
 			if (decision.action === 'coalesce') {
 				queueCoalesce(normalized)
-				return 'accepted'
+				return { outcome: 'coalesced', reason: decision.reason }
 			}
 			if (decision.action === 'defer') {
 				queuePresenceDefer(normalized)
-				return 'accepted'
+				return { outcome: 'deferred', reason: decision.reason }
 			}
 			deliverOutbound(normalized)
-			return 'accepted'
+			return { outcome: 'dispatched', reason: null }
 		},
 
 		async awaitInFlight(timeoutMs: number): Promise<void> {
