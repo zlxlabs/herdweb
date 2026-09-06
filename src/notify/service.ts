@@ -117,7 +117,7 @@ export type NotifyDispatchResult =
 	| {
 			readonly outcome: 'withheld'
 			readonly reason: 'not-attention' | 'child-done' | 'fyi'
-		}
+	  }
 	| { readonly outcome: 'deferred'; readonly reason: 'user-present' }
 	| { readonly outcome: 'coalesced'; readonly reason: 'done-coalesced' }
 	| { readonly outcome: 'duplicate'; readonly reason: 'duplicate' }
