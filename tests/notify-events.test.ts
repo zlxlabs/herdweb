@@ -11,7 +11,7 @@ import { NOTIFY_TS_MIN_MS, NotifyEventError, parseNotifyEvent } from '../src/not
 import { writeSubscriptions } from '../src/notify/push'
 import { SlidingWindowRateLimiter } from '../src/notify/rate-limit'
 import { registerNotifyRoutes } from '../src/notify/routes'
-import { createNotifyService } from '../src/notify/service'
+import { type NotifyDispatchResult, createNotifyService } from '../src/notify/service'
 import { buildSecurityHeaders, isAllowedOrigin, withSecurityHeaders } from '../src/serve'
 
 function routeVariants(basePath: string, path: string): readonly string[] {
@@ -32,13 +32,33 @@ interface TestHarness {
 	close(): void
 }
 
+type HarnessOptions = {
+	readonly sendPush?: Parameters<typeof createNotifyService>[0]['sendPush']
+}
+
 async function createHarness(
 	token?: string,
 	targetMode: 'single' | 'explicit' = 'single',
 	targetIds: readonly string[] = ['default'],
+	options: HarnessOptions = {},
 ): Promise<TestHarness> {
 	const stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-events-'))
-	const notifyService = createNotifyService({ stateDir, historyLimit: 200, targetMode, targetIds })
+	const notifyService = createNotifyService({
+		stateDir,
+		historyLimit: 200,
+		targetMode,
+		targetIds,
+		sendPush: options.sendPush,
+	})
+	if (options.sendPush !== undefined) {
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/device',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: Date.now(),
+			},
+		])
+	}
 	const app = new Hono()
 	const securityHeaders = buildSecurityHeaders('127.0.0.1:0', '127.0.0.1', 0, 'nonce')
 	registerNotifyRoutes(app, {
@@ -408,6 +428,128 @@ describe('POST /api/events', () => {
 		logSpy.mockRestore()
 	})
 
+	test.each([
+		[
+			'silence',
+			() => ({ ...validBase, id: 'outcome-silence', kind: 'silence' as const }),
+			{ outcome: 'withheld', reason: 'not-attention' },
+		],
+		[
+			'child done',
+			() => ({
+				...validBase,
+				id: 'outcome-child-done',
+				kind: 'done' as const,
+				role: 'child' as const,
+			}),
+			{ outcome: 'withheld', reason: 'child-done' },
+		],
+		[
+			'present user',
+			() => ({
+				...validBase,
+				id: 'outcome-present',
+				presence: 'likely-present' as const,
+				presenceAt: Date.now(),
+			}),
+			{ outcome: 'deferred', reason: 'user-present' },
+		],
+		[
+			'done without root role',
+			() => ({ ...validBase, id: 'outcome-coalesced', kind: 'done' as const }),
+			{ outcome: 'coalesced', reason: 'done-coalesced' },
+		],
+	] as const)(
+		'returns the %s decision in the JSON response',
+		async (_name, buildEvent, expected) => {
+			harness = await createHarness()
+			const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(buildEvent()),
+			})
+			expect(response.status).toBe(202)
+			expect(response.headers.get('content-type')).toMatch(/^application\/json/)
+			expect(response.headers.get('x-content-type-options')).toBe('nosniff')
+			expect((await response.json()) as NotifyDispatchResult).toEqual(expected)
+		},
+	)
+
+	test('returns dispatched while delivery is still in flight', async () => {
+		let releasePush!: () => void
+		let pushSettled = false
+		const pushPromise = new Promise<void>((resolve) => {
+			releasePush = () => {
+				pushSettled = true
+				resolve()
+			}
+		})
+		const sendPushMock = vi.fn().mockImplementation(() => pushPromise)
+		const sendPush = sendPushMock as NonNullable<HarnessOptions['sendPush']>
+		harness = await createHarness(undefined, 'single', ['default'], { sendPush })
+
+		const response = await fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+			method: 'POST',
+			headers: { 'content-type': 'application/json' },
+			body: JSON.stringify({ ...validBase, id: 'outcome-dispatched' }),
+		})
+		expect(response.status).toBe(202)
+		expect((await response.json()) as NotifyDispatchResult).toEqual({
+			outcome: 'dispatched',
+			reason: null,
+		})
+		expect(sendPushMock).toHaveBeenCalledTimes(1)
+		expect(pushSettled).toBe(false)
+
+		releasePush()
+		await harness.notifyService.awaitInFlight(1000)
+	})
+
+	test('returns fyi withheld, then duplicate for the same event', async () => {
+		harness = await createHarness()
+		const body = JSON.stringify({
+			...validBase,
+			id: 'outcome-duplicate',
+			level: 'fyi',
+		})
+		const post = () =>
+			fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body,
+			})
+
+		const first = await post()
+		expect(first.status).toBe(202)
+		expect(await first.text()).toBe('{"outcome":"withheld","reason":"fyi"}')
+
+		const second = await post()
+		expect(second.status).toBe(202)
+		expect(await second.text()).toBe('{"outcome":"duplicate","reason":"duplicate"}')
+	})
+
+	test('repeated test events are dispatched instead of marked duplicate', async () => {
+		harness = await createHarness()
+		const body = JSON.stringify({
+			...validBase,
+			id: 'outcome-test-repeat',
+			kind: 'test',
+		})
+		const post = () =>
+			fetch(`http://127.0.0.1:${harness.port}/api/events`, {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body,
+			})
+
+		const first = await post()
+		const second = await post()
+		expect(first.status).toBe(202)
+		expect(second.status).toBe(202)
+		expect(await first.json()).toEqual({ outcome: 'dispatched', reason: null })
+		expect(await second.json()).toEqual({ outcome: 'dispatched', reason: null })
+	})
+
 	test('rejects Unix-second ts over HTTP with 400 and does not persist', async () => {
 		harness = await createHarness()
 		const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
@@ -716,8 +858,8 @@ describe('POST /api/events', () => {
 		const payload = parseNotifyEvent(
 			JSON.stringify({ v: 1, kind: 'test', title: 'T', ts: 1_700_000_000_000 }),
 		)
-		expect(notifyService.dispatchEvent(payload)).toBe('accepted')
-		expect(notifyService.dispatchEvent(payload)).toBe('accepted')
+		expect(notifyService.dispatchEvent(payload)).toEqual({ outcome: 'dispatched', reason: null })
+		expect(notifyService.dispatchEvent(payload)).toEqual({ outcome: 'dispatched', reason: null })
 		expect(() => readFileSync(join(stateDir, 'events.jsonl'))).toThrow()
 		await notifyService.awaitInFlight(1000)
 		expect(sendPush).toHaveBeenCalledTimes(2)
@@ -743,7 +885,10 @@ describe('POST /api/events', () => {
 		const replay = parseNotifyEvent(
 			JSON.stringify({ v: 1, id: 'id-0', kind: 'done', title: 'T', ts: 1_700_000_000_000 }),
 		)
-		expect(notifyService.dispatchEvent(replay)).toBe('accepted')
+		expect(notifyService.dispatchEvent(replay)).toEqual({
+			outcome: 'coalesced',
+			reason: 'done-coalesced',
+		})
 		notifyService.dispose()
 		rmSync(stateDir, { recursive: true, force: true })
 		logSpy.mockRestore()
