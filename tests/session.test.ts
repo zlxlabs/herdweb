@@ -26,6 +26,17 @@ function createClientRecorder() {
 
 type ClientRecorder = ReturnType<typeof createClientRecorder>
 
+function sessionGeometry(session: SharedTerminalSession): {
+	pty: { cols: number; rows: number }
+	mirror: { cols: number; rows: number }
+} {
+	const internals = session as unknown as {
+		pty: { cols: number; rows: number }
+		mirror: { cols: number; rows: number }
+	}
+	return { pty: internals.pty, mirror: internals.mirror }
+}
+
 function receivedText(recorder: ClientRecorder): string {
 	return recorder
 		.getMessages()
@@ -212,6 +223,29 @@ describe('SharedTerminalSession', () => {
 		session.handleClientMessage(recorder.client, { type: 'resize', cols: 120, rows: 40 })
 
 		expect(recorder.getMessages()).toEqual([])
+	})
+
+	test('attach resize settles PTY and mirror before the snapshot is delivered', async () => {
+		const session = new SharedTerminalSession([
+			'bash',
+			'--norc',
+			'--noprofile',
+			'-lc',
+			'printf "attach-size-marker"; sleep 5',
+		])
+		const recorder = createClientRecorder()
+
+		try {
+			session.handleClientMessage(recorder.client, { type: 'resize', cols: 137, rows: 43 })
+			await session.addClient(recorder.client)
+
+			const geometry = sessionGeometry(session)
+			expect(geometry.pty).toMatchObject({ cols: 137, rows: 43 })
+			expect(geometry.mirror).toMatchObject({ cols: 137, rows: 43 })
+			expect(recorder.getMessages()[0]).toMatchObject({ type: 'snapshot' })
+		} finally {
+			await session.dispose()
+		}
 	})
 
 	test('snapshot identifies the session and watermarks sequenced output', async () => {
