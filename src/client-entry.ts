@@ -837,6 +837,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 		heartbeatPingId = null
 		resumeProbeInFlight = false
 		lastProvenFreshAt = Date.now()
+		if (wasResumeProbe) syncSize()
 		if (wasResumeProbe && connectionStatus.state === 'synced') {
 			window.dispatchEvent(new CustomEvent('herdweb-connection-notice', { detail: '' }))
 		}
