@@ -355,13 +355,13 @@ describe('serve websocket hardening', () => {
 				throw new Error('targets frame missing')
 			}
 
-				sendJson(client, {
-					type: 'attach-target',
-					requestId: 'attach-size',
-					targetId: targets.targets[0].id,
-					cols: 137,
-					rows: 43,
-				})
+			sendJson(client, {
+				type: 'attach-target',
+				requestId: 'attach-size',
+				targetId: targets.targets[0].id,
+				cols: 137,
+				rows: 43,
+			})
 			const started = await waitForJsonMessage(client, 10_000, isType('attach-started'))
 			if (started?.type !== 'attach-started') throw new Error('attach-started frame missing')
 			const snapshot = await waitForJsonMessage(client, 10_000, isType('snapshot'))

@@ -1206,7 +1206,9 @@ describe('client connection state machine', () => {
 
 		const nextSocket = currentSocket()
 		openWithAttach(nextSocket)
-		const attach = parseSent(nextSocket).filter((frame) => frame.type === 'attach-target').at(-1)
+		const attach = parseSent(nextSocket)
+			.filter((frame) => frame.type === 'attach-target')
+			.at(-1)
 		expect(attach).toMatchObject({ type: 'attach-target', cols: 137, rows: 43 })
 	})
 
@@ -1224,7 +1226,9 @@ describe('client connection state machine', () => {
 
 		const nextSocket = currentSocket()
 		openWithAttach(nextSocket)
-		const attach = parseSent(nextSocket).filter((frame) => frame.type === 'attach-target').at(-1)
+		const attach = parseSent(nextSocket)
+			.filter((frame) => frame.type === 'attach-target')
+			.at(-1)
 		expect(attach).toMatchObject({ type: 'attach-target', cols: 131, rows: 41 })
 	})
 
