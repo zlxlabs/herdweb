@@ -1322,6 +1322,27 @@ describe('client connection state machine', () => {
 		}
 	})
 
+	test('resume probe resends the terminal size changed while the page was hidden', async () => {
+		const socket = await freshSynced()
+		const terminal = harness.terminal as FakeTerminal
+		hidePage()
+		// A mobile browser can update xterm's local geometry while its page is
+		// backgrounded without delivering the resize event until foregrounding.
+		terminal.cols = 140
+		terminal.rows = 50
+		showPage()
+
+		const probe = lastPing(socket)
+		if (typeof probe?.nonce !== 'string') throw new Error('missing resume probe ping')
+		receive(socket, { type: 'pong', nonce: probe.nonce })
+
+		expect(parseSent(socket).slice(-1)[0]).toMatchObject({
+			type: 'resize',
+			cols: 140,
+			rows: 50,
+		})
+	})
+
 	test('resume probe in flight drops keyboard input without failConnection', async () => {
 		const socket = await freshSynced()
 		const sentBefore = socket.sent.length
