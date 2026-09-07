@@ -339,6 +339,54 @@ describe('serve websocket hardening', () => {
 		}
 	})
 
+	test('attach geometry reaches the PTY before the snapshot is committed', async () => {
+		const port = await reservePort()
+		const proc = startServe(port, [
+			'bash',
+			'-c',
+			'stty -echo; while IFS= read -r line; do if [ "$line" = size ]; then printf "%s" "$(stty size)"; fi; done',
+		])
+		try {
+			await waitForHttp(`http://127.0.0.1:${port}`)
+			const client = await openSocket(port)
+			await waitForJsonMessage(client, 10_000, isType('server-ready'))
+			const targets = await waitForJsonMessage(client, 10_000, isType('targets'))
+			if (targets?.type !== 'targets' || !targets.targets[0]) {
+				throw new Error('targets frame missing')
+			}
+
+				sendJson(client, {
+					type: 'attach-target',
+					requestId: 'attach-size',
+					targetId: targets.targets[0].id,
+					cols: 137,
+					rows: 43,
+				})
+			const started = await waitForJsonMessage(client, 10_000, isType('attach-started'))
+			if (started?.type !== 'attach-started') throw new Error('attach-started frame missing')
+			const snapshot = await waitForJsonMessage(client, 10_000, isType('snapshot'))
+			if (snapshot?.type !== 'snapshot') throw new Error('snapshot frame missing')
+
+			sendJson(client, {
+				type: 'snapshot-applied',
+				requestId: started.requestId,
+				attachmentId: started.attachmentId,
+			})
+			expect(await waitForJsonMessage(client, 10_000, isType('attach-committed'))).toMatchObject({
+				type: 'attach-committed',
+				attachmentId: started.attachmentId,
+			})
+
+			sendJson(client, { type: 'input', attachmentId: started.attachmentId, data: 'size\n' })
+			const output = await waitForJsonMessage(client, 10_000, isType('output'))
+			if (output?.type !== 'output') throw new Error('size output missing')
+			expect(output.data).toContain('43 137')
+			client.close()
+		} finally {
+			await stopServe(proc)
+		}
+	})
+
 	test('real websocket gates old committed input during a provisional attach', async () => {
 		const port = await reservePort()
 		const proc = startServe(port, [
