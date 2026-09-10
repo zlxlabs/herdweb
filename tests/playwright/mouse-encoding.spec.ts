@@ -60,7 +60,7 @@ test('late client taps produce SGR mouse reports', async ({ browser, serve }) =>
 	}
 })
 
-function dispatchScreenTouch(type: 'touchstart' | 'touchend'): void {
+function dispatchScreenTouch(type: string): void {
 	const screen = document.querySelector('#terminal .xterm-screen')
 	if (!(screen instanceof HTMLElement)) {
 		throw new Error('no .xterm-screen')
