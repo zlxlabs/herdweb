@@ -54,6 +54,7 @@ export default {
   drawer: {
     buttons: [
       { id: 'herdr-new-window', label: '+ Win', description: 'Create herdr tab', action: { type: 'send', data: '\x02c' } },
+      { id: 'herdr-rename-tab', label: 'Rename', description: 'Rename current herdr tab', action: { type: 'send', data: '\x02T' } },
       { id: 'herdr-split-v', label: 'Split |', description: 'Split pane side-by-side', action: { type: 'send', data: '\x02v' } },
       { id: 'herdr-split-h', label: 'Split —', description: 'Split pane stacked', action: { type: 'send', data: '\x02-' } },
       { id: 'herdr-zoom', label: 'Zoom', description: 'Toggle pane zoom', action: { type: 'send', data: '\x02z' } },
