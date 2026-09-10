@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
 import { attachDoubleTapGesture, isDoubleTap } from '../src/gestures/double-tap'
-import { attachLongPressGesture, LONG_PRESS_MS } from '../src/gestures/long-press'
 import { createGestureLock, resetLock, tryLock } from '../src/gestures/lock'
+import { LONG_PRESS_MS, attachLongPressGesture } from '../src/gestures/long-press'
 import { clampFontSize, touchDistance } from '../src/gestures/pinch'
 import {
 	attachScrollGesture,
@@ -966,12 +966,7 @@ describe('attachLongPressGesture', () => {
 		return el
 	}
 
-	function makeTouch(
-		screen: HTMLElement,
-		clientX: number,
-		clientY: number,
-		identifier = 0,
-	): Touch {
+	function makeTouch(screen: HTMLElement, clientX: number, clientY: number, identifier = 0): Touch {
 		return {
 			identifier,
 			target: screen,
@@ -1005,7 +1000,10 @@ describe('attachLongPressGesture', () => {
 		)
 	}
 
-	function mount(cols = 80, rows = 24): {
+	function mount(
+		cols = 80,
+		rows = 24,
+	): {
 		screen: HTMLElement
 		term: ReturnType<typeof mockTerminal> & { cols: number; rows: number }
 		sent: string[]
@@ -1032,9 +1030,9 @@ describe('attachLongPressGesture', () => {
 	})
 
 	afterEach(() => {
-		document.querySelectorAll('.xterm-screen').forEach((el) => {
+		for (const el of document.querySelectorAll('.xterm-screen')) {
 			el.remove()
-		})
+		}
 		vi.useRealTimers()
 	})
 
@@ -1053,14 +1051,8 @@ describe('attachLongPressGesture', () => {
 		const height = 480
 		const clientX = 100
 		const clientY = 200
-		const expectedCol = Math.min(
-			cols,
-			Math.max(1, Math.floor((clientX / width) * cols) + 1),
-		)
-		const expectedRow = Math.min(
-			rows,
-			Math.max(1, Math.floor((clientY / height) * rows) + 1),
-		)
+		const expectedCol = Math.min(cols, Math.max(1, Math.floor((clientX / width) * cols) + 1))
+		const expectedRow = Math.min(rows, Math.max(1, Math.floor((clientY / height) * rows) + 1))
 
 		const { screen, sent } = mount(cols, rows)
 		dispatchGesture(screen, 'touchstart', [makeTouch(screen, clientX, clientY)])
@@ -1147,9 +1139,9 @@ describe('attachDoubleTapGesture', () => {
 	})
 
 	afterEach(() => {
-		document.querySelectorAll('.xterm-screen').forEach((el) => {
+		for (const el of document.querySelectorAll('.xterm-screen')) {
 			el.remove()
-		})
+		}
 		vi.useRealTimers()
 	})
 
@@ -1181,4 +1173,3 @@ describe('attachDoubleTapGesture', () => {
 		expect(sent).toEqual([])
 	})
 })
-
