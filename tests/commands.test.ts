@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest'
 import { defaultDrawerButtons } from '../src/drawer/commands'
 
 describe('defaultDrawerButtons', () => {
-	test('has 24 commands', () => {
-		expect(defaultDrawerButtons).toHaveLength(24)
+	test('has 25 commands', () => {
+		expect(defaultDrawerButtons).toHaveLength(25)
 	})
 
 	test('all commands have id, label, description, and action', () => {
@@ -32,6 +32,17 @@ describe('defaultDrawerButtons', () => {
 		expect(labels).toContain('Split |')
 		expect(labels).toContain('Zoom')
 		expect(labels).toContain('Kill')
+	})
+
+	test('includes herdr-rename-tab sending prefix+shift+T', () => {
+		const ids = defaultDrawerButtons.map((button) => button.id)
+		expect(ids).toContain('herdr-rename-tab')
+		expect(ids.indexOf('herdr-rename-tab')).toBe(ids.indexOf('herdr-new-window') + 1)
+		const rename = defaultDrawerButtons.find((button) => button.id === 'herdr-rename-tab')
+		expect(rename).toBeDefined()
+		expect(rename?.action.type).toBe('send')
+		if (rename?.action.type !== 'send') return
+		expect(rename.action.data).toBe('\x02T')
 	})
 
 	test('includes herdr navigation commands', () => {

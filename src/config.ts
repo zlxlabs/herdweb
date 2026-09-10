@@ -161,6 +161,13 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		section: 'herdr',
 	},
 	{
+		id: 'herdr-rename-tab',
+		label: 'Rename',
+		description: 'Rename current herdr tab',
+		action: { type: 'send', data: '\x02T' },
+		section: 'herdr',
+	},
+	{
 		id: 'herdr-split-v',
 		label: 'Split |',
 		description: 'Split pane vertically',
