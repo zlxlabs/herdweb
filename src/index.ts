@@ -19,6 +19,7 @@ import { createTargetPicker } from './controls/target-picker'
 import { createDrawer } from './drawer/drawer'
 import { attachDoubleTapGesture } from './gestures/double-tap'
 import { createGestureLock } from './gestures/lock'
+import { attachLongPressGesture } from './gestures/long-press'
 import { attachPinchGestures, clampFontSize } from './gestures/pinch'
 import { attachScrollGesture } from './gestures/scroll'
 import { attachSwipeGestures } from './gestures/swipe'
@@ -378,6 +379,7 @@ export function init(
 
 				// Gestures
 				const gestureLock = createGestureLock()
+				attachLongPressGesture(term, gestureLock)
 				if (config.gestures.swipe.enabled) {
 					const indicator = attachSwipeGestures(term, config.gestures.swipe, drawer.isOpen)
 					document.body.appendChild(indicator)

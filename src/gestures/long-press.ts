@@ -19,6 +19,10 @@ function sgrRightClick(col: number, row: number, down: boolean): string {
 	return `\x1b[\x3c${SGR_RIGHT_BUTTON};${col};${row}${kind}`
 }
 
+function preventContextMenu(e: Event): void {
+	e.preventDefault()
+}
+
 /** Attach long-press → SGR right-click on the xterm screen */
 export function attachLongPressGesture(term: XTerminal, lock: GestureLock): void {
 	let timer: ReturnType<typeof setTimeout> | null = null
@@ -98,10 +102,6 @@ export function attachLongPressGesture(term: XTerminal, lock: GestureLock): void
 		abort()
 	}
 
-	function onContextMenu(e: Event): void {
-		e.preventDefault()
-	}
-
 	function attach(): void {
 		const screen = document.querySelector('.xterm-screen')
 		if (!(screen instanceof HTMLElement)) {
@@ -113,7 +113,7 @@ export function attachLongPressGesture(term: XTerminal, lock: GestureLock): void
 		screen.addEventListener('touchmove', onTouchMove, { passive: true })
 		screen.addEventListener('touchend', onTouchEnd, { passive: true })
 		screen.addEventListener('touchcancel', onTouchCancel, { passive: true })
-		screen.addEventListener('contextmenu', onContextMenu, { passive: false })
+		screen.addEventListener('contextmenu', preventContextMenu, { passive: false })
 	}
 
 	attach()
