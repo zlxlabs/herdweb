@@ -33,6 +33,10 @@ body {
 	.xterm-screen {
 		overscroll-behavior: none;
 		touch-action: none;
+		/* Support hold-to-right-click: suppress iOS callout and text selection */
+		-webkit-touch-callout: none;
+		user-select: none;
+		-webkit-user-select: none;
 	}
 }
 
