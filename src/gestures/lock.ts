@@ -1,5 +1,5 @@
 /** Gesture types that can claim the lock */
-export type GestureType = 'none' | 'pinch' | 'scroll'
+export type GestureType = 'none' | 'pinch' | 'scroll' | 'long-press'
 
 /** Shared lock so only one gesture owns two-finger input at a time */
 export interface GestureLock {

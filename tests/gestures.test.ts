@@ -126,6 +126,12 @@ describe('tryLock', () => {
 		tryLock(lock, 'pinch')
 		expect(tryLock(lock, 'pinch')).toBe(false)
 	})
+
+	test('claims long-press when unclaimed', () => {
+		const lock = createGestureLock()
+		expect(tryLock(lock, 'long-press')).toBe(true)
+		expect(lock.current).toBe('long-press')
+	})
 })
 
 describe('resetLock', () => {
