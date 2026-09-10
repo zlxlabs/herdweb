@@ -1,6 +1,7 @@
 import type { DoubleTapConfig, XTerminal } from '../types'
 import { haptic } from '../util/haptic'
 import { sendData } from '../util/terminal'
+import { LONG_PRESS_MS } from './long-press'
 
 const MAX_TAP_MOVEMENT = 10
 const MAX_TAP_DISTANCE = 50
@@ -26,6 +27,7 @@ export function attachDoubleTapGesture(
 	let lastTapY = 0
 	let startX = 0
 	let startY = 0
+	let startTime = 0
 
 	function onTouchStart(e: TouchEvent): void {
 		if (e.touches.length !== 1) return
@@ -33,6 +35,7 @@ export function attachDoubleTapGesture(
 		if (!touch) return
 		startX = touch.clientX
 		startY = touch.clientY
+		startTime = Date.now()
 	}
 
 	function onTouchEnd(e: TouchEvent): void {
@@ -44,6 +47,9 @@ export function attachDoubleTapGesture(
 		const moveDx = touch.clientX - startX
 		const moveDy = touch.clientY - startY
 		if (Math.sqrt(moveDx * moveDx + moveDy * moveDy) > MAX_TAP_MOVEMENT) return
+
+		// A long-press is not a tap — otherwise two long-presses become a double-tap
+		if (Date.now() - startTime >= LONG_PRESS_MS) return
 
 		const now = Date.now()
 		const dt = now - lastTapTime

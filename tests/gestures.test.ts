@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from 'vitest'
-import { isDoubleTap } from '../src/gestures/double-tap'
+import { attachDoubleTapGesture, isDoubleTap } from '../src/gestures/double-tap'
 import { attachLongPressGesture, LONG_PRESS_MS } from '../src/gestures/long-press'
 import { createGestureLock, resetLock, tryLock } from '../src/gestures/lock'
 import { clampFontSize, touchDistance } from '../src/gestures/pinch'
@@ -1100,6 +1100,84 @@ describe('attachLongPressGesture', () => {
 			makeTouch(screen, 420, 260, 1),
 		])
 		vi.advanceTimersByTime(LONG_PRESS_MS)
+		expect(sent).toEqual([])
+	})
+})
+
+describe('attachDoubleTapGesture', () => {
+	function makeScreen(): HTMLElement {
+		const el = document.createElement('div')
+		el.className = 'xterm-screen'
+		return el
+	}
+
+	function makeTouch(screen: HTMLElement, clientX: number, clientY: number): Touch {
+		return {
+			identifier: 0,
+			target: screen,
+			clientX,
+			clientY,
+			force: 1,
+			radiusX: 1,
+			radiusY: 1,
+			rotationAngle: 0,
+			pageX: clientX,
+			pageY: clientY,
+			screenX: clientX,
+			screenY: clientY,
+		} as Touch
+	}
+
+	function dispatch(screen: HTMLElement, type: string, touch: Touch, ended = false): void {
+		screen.dispatchEvent(
+			new TouchEvent(type, {
+				bubbles: true,
+				cancelable: true,
+				touches: ended ? [] : [touch],
+				targetTouches: ended ? [] : [touch],
+				changedTouches: [touch],
+			}),
+		)
+	}
+
+	const doubleTapData = '\x02z'
+
+	beforeEach(() => {
+		vi.useFakeTimers()
+	})
+
+	afterEach(() => {
+		document.querySelectorAll('.xterm-screen').forEach((el) => {
+			el.remove()
+		})
+		vi.useRealTimers()
+	})
+
+	test('a long-press then a tap does not fire the double-tap action', () => {
+		const sent: string[] = []
+		const term = {
+			...mockTerminal(),
+			input(data: string) {
+				sent.push(data)
+			},
+		}
+		const screen = makeScreen()
+		document.body.appendChild(screen)
+		attachDoubleTapGesture(
+			term,
+			{ enabled: true, data: doubleTapData, maxInterval: 300 },
+			() => false,
+		)
+
+		const hold = makeTouch(screen, 100, 100)
+		dispatch(screen, 'touchstart', hold)
+		vi.advanceTimersByTime(LONG_PRESS_MS)
+		dispatch(screen, 'touchend', hold, true)
+
+		const tap = makeTouch(screen, 100, 100)
+		dispatch(screen, 'touchstart', tap)
+		dispatch(screen, 'touchend', tap, true)
+
 		expect(sent).toEqual([])
 	})
 })
