@@ -165,3 +165,121 @@ Running 2 tests using 1 worker
   2 failed
     [chromium-android] › tests/playwright/selection-mode.spec.ts:62:1 › freezes selectable terminal text and excludes later output 
     [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › selection overlay does not trigger terminal long-press and can be exited 
+
+
+=== P1 buffer-length red verification: implementation temporarily used `active.length - 1` ===
+
+Command: `pnpm exec vitest run tests/selection-mode.test.ts`
+
+ RUN  v3.2.4 /home/zlx/projects/oss/herdweb-worktrees/herdweb-20260913-01
+
+ ❯ |dom| tests/selection-mode.test.ts (4 tests | 2 failed) 31ms
+   × createSelectionMode > mounts a frozen, selectable text snapshot outside xterm-screen 18ms
+     → expected 'first output' to be 'first output\nsecond output' // Object.is equality
+   × createSelectionMode > reads every active buffer row exactly without DOM row-count inference 4ms
+     → expected 'buffer-001\nbuffer-002\nbuffer-003\nb…' to be 'buffer-001\nbuffer-002\nbuffer-003\nb…' // Object.is equality
+   ✓ createSelectionMode > closes from its button, toggling entry, and Escape 5ms
+   ✓ createSelectionMode > dispose removes the Escape listener and overlay 3ms
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯ Failed Tests 2 ⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  |dom| tests/selection-mode.test.ts > createSelectionMode > mounts a frozen, selectable text snapshot outside xterm-screen
+AssertionError: expected 'first output' to be 'first output\nsecond output' // Object.is equality
+
+- Expected
++ Received
+
+  first output
+- second output
+
+ ❯ tests/selection-mode.test.ts:64:33
+     62|   expect(overlay?.parentElement?.id).toBe('terminal-container')
+     63|   expect(overlay?.closest('.xterm-screen')).toBeNull()
+     64|   expect(snapshot?.textContent).toBe('first output\nsecond output')
+       |                                 ^
+     65|   expect(mode.isOpen()).toBe(true)
+     66|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/2]⎯
+
+ FAIL  |dom| tests/selection-mode.test.ts > createSelectionMode > reads every active buffer row exactly without DOM row-count inference
+AssertionError: expected 'buffer-001\nbuffer-002\nbuffer-003\nb…' to be 'buffer-001\nbuffer-002\nbuffer-003\nb…' // Object.is equality
+
+- Expected
++ Received
+
+@@ -75,6 +75,5 @@
+  buffer-075
+  buffer-076
+  buffer-077
+  buffer-078
+  buffer-079
+- buffer-080
+
+ ❯ tests/selection-mode.test.ts:86:16
+     84|   const text = document.querySelector('#wt-selection-mode-snapshot')?.textContent ?? ''
+     85|   const expected = lines.map((line) => line.trimEnd()).join('\n')
+     86|   expect(text).toBe(expected)
+       |                ^
+     87|   expect(text.split('\n')).toHaveLength(lines.length)
+
+
+ Test Files  1 failed (1)
+      Tests  2 failed | 2 passed (4)
+   Start at 11:18:12
+   Duration 420ms (transform 44ms, setup 0ms, collect 51ms, tests 31ms, environment 143ms, prepare 293ms)
+
+Exit code: 1
+
+Command: `pnpm exec playwright test tests/playwright/selection-mode.spec.ts --grep "captures every unique line"`
+
+Running 2 tests using 2 workers
+
+(node:2991325) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2991326) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(node:2991325) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set)
+(node:2991326) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set)
+  ✘  1 [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport (692ms)
+  ✘  2 [webkit-iphone] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport (946ms)
+
+
+  1) [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 123
+    Received: 122
+
+      126 | 		}
+      127 | 	})
+    > 128 | 	expect(snapshotStats.lineCount).toBe(snapshotStats.bufferLength)
+          | 	                                ^
+      129 | 	const sequenceLines = snapshotStats.sequenceLines
+      130 | 	 expect(sequenceLines).toEqual(
+      131 | 		Array.from(
+      132 |
+    at tests/playwright/selection-mode.spec.ts:128:34
+
+  2) [webkit-iphone] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 123
+    Received: 122
+
+      126 | 		}
+      127 | 	})
+    > 128 | 	expect(snapshotStats.lineCount).toBe(snapshotStats.bufferLength)
+          | 	                                ^
+      129 | 	const sequenceLines = snapshotStats.sequenceLines
+      130 | 	 expect(sequenceLines).toEqual(
+      131 | 		Array.from(
+      132 |
+    at tests/playwright/selection-mode.spec.ts:128:34
+
+  2 failed
+    [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport
+    [webkit-iphone] › tests/playwright/selection-mode.spec.ts:104:1 › captures every unique line from a buffer longer than the mobile viewport
+
+Exit code: 1

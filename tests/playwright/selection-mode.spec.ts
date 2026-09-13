@@ -101,6 +101,39 @@ test('freezes selectable terminal text and excludes later output', async ({ page
 	await expect(snapshot).not.toContainText('selection-after')
 })
 
+test('captures every unique line from a buffer longer than the mobile viewport', async ({
+	page,
+}) => {
+	await page.goto('/')
+	await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+	await waitForSynced(page)
+
+	await page.evaluate(() => {
+		window.term?.input("printf 'selection-seq-%03d\\n' $(seq 1 120)\r", true)
+	})
+	await expect(page.locator('body')).toContainText('selection-seq-120')
+
+	await openSelectionMode(page)
+	const snapshotStats = await page.evaluate(() => {
+		const element = document.querySelector('#wt-selection-mode-snapshot')
+		return {
+			lineCount: (element?.textContent ?? '').split('\n').length,
+			bufferLength: window.term?.buffer?.active.length ?? -1,
+			sequenceLines: (element?.textContent ?? '')
+				.split('\n')
+				.filter((line) => /^selection-seq-\d{3}$/.test(line)),
+		}
+	})
+	expect(snapshotStats.lineCount).toBe(snapshotStats.bufferLength)
+	const sequenceLines = snapshotStats.sequenceLines
+	expect(sequenceLines).toEqual(
+		Array.from(
+			{ length: 120 },
+			(_, index) => `selection-seq-${String(index + 1).padStart(3, '0')}`,
+		),
+	)
+})
+
 test('selection overlay does not trigger terminal long-press and can be exited', async ({
 	page,
 }) => {

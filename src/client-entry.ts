@@ -140,6 +140,11 @@ function createTermBridge(
 				active: {
 					cursorX: term.buffer.active.cursorX,
 					cursorY: term.buffer.active.cursorY,
+					length: term.buffer.active.length,
+					getLine(index: number) {
+						return term.buffer.active.getLine(index)
+					},
+					viewportY: term.buffer.active.viewportY,
 				},
 			}
 		},

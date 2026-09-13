@@ -27,10 +27,32 @@ function addTerminalRows(...lines: string[]): void {
 		</div>`
 }
 
+function bufferTerminal(...lines: string[]) {
+	const term = mockTerminal()
+	term.buffer = {
+		active: {
+			cursorX: 0,
+			cursorY: 0,
+			length: lines.length,
+			viewportY: 0,
+			getLine(index: number) {
+				const line = lines[index]
+				if (line === undefined) return undefined
+				return {
+					translateToString(trimRight = false) {
+						return trimRight ? line.trimEnd() : line
+					},
+				}
+			},
+		},
+	}
+	return term
+}
+
 describe('createSelectionMode', () => {
 	test('mounts a frozen, selectable text snapshot outside xterm-screen', async () => {
 		addTerminalRows('first output', 'second output')
-		const mode = createSelectionMode(mockTerminal())
+		const mode = createSelectionMode(bufferTerminal('first output', 'second output'))
 		mode.mount()
 
 		await mode.toggle()
@@ -48,9 +70,26 @@ describe('createSelectionMode', () => {
 		expect(snapshot?.textContent).toBe('first output\nsecond output')
 	})
 
+	test('reads every active buffer row exactly without DOM row-count inference', async () => {
+		const lines = Array.from(
+			{ length: 80 },
+			(_, index) => `buffer-${String(index + 1).padStart(3, '0')}   `,
+		)
+		addTerminalRows('DOM output only')
+		const mode = createSelectionMode(bufferTerminal(...lines))
+		mode.mount()
+
+		await mode.toggle()
+
+		const text = document.querySelector('#wt-selection-mode-snapshot')?.textContent ?? ''
+		const expected = lines.map((line) => line.trimEnd()).join('\n')
+		expect(text).toBe(expected)
+		expect(text.split('\n')).toHaveLength(lines.length)
+	})
+
 	test('closes from its button, toggling entry, and Escape', async () => {
 		addTerminalRows('output')
-		const mode = createSelectionMode(mockTerminal())
+		const mode = createSelectionMode(bufferTerminal('output'))
 		mode.mount()
 
 		await mode.toggle()
@@ -70,7 +109,7 @@ describe('createSelectionMode', () => {
 
 	test('dispose removes the Escape listener and overlay', async () => {
 		addTerminalRows('output')
-		const mode = createSelectionMode(mockTerminal())
+		const mode = createSelectionMode(bufferTerminal('output'))
 		mode.mount()
 		await mode.toggle()
 

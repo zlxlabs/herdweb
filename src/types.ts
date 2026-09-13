@@ -395,6 +395,16 @@ export interface XTerminal {
 		active: {
 			cursorX: number
 			cursorY: number
+			/** Total rows in the active xterm buffer, including scrollback. */
+			readonly length?: number
+			/** Read one plain-text row from the active xterm buffer. */
+			getLine?: (index: number) =>
+				| {
+						translateToString: (trimRight?: boolean) => string
+				  }
+				| undefined
+			/** Current top row of the active viewport, including scrollback. */
+			readonly viewportY?: number
 		}
 	}
 	options: {
