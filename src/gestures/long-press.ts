@@ -46,6 +46,7 @@ function isSgrMouseReportingEnabled(term: XTerminal): boolean {
 export function attachLongPressGesture(
 	term: XTerminal,
 	lock: GestureLock,
+	isDrawerOpen: () => boolean,
 ): void {
 	let timer: ReturnType<typeof setTimeout> | null = null
 	let startX = 0
@@ -79,6 +80,7 @@ export function attachLongPressGesture(
 		const screen = screenEl
 		if (!sessionGuard || !sessionGuard()) return
 		if (!touch || !screen) return
+		if (isDrawerOpen()) return
 		if (!isSgrMouseReportingEnabled(term)) return
 		if (!tryLock(lock, 'long-press')) return
 		claimed = true
@@ -91,6 +93,7 @@ export function attachLongPressGesture(
 	function onTouchStart(e: Event): void {
 		if (!(e instanceof TouchEvent)) return
 		abort()
+		if (isDrawerOpen()) return
 		if (e.touches.length !== 1) return
 		const touch = e.touches[0]
 		if (!touch) return
