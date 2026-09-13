@@ -1,0 +1,167 @@
+
+Running 2 tests using 1 worker
+
+(node:2811113) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2811113) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 [chromium-android] › tests/playwright/selection-mode.spec.ts:62:1 › freezes selectable terminal text and excludes later output (5.8s)
+(node:2812367) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:2812367) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  2 [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › selection overlay does not trigger terminal long-press and can be exited (6.5s)
+
+
+  1) [chromium-android] › tests/playwright/selection-mode.spec.ts:62:1 › freezes selectable terminal text and excludes later output 
+
+    Error: [2mexpect([22m[31mreceived[39m[2m).[22mtoEqual[2m([22m[32mexpected[39m[2m) // deep equality[22m
+
+    [32m- Expected  - 2[39m
+    [31m+ Received  + 2[39m
+
+    [2m  Object {[22m
+    [32m-   "insideScreen": false,[39m
+    [32m-   "parentId": "terminal-container",[39m
+    [31m+   "insideScreen": true,[39m
+    [31m+   "parentId": "",[39m
+    [2m    "touchAction": "auto",[22m
+    [2m    "userSelect": "text",[22m
+    [2m  }[22m
+
+    Call Log:
+    - Timeout 5000ms exceeded while waiting on the predicate
+
+      73 | 	const snapshot = page.locator('#wt-selection-mode-snapshot')
+      74 | 	await expect(snapshot).toContainText('selection-before')
+    > 75 | 	await expect
+         | 	^
+      76 | 		.poll(() =>
+      77 | 			page.evaluate(() => {
+      78 | 				const overlay = document.querySelector('#wt-selection-mode')
+        at /home/zlx/projects/oss/herdweb-worktrees/herdweb-20260913-01/tests/playwright/selection-mode.spec.ts:75:2
+
+    Error Context: test-results/selection-mode-freezes-sel-98928-t-and-excludes-later-output-chromium-android/error-context.md
+
+  2) [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › selection overlay does not trigger terminal long-press and can be exited 
+
+    Error: [2mexpect([22m[31mlocator[39m[2m).not.[22mtoContainText[2m([22m[32mexpected[39m[2m)[22m failed
+
+    Locator: locator('body')
+    Expected substring: not [32m"^[[<2;"[39m
+    Received string: [31m"[39m
+    [31mMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMbash-5.2$ printf '\\033[?1000h\\033[?1006hmouse-ready\\n'; cat -vmouse-ready[7m^[[<2;[27m13;11M^[[<2;13;11m 显示已冻结退出bash-5.2$ printf '\\033[?1000h\\033[?1006hmouse-re[39m
+    [31mady\\n'; cat -v[39m
+    [31mmouse-ready[39m
+    [31m [39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31m[39m
+    [31mRetry insertCopy pathCloseSyncedRetry nowRe-authenticateSend comboExamples: C-s, C-[, M-Enter, Alt-xCancelSend×Toolbar — Row 1EscSend Escape keyC-cSend Ctrl-C interrupt (tap twice to quit agents)✥Toggle the floating arrow-key pad⏎Send Enter/Return keyVoiceOpen voice composer🖼Upload an image and insert its temp path into the agent input⌨Toggle the soft keyboard☰Open command drawerToolbar — Row 2Drawer Buttons+ WinCreate herdr windowRenameRename current herdr tabSplit |Split pane verticallySplit —Split pane horizontallyZoomToggle pane zoomSpacesChoose herdr workspaceSidebarToggle herdr sidebarScrollEnter herdr scrollback editorKeysList herdr key bindingsKillKill current pane (with confirm)PrefixSend herdr prefix key (Ctrl-B)PgUpSend Page Up keyPgDnSend Page Down keyC-cSend Ctrl-C interruptC-dSend Ctrl-D keyqSend q keyM-↵Send Alt+Enter (ESC + Enter)SpaceSend Space keyCtrlSticky Ctrl modifier (applies to the next key)ComboOpen combo sender (Ctrl/Alt + key)PastePaste from clipboardFont −Decrease font sizeFont +Increase font size🔔Notification settingsGuideOpen the herdweb help guideSelectSelect and copy frozen terminal textGesturesFinger dragSend wheel scroll events to terminal appsherdweb v1.20.0-dev+3898141×NotificationsOn iPhone, add herdweb to your Home Screen to receive push notifications. Safari tabs cannot subscribe.Push notificationsAway modeOn: ignore presence signals and send notifications immediately.检测并重新授权重新注册 Service WorkerSend test notification历史刷新⠿⌫↑📋←⏎→⇥↓⇧⇥×herdr+ WinRenameSplit |Split —ZoomSpacesSidebarScrollKeysKillPrefixTerminalPgUpPgDnC-cC-dqM-↵SpaceCtrlComboPasteAppFont −Font +🔔GuideSelectEscC-c✥⏎🖼⌨☰[39m
+    [31m[39m
+    [31m"[39m
+    Timeout: 5000ms
+
+    Call log:
+    [2m  - Expect "not toContainText" with timeout 5000ms[22m
+    [2m  - waiting for locator('body')[22m
+    [2m    9 × locator resolved to <body>…</body>[22m
+    [2m      - unexpected value "[22m
+    [2mMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMMbash-5.2$ printf '\033[?1000h\033[?1006hmouse-ready\n'; cat -vmouse-ready^[[<2;13;11M^[[<2;13;11m 显示已冻结退出bash-5.2$ printf '\033[?1000h\033[?1006hmouse-re[22m
+    [2mady\n'; cat -v[22m
+    [2mmouse-ready[22m
+    [2m [22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2m[22m
+    [2mRetry insertCopy pathCloseSyncedRetry nowRe-authenticateSend comboExamples: C-s, C-[, M-Enter, Alt-xCancelSend×Toolbar — Row 1EscSend Escape keyC-cSend Ctrl-C interrupt (tap twice to quit agents)✥Toggle the floating arrow-key pad⏎Send Enter/Return keyVoiceOpen voice composer🖼Upload an image and insert its temp path into the agent input⌨Toggle the soft keyboard☰Open command drawerToolbar — Row 2Drawer Buttons+ WinCreate herdr windowRenameRename current herdr tabSplit |Split pane verticallySplit —Split pane horizontallyZoomToggle pane zoomSpacesChoose herdr workspaceSidebarToggle herdr sidebarScrollEnter herdr scrollback editorKeysList herdr key bindingsKillKill current pane (with confirm)PrefixSend herdr prefix key (Ctrl-B)PgUpSend Page Up keyPgDnSend Page Down keyC-cSend Ctrl-C interruptC-dSend Ctrl-D keyqSend q keyM-↵Send Alt+Enter (ESC + Enter)SpaceSend Space keyCtrlSticky Ctrl modifier (applies to the next key)ComboOpen combo sender (Ctrl/Alt + key)PastePaste from clipboardFont −Decrease font sizeFont +Increase font size🔔Notification settingsGuideOpen the herdweb help guideSelectSelect and copy frozen terminal textGesturesFinger dragSend wheel scroll events to terminal appsherdweb v1.20.0-dev+3898141×NotificationsOn iPhone, add herdweb to your Home Screen to receive push notifications. Safari tabs cannot subscribe.Push notificationsAway modeOn: ignore presence signals and send notifications immediately.检测并重新授权重新注册 Service WorkerSend test notification历史刷新⠿⌫↑📋←⏎→⇥↓⇧⇥×herdr+ WinRenameSplit |Split —ZoomSpacesSidebarScrollKeysKillPrefixTerminalPgUpPgDnC-cC-dqM-↵SpaceCtrlComboPasteAppFont −Font +🔔GuideSelectEscC-c✥⏎🖼⌨☰[22m
+    [2m[22m
+    [2m"[22m
+
+
+      120 | 		.toBe(false)
+      121 | 	await page.waitForTimeout(650)
+    > 122 | 	await expect(page.locator('body')).not.toContainText('^[[<2;')
+          | 	                                       ^
+      123 | 	await dispatchTouch(page, '#wt-selection-mode-snapshot', 'touchend')
+      124 |
+      125 | 	await page.locator('#wt-selection-mode-close').dispatchEvent('touchend', {
+        at /home/zlx/projects/oss/herdweb-worktrees/herdweb-20260913-01/tests/playwright/selection-mode.spec.ts:122:41
+
+    Error Context: test-results/selection-mode-selection-o-6a8e1-ong-press-and-can-be-exited-chromium-android/error-context.md
+
+  2 failed
+    [chromium-android] › tests/playwright/selection-mode.spec.ts:62:1 › freezes selectable terminal text and excludes later output 
+    [chromium-android] › tests/playwright/selection-mode.spec.ts:104:1 › selection overlay does not trigger terminal long-press and can be exited 

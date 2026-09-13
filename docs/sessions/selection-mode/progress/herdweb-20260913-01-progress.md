@@ -11,3 +11,10 @@
 - 本段结论：新增 `select-mode` 的类型、配置校验、默认 App drawer 入口和 action registry 注入；overlay 在移动端初始化并保持在 `.xterm-screen` 外。Chromium Android 与 WebKit iPhone 的冻结文本、可选计算样式、后续输出隔离、overlay 长按不发右键、退出后右键恢复均通过 Playwright。
 - 关键决策与已否决方案：没有改动既有 gestures、`.xterm-screen` CSS、`client-entry` 或 `session`；WebKit 的标准 `userSelect` 属性不可序列化时，验收读取 `-webkit-user-select` 等价计算值。
 - 下一步唯一动作：执行红验、跑完整检查并提交本里程碑。
+
+## 里程碑 3：红验与收尾检查
+
+- 当前阶段：已完成
+- 本段结论：将挂载点故意改为 `.xterm-screen` 后，Chromium Android 选择模式专项 2 条均按预期失败；失败原文已保存到 `docs/sessions/selection-mode/red-verification-selection-mode.txt`，随后恢复 `#terminal-container`，专项双引擎 4/4 通过。完整单元 82 文件、1461 项通过；覆盖率语句 84.78%、分支 85.48%、函数 92.97%、行 84.78%；构建、类型、格式、静态、发布包与部署契约通过。
+- 关键决策与已否决方案：未为完整 Playwright 中未触及本卡的既有 proxy 连接关闭、Chromium offline 重复 resize 失败扩大范围；首轮为 110/124 通过、8 跳过、6 失败，单 worker 重跑相关规格为 41/46 通过、1 跳过、4 失败，新增 selection-mode 规格在两轮均全绿。
+- 下一步唯一动作：交接本分支的两个功能提交与验证结论。
