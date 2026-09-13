@@ -21,7 +21,7 @@ interface ScrollState {
 	readonly maxOffset: number
 }
 
-export interface SelectionModeController {
+interface SelectionModeController {
 	readonly mount: () => void
 	readonly toggle: () => Promise<void>
 	readonly close: () => void
@@ -87,7 +87,7 @@ function renderedTextAtOffset(state: ScrollState): {
 function nextFrame(): Promise<void> {
 	return new Promise((resolve) => {
 		if (typeof window.requestAnimationFrame === 'function') {
-			window.requestAnimationFrame(() => window.requestAnimationFrame(resolve))
+			window.requestAnimationFrame(() => window.requestAnimationFrame(() => resolve()))
 			return
 		}
 		window.setTimeout(resolve, 0)
@@ -140,7 +140,7 @@ async function readRenderedScrollback(): Promise<{
 		return { text: currentRenderedText().join('\n'), offset: 0 }
 	}
 
-	const lines = new Array<string>(state.maxOffset + state.visibleRows).fill('')
+	const lines = Array.from({ length: state.maxOffset + state.visibleRows }, () => '')
 	const step = Math.max(1, state.visibleRows - 1)
 	const offsets: number[] = []
 	for (let offset = 0; offset <= state.maxOffset; offset += step) offsets.push(offset)

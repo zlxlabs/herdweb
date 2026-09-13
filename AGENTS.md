@@ -70,7 +70,7 @@ See `docs/architecture/publishing.md`.
 
 ## Conventions
 
-- Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix' | 'notify-panel'`)
+- Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix' | 'notify-panel' | 'select-mode'`)
 - Unified control schema: use `ControlButton` for both toolbar and drawer items (optional `section` field is drawer-only — toolbar/floating renderers ignore it)
 - Config shape: `drawer.buttons` (not `drawer.commands`)
 - Config via `defineConfig()` — typed, with sensible defaults
@@ -85,3 +85,4 @@ See `docs/architecture/publishing.md`.
 - Agent skill: `.agents/skills/herdweb-setup/SKILL.md` provides AI agents with onboarding and config guidance. When config shape, CLI commands, action types, or validation rules change, update the skill to stay in sync.
 - Agent onboarding: when helping a user set up herdweb (not develop it), read `.agents/skills/herdweb-setup/SKILL.md` and follow its workflow.
 - Voice input: `{ type: 'voice-input' }` is a toolbar-only voice-composer entry; it opens the second-layer composer, whose internal Mic uses tap-to-toggle. It requires `asr.enabled`, HTTPS (except localhost), and a private `.local` provider key. Drawer/floating placement is invalid.
+- Select mode: `{ type: 'select-mode' }` is valid in drawer, toolbar, or floating buttons; it freezes a plain-text terminal snapshot for native selection/copy. Exit with the overlay button, the entry button, or Esc; opening does not auto-exit after copying.

@@ -66,6 +66,13 @@ describe('defaultRow1 (moshi-style single row)', () => {
 		expect(defaultRow1.find((b) => b.action.type === 'prefix')).toBeUndefined()
 		expect(defaultRow1.find((b) => b.action.type === 'paste')).toBeUndefined()
 	})
+
+	test('puts select-mode in the App drawer section', () => {
+		const button = defaultDrawerButtons.find((candidate) => candidate.id === 'select-mode')
+		expect(button?.label).toBe('Select')
+		expect(button?.action).toEqual({ type: 'select-mode' })
+		expect(button?.section).toBe('App')
+	})
 })
 
 describe('defaultRow2', () => {

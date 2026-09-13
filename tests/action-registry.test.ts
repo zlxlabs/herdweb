@@ -811,6 +811,37 @@ describe('image-upload action', () => {
 	})
 })
 
+describe('select-mode action', () => {
+	function makeContext() {
+		return {
+			term: mockTerminal(),
+			kbWasOpen: false,
+			focusIfNeeded() {},
+			async sendText(_data: string) {},
+		}
+	}
+
+	test('calls the injected toggleSelectMode callback', async () => {
+		const toggleSelectMode = vi.fn()
+		const registry = createDefaultActionRegistry({ toggleSelectMode })
+
+		const executed = await registry.execute({ type: 'select-mode' }, makeContext())
+
+		expect(executed).toBe(true)
+		expect(toggleSelectMode).toHaveBeenCalledTimes(1)
+	})
+
+	test('fails loud when no toggleSelectMode callback is available', async () => {
+		const registry = createDefaultActionRegistry()
+		const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+		await expect(registry.execute({ type: 'select-mode' }, makeContext())).rejects.toThrow(
+			'herdweb: select-mode action requires a toggleSelectMode callback',
+		)
+		expect(errorSpy).toHaveBeenCalled()
+	})
+})
+
 describe('help action', () => {
 	test('calls the injected openHelp callback', async () => {
 		const openHelp = vi.fn()

@@ -1251,3 +1251,68 @@ body.wt-composer-open .wt-target-badge {
 #wt-image-drop button:disabled {
 	opacity: 0.5;
 }
+
+/* Frozen plain-text terminal snapshot. It lives under #terminal-container but
+   outside .xterm so the terminal's touch gesture listeners never see it. */
+#wt-selection-mode {
+	position: fixed;
+	inset: 0;
+	z-index: 10000;
+	display: flex;
+	flex-direction: column;
+	box-sizing: border-box;
+	background: #1e1e2e;
+	color: #cdd6f4;
+	user-select: text;
+	-webkit-user-select: text;
+	touch-action: auto;
+}
+
+#wt-selection-mode .wt-selection-mode-bar {
+	display: flex;
+	flex: 0 0 auto;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 56px;
+	box-sizing: border-box;
+	padding: 6px 12px;
+	background: #313244;
+	font-family: system-ui, sans-serif;
+	font-size: 14px;
+	font-weight: 600;
+	user-select: none;
+	-webkit-user-select: none;
+	touch-action: manipulation;
+}
+
+#wt-selection-mode .wt-selection-mode-close {
+	min-width: 64px;
+	min-height: 44px;
+	padding: 4px 12px;
+	border: 0;
+	border-radius: 6px;
+	background: #45475a;
+	color: #cdd6f4;
+	font-size: 13px;
+	font-weight: 600;
+	cursor: pointer;
+	touch-action: manipulation;
+}
+
+#wt-selection-mode-snapshot {
+	flex: 1 1 auto;
+	min-width: 0;
+	min-height: 0;
+	box-sizing: border-box;
+	margin: 0;
+	padding: 12px;
+	background: #1e1e2e;
+	color: #cdd6f4;
+	overflow: auto;
+	white-space: pre;
+	user-select: text;
+	-webkit-user-select: text;
+	-webkit-touch-callout: default;
+	touch-action: auto;
+}

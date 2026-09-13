@@ -15,6 +15,12 @@ export type ButtonAction =
 	| { readonly type: 'voice-input' }
 	| { readonly type: 'image-upload' }
 	| { readonly type: 'notify-panel' }
+	| SelectModeAction
+
+/** Toggle the frozen, plain-text terminal selection overlay. */
+export interface SelectModeAction {
+	readonly type: 'select-mode'
+}
 
 /** A generic control button definition used by toolbar and drawer */
 export interface ControlButton {

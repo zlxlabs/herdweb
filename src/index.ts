@@ -26,6 +26,7 @@ import { attachSwipeGestures } from './gestures/swipe'
 import { createHookRegistry } from './hooks/registry'
 import type { HookRegistry } from './hooks/registry'
 import { setupReconnect } from './reconnect'
+import { createSelectionMode } from './selection/selection-mode'
 import { createStartupResizeScheduler } from './startup-resize'
 import { applyTheme } from './theme/apply'
 import { createToolbar } from './toolbar/toolbar'
@@ -235,6 +236,7 @@ export function init(
 				keyboard = setup.keyboard
 				const effectiveConfig = withVoiceComposerEntry(setup.effectiveConfig)
 				const keyboardController = setup.keyboard
+				const selectionMode = createSelectionMode(term)
 
 				let closeComposerOverlays = (): void => {
 					comboPicker.close()
@@ -263,6 +265,7 @@ export function init(
 					toggleDpad: () => dpad.toggle(),
 					openImageDrop: deps?.openImageDrop,
 					showToast,
+					toggleSelectMode: selectionMode.toggle,
 				})
 
 				// Floating d-pad. send keys emit bytes directly (the typed-input
@@ -393,6 +396,7 @@ export function init(
 				if (config.gestures.doubleTap.enabled) {
 					attachDoubleTapGesture(term, config.gestures.doubleTap, drawer.isOpen)
 				}
+				selectionMode.mount()
 
 				// Height management
 				const scheduleHeightResize = initHeightManager(toolbar, micController?.preview)

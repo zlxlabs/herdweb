@@ -329,6 +329,13 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		action: { type: 'help' },
 		section: 'App',
 	},
+	{
+		id: 'select-mode',
+		label: 'Select',
+		description: 'Select and copy frozen terminal text',
+		action: { type: 'select-mode' },
+		section: 'App',
+	},
 ]
 
 /** Default mobile configuration */

@@ -114,6 +114,23 @@ describe('assertValidConfigOverrides', () => {
 		).not.toThrow()
 	})
 
+	test('accepts select-mode in a drawer button', () => {
+		expect(() =>
+			assertValidConfigOverrides({
+				drawer: {
+					buttons: [
+						{
+							id: 'select',
+							label: 'Select',
+							description: 'Select terminal text',
+							action: { type: 'select-mode' },
+						},
+					],
+				},
+			}),
+		).not.toThrow()
+	})
+
 	test('rejects voice-input outside the toolbar', () => {
 		const voiceButton = {
 			id: 'voice',

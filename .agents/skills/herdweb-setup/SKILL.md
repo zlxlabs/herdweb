@@ -219,6 +219,7 @@ name  theme  font  toolbar  drawer  dpad  gestures  mobile  floatingButtons  scr
 | `voice-input`    | (none)              | Toolbar-only voice composer entry |
 | `image-upload`   | (none)              | Upload image to server tmp dir |
 | `notify-panel`   | (none)              | Opens push notification settings panel (drawer placement) |
+| `select-mode`    | (none)              | Freezes a plain-text terminal snapshot for native selection/copy; exit with the overlay button or Esc |
 
 ### Notify (push notifications)
 

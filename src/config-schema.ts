@@ -38,6 +38,7 @@ const dpadToggleActionSchema = v.strictObject({ type: v.literal('dpad-toggle') }
 const voiceInputActionSchema = v.strictObject({ type: v.literal('voice-input') })
 const imageUploadActionSchema = v.strictObject({ type: v.literal('image-upload') })
 const notifyPanelActionSchema = v.strictObject({ type: v.literal('notify-panel') })
+const selectModeActionSchema = v.strictObject({ type: v.literal('select-mode') })
 
 const buttonActionSchema = v.variant('type', [
 	sendActionSchema,
@@ -53,6 +54,7 @@ const buttonActionSchema = v.variant('type', [
 	voiceInputActionSchema,
 	imageUploadActionSchema,
 	notifyPanelActionSchema,
+	selectModeActionSchema,
 ])
 
 // --- Control button ---

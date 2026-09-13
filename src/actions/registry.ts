@@ -24,6 +24,8 @@ export interface ActionExecutionContext {
 	readonly toggleKeyboard?: () => void
 	/** Toggles the floating d-pad — supplied per call or via registry deps */
 	readonly toggleDpad?: () => void
+	/** Toggles the frozen plain-text terminal selection overlay */
+	readonly toggleSelectMode?: () => void | Promise<void>
 	/** Surfaces a user-visible failure toast (e.g. paste denied) — supplied per call or via registry deps */
 	readonly showToast?: (message: string) => void
 }
@@ -129,6 +131,7 @@ interface DefaultActionDeps {
 	readonly openNotifyPanel?: () => void
 	readonly toggleKeyboard?: () => void
 	readonly toggleDpad?: () => void
+	readonly toggleSelectMode?: () => void | Promise<void>
 	/** Opens the single-file image picker — T3 wires this to the image-drop controller from src/client-entry.ts */
 	readonly openImageDrop?: () => void
 	/** Surfaces a user-visible failure toast (e.g. paste denied) */
@@ -321,6 +324,19 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 			throw error
 		}
 		openImageDrop()
+	})
+
+	registry.register('select-mode', (_action, context) => {
+		const toggleSelectMode = context.toggleSelectMode ?? deps.toggleSelectMode
+		if (!toggleSelectMode) {
+			const error = new Error(
+				'herdweb: select-mode action requires a toggleSelectMode callback ' +
+					'(context.toggleSelectMode or registry deps)',
+			)
+			console.error(error)
+			throw error
+		}
+		return toggleSelectMode()
 	})
 
 	return registry
