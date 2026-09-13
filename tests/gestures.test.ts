@@ -1005,7 +1005,11 @@ describe('attachLongPressGesture', () => {
 		rows = 24,
 	): {
 		screen: HTMLElement
-		term: ReturnType<typeof mockTerminal> & { cols: number; rows: number }
+		term: ReturnType<typeof mockTerminal> & {
+			cols: number
+			rows: number
+			_core: { coreMouseService: { activeProtocol: string; activeEncoding: string } }
+		}
 		sent: string[]
 		lock: ReturnType<typeof createGestureLock>
 	} {
@@ -1014,6 +1018,7 @@ describe('attachLongPressGesture', () => {
 			...mockTerminal(),
 			cols,
 			rows,
+			_core: { coreMouseService: { activeProtocol: 'X10', activeEncoding: 'SGR' } },
 			input(data: string) {
 				sent.push(data)
 			},
@@ -1029,7 +1034,7 @@ describe('attachLongPressGesture', () => {
 		vi.useFakeTimers()
 	})
 
-	afterEach(() => {
+		afterEach(() => {
 		for (const el of document.querySelectorAll('.xterm-screen')) {
 			el.remove()
 		}
@@ -1094,6 +1099,16 @@ describe('attachLongPressGesture', () => {
 		vi.advanceTimersByTime(LONG_PRESS_MS)
 		expect(sent).toEqual([])
 	})
+
+	test('does not send when SGR mouse reporting is disabled', () => {
+		const { screen, term, sent } = mount()
+		term._core.coreMouseService.activeProtocol = 'NONE'
+		const touch = makeTouch(screen, 400, 240)
+		dispatchGesture(screen, 'touchstart', [touch])
+		vi.advanceTimersByTime(LONG_PRESS_MS)
+		expect(sent).toEqual([])
+	})
+
 })
 
 describe('attachDoubleTapGesture', () => {

@@ -23,8 +23,30 @@ function preventContextMenu(e: Event): void {
 	e.preventDefault()
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === 'object' && value !== null
+}
+
+/** SGR reports are safe only while xterm is actively listening for SGR mouse input. */
+function isSgrMouseReportingEnabled(term: XTerminal): boolean {
+	const core = Reflect.get(term, '_core')
+	if (!isRecord(core)) return false
+	const mouseService = core.coreMouseService
+	if (!isRecord(mouseService)) return false
+
+	return (
+		typeof mouseService.activeProtocol === 'string' &&
+		mouseService.activeProtocol !== '' &&
+		mouseService.activeProtocol !== 'NONE' &&
+		mouseService.activeEncoding === 'SGR'
+	)
+}
+
 /** Attach long-press → SGR right-click on the xterm screen */
-export function attachLongPressGesture(term: XTerminal, lock: GestureLock): void {
+export function attachLongPressGesture(
+	term: XTerminal,
+	lock: GestureLock,
+): void {
 	let timer: ReturnType<typeof setTimeout> | null = null
 	let startX = 0
 	let startY = 0
@@ -57,6 +79,7 @@ export function attachLongPressGesture(term: XTerminal, lock: GestureLock): void
 		const screen = screenEl
 		if (!sessionGuard || !sessionGuard()) return
 		if (!touch || !screen) return
+		if (!isSgrMouseReportingEnabled(term)) return
 		if (!tryLock(lock, 'long-press')) return
 		claimed = true
 		const cell = touchToCell(touch, screen, term)
