@@ -263,11 +263,20 @@ const doubleTapResolvedSchema = v.strictObject({
 	maxInterval: finiteNumber,
 })
 
+const longPressOverridesSchema = v.strictObject({
+	enabled: v.optional(v.boolean()),
+})
+
+const longPressResolvedSchema = v.strictObject({
+	enabled: v.boolean(),
+})
+
 const gestureOverridesSchema = v.strictObject({
 	swipe: v.optional(swipeOverridesSchema),
 	pinch: v.optional(pinchOverridesSchema),
 	scroll: v.optional(scrollOverridesSchema),
 	doubleTap: v.optional(doubleTapOverridesSchema),
+	longPress: v.optional(longPressOverridesSchema),
 })
 
 const gestureResolvedSchema = v.strictObject({
@@ -275,6 +284,7 @@ const gestureResolvedSchema = v.strictObject({
 	pinch: pinchResolvedSchema,
 	scroll: scrollResolvedSchema,
 	doubleTap: doubleTapResolvedSchema,
+	longPress: longPressResolvedSchema,
 })
 
 // --- Mobile ---

@@ -382,7 +382,9 @@ export function init(
 
 				// Gestures
 				const gestureLock = createGestureLock()
-				attachLongPressGesture(term, gestureLock)
+				if (config.gestures.longPress.enabled) {
+					attachLongPressGesture(term, gestureLock, drawer.isOpen)
+				}
 				if (config.gestures.swipe.enabled) {
 					const indicator = attachSwipeGestures(term, config.gestures.swipe, drawer.isOpen)
 					document.body.appendChild(indicator)

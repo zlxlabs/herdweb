@@ -136,6 +136,7 @@ export interface GestureConfig {
 	readonly pinch: PinchConfig
 	readonly scroll: ScrollConfig
 	readonly doubleTap: DoubleTapConfig
+	readonly longPress: { readonly enabled: boolean }
 }
 
 /** Soft keyboard behaviour on mobile */
@@ -391,6 +392,8 @@ export type HerdwebConfigOverrides = Omit<
 export interface XTerminal {
 	cols?: number
 	rows?: number
+	/** Whether xterm currently has an active protocol using SGR mouse encoding. */
+	readonly isMouseReportingActive?: boolean
 	buffer?: {
 		active: {
 			cursorX: number

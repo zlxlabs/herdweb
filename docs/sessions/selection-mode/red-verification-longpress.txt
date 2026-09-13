@@ -1,0 +1,63 @@
+红验记录：长按 B1/B3（2026-09-13）
+
+1) B1 判据恒真
+
+临时将 src/gestures/long-press.ts 中 isSgrMouseReportingEnabled() 改为 return true，随后执行：
+
+$ pnpm run test:pw -- tests/playwright/mouse-encoding.spec.ts -g "long-press with mouse reporting disabled"
+Running 10 tests using 2 workers
+✘ [chromium-android] long-press with mouse reporting disabled does not write an SGR sequence
+✘ [webkit-iphone] long-press with mouse reporting disabled does not write an SGR sequence
+
+Error: expect(locator).not.toContainText(expected) failed
+Expected substring: not "^[[<2;"
+Received string: ... mouse-off-ready^[[<2;13;7M^[[<2;13;7m ...
+Timeout: 5000ms
+
+2 failed
+8 passed
+
+这是反向断言失败，实际出现了 SGR 序列；失败类型是明确的期望—实际断言，不是 TypeError 或超时判据。验证后恢复为 bridge 状态判据。
+
+2) B1 判据恒假
+
+临时将 src/gestures/long-press.ts 中 isSgrMouseReportingEnabled() 改为 return false，随后执行：
+
+$ pnpm exec playwright test tests/playwright/mouse-encoding.spec.ts -g "long-press on the terminal emits SGR right-click reports"
+Running 2 tests using 2 workers
+✘ [chromium-android] long-press on the terminal emits SGR right-click reports
+✘ [webkit-iphone] long-press on the terminal emits SGR right-click reports
+
+Error: expect(locator).toContainText(expected) failed
+Locator: locator('body')
+Timeout: 3000ms
+- Expected substring  - 1
+- ^[[<2;
++ Received string ... mouse-ready ...
+
+2 failed
+
+这是正向断言失败；恒假判据不能让正向行为假绿。验证后恢复为 bridge 状态判据。
+
+3) B3 去掉挂载门
+
+临时将 src/index.ts 的 if (config.gestures.longPress.enabled) 改为无条件调用 attachLongPressGesture()，随后执行：
+
+$ pnpm exec playwright test tests/playwright/mouse-encoding.spec.ts -g "disabled long-press configuration"
+Running 4 tests using 2 workers
+✘ [chromium-android] disabled long-press configuration › does not write SGR when disabled
+✘ [chromium-android] disabled long-press configuration › does not suppress contextmenu when disabled
+✘ [webkit-iphone] disabled long-press configuration › does not write SGR when disabled
+✘ [webkit-iphone] disabled long-press configuration › does not suppress contextmenu when disabled
+
+Error: expect(locator).not.toContainText(expected) failed
+Expected substring: not "^[[<2;"
+Received string: ... disabled-ready^[[<2;13;7M^[[<2;13;7m ...
+
+Error: expect(received).toBe(expected) failed
+Expected: false
+Received: true
+
+4 failed
+
+第 2 条 SGR 断言和第 3 条 contextmenu defaultPrevented 断言都转红；失败类型为期望—实际断言。验证后恢复挂载门。

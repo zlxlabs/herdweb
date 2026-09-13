@@ -47,6 +47,7 @@ const defaultGestures: HerdwebConfig['gestures'] = {
 		sendIntervalMs: 33,
 	},
 	doubleTap: { enabled: false, data: '\x02z', maxInterval: 300 },
+	longPress: { enabled: true },
 }
 
 /** Default toolbar entry for the two-layer voice composer. */

@@ -135,6 +135,18 @@ function createTermBridge(
 		get rows() {
 			return term.rows
 		},
+		get isMouseReportingActive() {
+			const core = Reflect.get(term, '_core')
+			if (!isRecord(core)) return false
+			const mouseService = core.coreMouseService
+			if (!isRecord(mouseService)) return false
+			return (
+				typeof mouseService.activeProtocol === 'string' &&
+				mouseService.activeProtocol !== '' &&
+				mouseService.activeProtocol !== 'NONE' &&
+				mouseService.activeEncoding === 'SGR'
+			)
+		},
 		get buffer() {
 			return {
 				active: {

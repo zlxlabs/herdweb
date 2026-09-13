@@ -304,6 +304,7 @@ The pad is draggable: grab the slim `⠿` handle above the key grid to move it (
 | `gestures.scroll.strategy` | `'wheel'` | `'wheel'` or `'keys'` |
 | `gestures.doubleTap.enabled` | `false` | Double-tap zoom toggle |
 | `gestures.doubleTap.data` | `'\x02z'` | Default: zoom toggle |
+| `gestures.longPress.enabled` | `true` | Hold for SGR right-click when mouse reporting is active; disable to turn off the gesture |
 
 ### Mobile
 

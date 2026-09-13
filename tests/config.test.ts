@@ -40,6 +40,13 @@ describe('defineConfig', () => {
 		expect(config.gestures.swipe.rightLabel).toBe('Previous herdr tab')
 		// Pinch defaults preserved
 		expect(config.gestures.pinch.enabled).toBe(false)
+		expect(config.gestures.longPress.enabled).toBe(true)
+	})
+
+	test('allows disabling long-press gesture', () => {
+		expect(
+			defineConfig({ gestures: { longPress: { enabled: false } } }).gestures.longPress.enabled,
+		).toBe(false)
 	})
 
 	test('overrides swipe commands while preserving other swipe defaults', () => {

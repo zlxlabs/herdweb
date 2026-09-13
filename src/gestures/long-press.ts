@@ -23,23 +23,9 @@ function preventContextMenu(e: Event): void {
 	e.preventDefault()
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null
-}
-
 /** SGR reports are safe only while xterm is actively listening for SGR mouse input. */
 function isSgrMouseReportingEnabled(term: XTerminal): boolean {
-	const core = Reflect.get(term, '_core')
-	if (!isRecord(core)) return false
-	const mouseService = core.coreMouseService
-	if (!isRecord(mouseService)) return false
-
-	return (
-		typeof mouseService.activeProtocol === 'string' &&
-		mouseService.activeProtocol !== '' &&
-		mouseService.activeProtocol !== 'NONE' &&
-		mouseService.activeEncoding === 'SGR'
-	)
+	return term.isMouseReportingActive === true
 }
 
 /** Attach long-press → SGR right-click on the xterm screen */
@@ -135,6 +121,7 @@ export function attachLongPressGesture(
 			return
 		}
 		screenEl = screen
+		document.body.classList.add('wt-long-press-enabled')
 		screen.addEventListener('touchstart', onTouchStart, { passive: true })
 		screen.addEventListener('touchmove', onTouchMove, { passive: true })
 		screen.addEventListener('touchend', onTouchEnd, { passive: true })

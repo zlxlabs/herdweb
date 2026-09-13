@@ -1006,20 +1006,20 @@ describe('attachLongPressGesture', () => {
 		isDrawerOpen: () => boolean = () => false,
 	): {
 		screen: HTMLElement
-		term: ReturnType<typeof mockTerminal> & {
-			cols: number
-			rows: number
-			_core: { coreMouseService: { activeProtocol: string; activeEncoding: string } }
-		}
+		term: ReturnType<typeof mockTerminal> & { cols: number; rows: number }
 		sent: string[]
 		lock: ReturnType<typeof createGestureLock>
+		setMouseReportingActive: (active: boolean) => void
 	} {
 		const sent: string[] = []
+		let mouseReportingActive = true
 		const term = {
 			...mockTerminal(),
 			cols,
 			rows,
-			_core: { coreMouseService: { activeProtocol: 'X10', activeEncoding: 'SGR' } },
+			get isMouseReportingActive() {
+				return mouseReportingActive
+			},
 			input(data: string) {
 				sent.push(data)
 			},
@@ -1028,14 +1028,22 @@ describe('attachLongPressGesture', () => {
 		const screen = makeScreen(800, 480)
 		document.body.appendChild(screen)
 		attachLongPressGesture(term, lock, isDrawerOpen)
-		return { screen, term, sent, lock }
+		return {
+			screen,
+			term,
+			sent,
+			lock,
+			setMouseReportingActive(active) {
+				mouseReportingActive = active
+			},
+		}
 	}
 
 	beforeEach(() => {
 		vi.useFakeTimers()
 	})
 
-		afterEach(() => {
+	afterEach(() => {
 		for (const el of document.querySelectorAll('.xterm-screen')) {
 			el.remove()
 		}
@@ -1102,8 +1110,8 @@ describe('attachLongPressGesture', () => {
 	})
 
 	test('does not send when SGR mouse reporting is disabled', () => {
-		const { screen, term, sent } = mount()
-		term._core.coreMouseService.activeProtocol = 'NONE'
+		const { screen, sent, setMouseReportingActive } = mount()
+		setMouseReportingActive(false)
 		const touch = makeTouch(screen, 400, 240)
 		dispatchGesture(screen, 'touchstart', [touch])
 		vi.advanceTimersByTime(LONG_PRESS_MS)
@@ -1117,7 +1125,6 @@ describe('attachLongPressGesture', () => {
 		vi.advanceTimersByTime(LONG_PRESS_MS)
 		expect(sent).toEqual([])
 	})
-
 })
 
 describe('attachDoubleTapGesture', () => {

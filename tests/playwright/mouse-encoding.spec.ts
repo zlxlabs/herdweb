@@ -9,7 +9,13 @@
  * Runs against an isolated server: the test holds the PTY in a modal state
  * (foreground cat + live mouse modes) that must not leak into another test.
  */
+import { join } from 'node:path'
 import { expect, test } from './fixtures'
+import longPressDisabledConfig from './long-press-disabled.config'
+
+void longPressDisabledConfig
+
+const longPressDisabledConfigPath = join(import.meta.dirname, 'long-press-disabled.config.ts')
 
 test('late client taps produce SGR mouse reports', async ({ browser, serve }) => {
 	const firstContext = await browser.newContext({
@@ -143,4 +149,64 @@ test('long-press on the terminal emits SGR right-click reports', async ({ browse
 	} finally {
 		await context.close()
 	}
+})
+
+test('long-press with mouse reporting disabled does not write an SGR sequence', async ({
+	page,
+}) => {
+	await page.goto('/')
+	await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+	await expect
+		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+		.toBe(true)
+
+	await page.evaluate(() => {
+		window.term?.input("printf '\\033[?1000l\\033[?1006lmouse-off-ready\\n'; cat -v\r", true)
+	})
+	await expect(page.locator('body')).toContainText('mouse-off-ready')
+
+	await page.evaluate(dispatchScreenTouch, 'touchstart')
+	await page.waitForTimeout(650)
+	await expect(page.locator('body')).not.toContainText('^[[<2;')
+	await expect(page.locator('body')).not.toContainText('^[[<')
+	await page.evaluate(dispatchScreenTouch, 'touchend')
+})
+
+test.describe('disabled long-press configuration', () => {
+	test.use({ serveOptions: { configPath: longPressDisabledConfigPath } })
+
+	test('does not write SGR when disabled', async ({ page }) => {
+		await page.goto('/')
+		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		await expect
+			.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+			.toBe(true)
+
+		await page.evaluate(() => {
+			window.term?.input("printf '\\033[?1000h\\033[?1006hdisabled-ready\\n'; cat -v\r", true)
+		})
+		await expect(page.locator('body')).toContainText('disabled-ready')
+
+		await page.evaluate(dispatchScreenTouch, 'touchstart')
+		await page.waitForTimeout(650)
+		await expect(page.locator('body')).not.toContainText('^[[<2;')
+		await page.evaluate(dispatchScreenTouch, 'touchend')
+	})
+
+	test('does not suppress contextmenu when disabled', async ({ page }) => {
+		await page.goto('/')
+		await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		await expect
+			.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
+			.toBe(true)
+
+		const contextMenuPrevented = await page.evaluate(() => {
+			const screen = document.querySelector('#terminal .xterm-screen')
+			if (!(screen instanceof HTMLElement)) throw new Error('no .xterm-screen')
+			const event = new MouseEvent('contextmenu', { bubbles: true, cancelable: true })
+			screen.dispatchEvent(event)
+			return event.defaultPrevented
+		})
+		expect(contextMenuPrevented).toBe(false)
+	})
 })
