@@ -7,7 +7,41 @@ on:
     branches: [main, dev]
 
 jobs:
+  # Docs-only fast path ('**.md' + 'docs/**', same convention as zlxlabs/gate callers).
+  # `check` is a REQUIRED status check on main, so the workflow must always trigger:
+  # a job skipped by `if:` reports Success, but a workflow skipped by paths-ignore
+  # leaves the required context pending forever and blocks the merge. Any detection
+  # doubt falls back to running the full check.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs-only: ${{ steps.detect.outputs.docs-only }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base="${{ github.event.pull_request.base.sha }}"
+          else
+            base="${{ github.event.before }}"
+          fi
+          if ! git cat-file -e "$base^{commit}" 2>/dev/null; then
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$base"...HEAD)"
+          if [ -n "$changed" ] && ! grep -qvE '^docs/|\.md$' <<< "$changed"; then
+            echo "docs-only=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs-only=false" >> "$GITHUB_OUTPUT"
+          fi
+
   check:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
