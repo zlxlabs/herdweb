@@ -79,7 +79,8 @@ export function sanitizeVoiceText(text: string): string {
 			(codePoint < 0x20 && codePoint !== 0x09 && codePoint !== 0x0a) ||
 			codePoint === 0x7f ||
 			(codePoint >= 0x80 && codePoint <= 0x9f)
-		) continue
+		)
+			continue
 		if (NON_PRINTING_FORMAT_OR_SEPARATOR.test(character)) continue
 		result += character
 	}
