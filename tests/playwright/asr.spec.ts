@@ -159,6 +159,38 @@ test.describe('Voice composer tap-to-toggle input', () => {
 		await expect(composer).toBeVisible()
 	})
 
+	test('multiline drafts reach the PTY as separate terminal rows', async ({ page, serve }) => {
+		await page.goto(serve.url)
+		const entry = page.locator('[data-herdweb-action="voice-input"]')
+		await entry.click()
+		const composer = page.locator('#wt-asr-composer')
+		const textarea = composer.locator('textarea')
+		const probe = "printf 'L1\nL2'"
+		await textarea.fill(probe)
+		await expect(textarea).toHaveValue(probe)
+
+		await composer.locator('.wt-composer-send').click()
+		const terminalRows = page.locator('#terminal .xterm-rows > div')
+		await expect
+			.poll(
+				async () => {
+					const rows = await terminalRows.allTextContents()
+					return rows.some((row) => row.includes('L1')) && rows.some((row) => row.includes('L2'))
+				},
+				{ timeout: 5_000 },
+			)
+			.toBe(true)
+		const rows = await terminalRows.allTextContents()
+		const l1Row = rows.findIndex((row) => row.includes('L1'))
+		const l2Row = rows.findIndex((row) => row.includes('L2'))
+		expect(l1Row).toBeGreaterThanOrEqual(0)
+		expect(l2Row).toBeGreaterThanOrEqual(0)
+		expect(l1Row).not.toBe(l2Row)
+		expect(rows.some((row) => row.includes('L1L2'))).toBe(false)
+		await expect(textarea).toHaveValue('')
+		await page.screenshot({ path: 'test-results/voice-composer-multiline-sent.png' })
+	})
+
 	test('connection observer replays a disconnected state to late subscribers', async ({
 		page,
 		serve,
