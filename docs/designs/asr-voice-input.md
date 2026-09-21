@@ -136,9 +136,9 @@ idle ──tap──▶ permission-requesting ──start──▶ connecting �
 - mic-controller（onTap、visibilitychange 强制 stop、手势锁、focus 安全）
   + `{type:'voice-input'}` action literal（R7）
 - 状态机（见上节）+ 语音文本预览（partial 流式、确认/编辑/发送、autoEnter 配置）
-- **sanitize（R1，正向定义）**：仅保留可打印字符与空格（剥离 C0 含 `\r`、DEL、C1；除非引用
-  火山文档证明输出字符集），字节级单测；**autoEnter 回车是独立按键，在 sanitize 之后追加，
-  不参与文本 sanitize**（F-2）
+- **sanitize（R1，正向定义）**：仅保留可打印字符、空格、`\n` 与 `\t`；剥离 `\r` 及其余
+  C0、DEL、C1、Cf、Zl、Zp（除非引用火山文档证明输出字符集），字节级单测；**autoEnter
+  回车是独立按键，在 sanitize 之后追加，不参与文本 sanitize**（F-2）
 - 注入路径：readyState 检查 → beforeSendData（可观测非闸门）→ sendData；WS 断开则文本留预览并提示
 - toolbar 按钮 + 能力检测降级（无 getUserMedia / 非 secure context 隐藏）
 - happy-dom 状态机测试 + playwright.config 增加 fake-media-stream launch args
@@ -300,8 +300,9 @@ textarea（client-entry.ts:94-105 `setKeyboardSuppressed`），普通 preview `<
   （NotSupportedError）+ 构造后 sampleRate 校验，双保险；失败回退 pcm.ts 线性抽取
 - **#10 golden bytes**：协议单测断言独立于实现的 golden（spike 实帧）：byte1/2 nibble、
   big-endian payload 长度、gzip 解压后 JSON、PCM s16le；mock 与生产 encode/decode 不互相证明
-- **#12 sanitize 顺序**：voice 路径 = beforeSendData hooks → sanitize → sendData，
-  sanitize 是所有变换之后的最后一道（防 fail-open hook 重新引入 \r/C0）
+- **#12 sanitize 顺序**：voice 路径 = beforeSendData hooks → sanitize → sendData；sanitize
+  正向放行 `\n`/`\t`、剥离 `\r` 及其余控制/格式分隔符，是所有变换之后的最后一道（防
+  fail-open hook 重新引入 `\r`/C0）
 - **#15 发布包冒烟**：增量 1 加 `pnpm pack` → 临时目录安装 → `node dist/cli.mjs serve` →
   请求 `{basePath}asr-worklet.js` 的冒烟测试（防 readPrebuiltAsset 动态 fallback
   掩盖 dist 缺资产；esbuild 是 devDependency）
