@@ -215,11 +215,20 @@ afterEach(() => {
 })
 
 describe('sanitizeVoiceText', () => {
-	test('keeps printable bytes and spaces, strips C0/DEL/C1', () => {
+	test('keeps printable bytes, spaces, line feeds, and tabs, strips C0/DEL/C1', () => {
 		const input = 'A\x00B\tC\nD\rE\x7fF\x80G\x9fH \u4f60\u597d'
 		expect(new TextEncoder().encode(sanitizeVoiceText(input))).toEqual(
-			new TextEncoder().encode('ABCDEFGH \u4f60\u597d'),
+			new TextEncoder().encode('AB\tC\nDEFGH \u4f60\u597d'),
 		)
+	})
+
+	test('preserves multiline text and tab indentation', () => {
+		expect(sanitizeVoiceText('L1\nL2\tL3')).toBe('L1\nL2\tL3')
+	})
+
+	test('strips remaining C0, DEL, C1, and format separators', () => {
+		const input = 'A\x00B\x0bC\x0cD\x0eE\x7fF\x80G\x9fH\u200bI\u2028J\ufeffK'
+		expect(sanitizeVoiceText(input)).toBe('ABCDEFGHIJK')
 	})
 
 	test('strips zero-width, format, bidi, line-separator, and paragraph-separator code points', () => {
@@ -229,8 +238,8 @@ describe('sanitizeVoiceText', () => {
 		)
 	})
 
-	test('empty input remains empty', () => {
-		expect(sanitizeVoiceText('\x00\r\n\t\x7f\x80\x9f')).toBe('')
+	test('keeps allowed controls when all other controls are removed', () => {
+		expect(sanitizeVoiceText('\x00\r\n\t\x7f\x80\x9f')).toBe('\n\t')
 	})
 })
 
@@ -750,9 +759,9 @@ describe('preview injection', () => {
 		const sendButton = controller.preview.element.querySelector('.wt-composer-send')
 		sendButton?.dispatchEvent(new Event('click'))
 		for (let index = 0; index < 8; index++) await Promise.resolve()
-		expect(term.sent).toEqual(['printf "voice-input\\n"\r'])
+		expect(term.sent).toEqual(['printf "voice-input\\n"\n\t\r'])
 		expect(hookCalls[0]).toContain('before:')
-		expect(hookCalls[1]).toBe('after:printf "voice-input\\n"\r')
+		expect(hookCalls[1]).toBe('after:printf "voice-input\\n"\n\t\r')
 		expect(controller.state).toBe('idle')
 		controller.dispose()
 	})
