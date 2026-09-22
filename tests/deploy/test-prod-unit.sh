@@ -14,6 +14,8 @@ has() { grep -F -- "$2" "$1" >/dev/null || fail "$3"; }
 has "$UNIT" 'WorkingDirectory=/home/zlx/.local/share/herdweb' 'production path must be the XDG deployment clone'
 has "$UNIT" 'ExecStart=/home/zlx/.local/share/herdweb/scripts/serve-prod.sh serve --host 127.0.0.1 --port 7681 -- herdr --session default' 'production command contract changed'
 has "$UNIT" 'Environment=PATH=/home/zlx/.local/share/fnm/aliases/default/bin:/home/zlx/.local/bin:' 'production PATH must use fnm default alias'
+has "$UNIT" 'Restart=always' 'production unit must restart after a signalled (SIGTERM) exit'
+has "$UNIT" 'StartLimitIntervalSec=60' 'Restart=always needs a start limit to bound a crash loop'
 grep -F -- 'node-versions/' "$UNIT" >/dev/null && fail 'production PATH must not pin node-versions'
 grep -F -- '0.0.0.0' "$UNIT" >/dev/null && fail 'production unit must remain loopback-only'
 grep -Fx -- '[Install]' "$UNIT" >/dev/null || fail 'production unit must be installable'

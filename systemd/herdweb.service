@@ -1,10 +1,16 @@
 [Unit]
 Description=herdweb production bridge for the default herdr session
 Documentation=file:///home/zlx/.local/share/herdweb/docs/deploy-herdr.md
+# Restart=always means a signalled exit (status 0) still restarts, so bound the
+# loop instead of letting a genuinely broken service spin forever.
+StartLimitIntervalSec=60
+StartLimitBurst=8
 
 [Service]
 Type=simple
-Restart=on-failure
+# SIGTERM is recorded as success, so on-failure never brought the bridge back:
+# an earlyoom/oomd kill left the phone UI down until a human restarted it.
+Restart=always
 RestartSec=3
 Environment=HOME=%h
 Environment=PATH=/home/zlx/.local/share/fnm/aliases/default/bin:/home/zlx/.local/bin:/usr/local/bin:/usr/bin:/bin
