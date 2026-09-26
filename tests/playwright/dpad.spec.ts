@@ -8,14 +8,22 @@
  * and \r (0d) stay distinguishable on screen (-icrnl keeps \r as 0d).
  */
 import type { Page } from '@playwright/test'
+import { type DpadDiagnostics, installDpadDiagnostics } from './dpad-diagnostics'
 import { expect, test } from './fixtures'
 
-test.beforeEach(async ({ page }) => {
+let diag: DpadDiagnostics | undefined
+
+test.beforeEach(async ({ page }, testInfo) => {
+	diag = await installDpadDiagnostics(page, testInfo)
 	await page.goto('/')
 	await page.waitForSelector('#wt-toolbar', { timeout: 10_000 })
 	await expect
 		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
 		.toBe(true)
+})
+
+test.afterEach(async ({ page: _page }, testInfo) => {
+	await diag?.afterTest(testInfo)
 })
 
 async function openDpad(page: Page) {
