@@ -44,9 +44,7 @@ async function screenText(page: Page): Promise<string> {
 test('shows agent sections and lists their Guide descriptions', async ({ page }) => {
 	await openDrawer(page)
 	await expect(page.locator('#wt-drawer-grid .wt-drawer-section')).toHaveText([
-		'Codex',
-		'Claude',
-		'Pi',
+		'Agent',
 		'herdr',
 		'Terminal',
 		'App',
@@ -57,18 +55,8 @@ test('shows agent sections and lists their Guide descriptions', async ({ page })
 	await expect(help).toBeVisible()
 	for (const description of [
 		'Codex: answer pending question (Alt+↑)',
-		'Codex: queue message (Tab)',
-		'Codex: less reasoning (Alt+,)',
-		'Codex: more reasoning (Alt+.)',
-		'Codex: open transcript (Ctrl+T)',
-		'Claude Code: cycle mode (Shift+Tab)',
-		'Claude Code: verbose output (Ctrl+O)',
-		'Claude Code: toggle tasks (Ctrl+T)',
-		'Claude Code: switch model (Alt+P)',
-		'Pi: queue follow-up (Alt+Enter)',
-		'Pi: cycle thinking level (Shift+Tab)',
-		'Pi: cycle models (Ctrl+P)',
-		'Pi: toggle tool output (Ctrl+O)',
+		'Open slash commands',
+		'Codex: invoke a skill',
 	]) {
 		await expect(help).toContainText(description)
 	}
@@ -95,7 +83,7 @@ test('keeps Codex Reply visible and scrolls to the last App button', async ({ pa
 	await expect(page.locator('#wt-selection-mode')).toBeVisible()
 })
 
-test('drawer taps send Codex and Claude bytes to the PTY', async ({ page }) => {
+test('drawer taps send Agent bytes to the PTY', async ({ page }) => {
 	await startByteEcho(page)
 
 	await openDrawer(page)
@@ -103,14 +91,10 @@ test('drawer taps send Codex and Claude bytes to the PTY', async ({ page }) => {
 	await expect.poll(() => screenText(page)).toContain('1b5b313b3341')
 
 	await openDrawer(page)
-	await page
-		.locator('#wt-drawer-grid button')
-		.filter({ hasText: /^Queue$/ })
-		.first()
-		.tap()
-	await expect.poll(() => screenText(page)).toContain('09')
+	await page.getByRole('button', { name: '/', exact: true }).tap()
+	await expect.poll(() => screenText(page)).toContain('2f')
 
 	await openDrawer(page)
-	await page.getByRole('button', { name: 'Mode', exact: true }).tap()
-	await expect.poll(() => screenText(page)).toContain('1b5b5a')
+	await page.getByRole('button', { name: '$', exact: true }).tap()
+	await expect.poll(() => screenText(page)).toContain('24')
 })
