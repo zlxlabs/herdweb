@@ -113,13 +113,18 @@ function mergeSubscriptionDeltas(
 }
 
 export type NotifyDispatchResult =
+	/** Immediate outbound dispatch triggered; see Push notifications delivery contract in docs/configuration.md */
 	| { readonly outcome: 'dispatched'; readonly reason: null }
+	/** Intentionally suppressed by attention policy; see Push notifications delivery contract in docs/configuration.md */
 	| {
 			readonly outcome: 'withheld'
 			readonly reason: 'not-attention' | 'child-done' | 'fyi'
 	  }
+	/** Deferred for 300s due to active user presence; see Push notifications delivery contract in docs/configuration.md */
 	| { readonly outcome: 'deferred'; readonly reason: 'user-present' }
+	/** Coalesced for 600s with trailing done event; see Push notifications delivery contract in docs/configuration.md */
 	| { readonly outcome: 'coalesced'; readonly reason: 'done-coalesced' }
+	/** Dropped as duplicate against recent history; see Push notifications delivery contract in docs/configuration.md */
 	| { readonly outcome: 'duplicate'; readonly reason: 'duplicate' }
 
 export interface NotifyService {
