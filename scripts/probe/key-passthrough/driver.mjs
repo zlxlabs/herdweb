@@ -252,7 +252,6 @@ for (const mode of modes) {
 	const sentinel = Buffer.from('a')
 	const baselineA = await send('baseline-a', sentinel, false, 'baseline')
 	const baselineCtrlT = await send('baseline-ctrl-t', Buffer.from([0x14]), false, 'baseline')
-	const baseline = { a: baselineA, ctrl_t: baselineCtrlT }
 	if (mode === 'none' && prefixByte) {
 		const intercepted = await send(
 			`configured-prefix-${prefix}`,
