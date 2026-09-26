@@ -2,7 +2,7 @@ import type { ButtonAction, ControlButton, XTerminal } from '../types'
 import { el } from '../util/dom'
 import { haptic } from '../util/haptic'
 import { onAttachmentTap } from '../util/tap'
-import { createAttachmentGuard, sendData } from '../util/terminal'
+import { sendData } from '../util/terminal'
 import { suppressSynthesisedMouse } from './keyboard-controller'
 
 /** Default dpad-toggle button (toolbar row1, between ⏎ and ⌨) */
@@ -114,7 +114,7 @@ interface DpadPosition {
  * clicks dispatch directly — press state never outlives its press.
  */
 interface PressSession {
-	/** Re-checks the attachment generation captured at press start; false = the press's target changed mid-press */
+	/** Re-checks the target id captured at press start; false = the press's target changed mid-press */
 	readonly stillCurrent: () => boolean
 	/** True once the long-press/repeat fired — the release tap is then suppressed */
 	holdFired: boolean
@@ -210,12 +210,13 @@ interface DpadDeps {
  * longPress wins and repeat is not wired for that key.
  *
  * Press lifecycle: every press (touchstart/mousedown) creates an explicit
- * PressSession that captures the attachment generation at press start and
+ * PressSession that captures the target id at press start and
  * carries holdFired/aborted/timers. Deferred sends (long-press callback,
  * repeat first shot and every tick) and the trailing mouse click all
- * re-check the generation — when the user switches target/attachment
- * mid-press, the press's timers stop and its release tap is suppressed, so
- * input never leaks into the newly attached session. The tap callback
+ * re-check that target — when the user switches target mid-press, the
+ * press's timers stop and its release tap is suppressed, so input never
+ * leaks into a different target. Same-target re-attach (new attachment id)
+ * does not cancel the press. The tap callback
  * consumes and destroys the session, so press state never outlives its
  * press: with no active press, leave/cancel/close events are no-ops and a
  * bare click (e.g. keyboard Tab+Enter activation) dispatches directly.
@@ -366,7 +367,7 @@ export function createDpad(
 
 		// Per-press lifecycle state, carried by one explicit session object per
 		// key. A press starts on touchstart/mousedown and captures the
-		// attachment generation at that moment; every send derived from the
+		// target id at that moment; every send derived from the
 		// press (deferred callbacks AND the trailing mouse click) re-checks it
 		// before dispatching. The tap callback after release consumes and
 		// destroys the session, and every abort path (touchcancel, mouseleave,
@@ -382,7 +383,7 @@ export function createDpad(
 			activePressAborts.delete(abortPress)
 		}
 
-		/** Gate a deferred send on the press-time attachment; a stale press stops ticking and its release tap is suppressed */
+		/** Gate a deferred send on the press-time target; a stale press (target changed) stops ticking and its release tap is suppressed */
 		const pressStillCurrent = (session: PressSession): boolean => {
 			if (session.stillCurrent()) return true
 			clearPressTimers(session)
@@ -409,7 +410,7 @@ export function createDpad(
 		 * End the press on release: stop timers, but keep the session (guard,
 		 * holdFired, aborted) for the tap callback that follows (click /
 		 * touchend) — the trailing mouse click still has to pass the
-		 * press-time attachment check before it may dispatch.
+		 * press-time target check before it may dispatch.
 		 */
 		const releasePress = (): void => {
 			if (press !== null) clearPressTimers(press)
@@ -419,8 +420,9 @@ export function createDpad(
 		const startPress = (): void => {
 			// Replace any leftover session from a previous, abnormally ended press
 			destroyPress()
+			const capturedTargetId = term.getCurrentTargetId?.() ?? null
 			const session: PressSession = {
-				stillCurrent: createAttachmentGuard(term),
+				stillCurrent: () => (term.getCurrentTargetId?.() ?? null) === capturedTargetId,
 				holdFired: false,
 				aborted: false,
 				delayTimer: undefined,
