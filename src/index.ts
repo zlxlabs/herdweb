@@ -267,6 +267,13 @@ export function init(
 					showToast,
 					toggleSelectMode: selectionMode.toggle,
 				})
+				let toggleCtrlModifier: (() => void) | undefined
+				const toggleSharedCtrlModifier = (): void => {
+					if (!toggleCtrlModifier) {
+						throw new Error('herdweb: toolbar Ctrl modifier is not initialized')
+					}
+					toggleCtrlModifier()
+				}
 
 				// Floating d-pad. send keys emit bytes directly (the typed-input
 				// path); any other action type dispatches through the registry with
@@ -317,6 +324,7 @@ export function init(
 					hooks,
 					appConfig: effectiveConfig,
 					actions,
+					toggleCtrlModifier: toggleSharedCtrlModifier,
 					openComboPicker: comboPicker.open,
 				})
 				document.body.appendChild(drawer.backdrop)
@@ -349,9 +357,11 @@ export function init(
 				;(term as XTerminal & {
 					setStickyCtrlInputHandler?: (handler: (data: string) => string) => void
 				}).setStickyCtrlInputHandler?.(toolbarResult.transformStickyCtrlInput)
+				toggleCtrlModifier = toolbarResult.toggleCtrlModifier
 				const { element: toolbar } = toolbarResult
 				if (targetPicker) toolbar.prepend(targetPicker.badge)
 				document.body.appendChild(toolbar)
+				document.body.appendChild(toolbarResult.ctrlIndicatorElement)
 				await hooks.runToolbarCreated({ term, config: effectiveConfig, toolbar })
 
 				// Floating button groups (always visible on touch devices)
@@ -364,6 +374,7 @@ export function init(
 						actions,
 						drawer.open,
 						comboPicker.open,
+						toggleSharedCtrlModifier,
 					)
 					for (const floatingEl of floatingEls) {
 						document.body.appendChild(floatingEl)

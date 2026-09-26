@@ -28,6 +28,7 @@ export function createDrawer(
 		readonly hooks: HookRegistry
 		readonly appConfig: HerdwebConfig
 		readonly actions?: ActionRegistry
+		readonly toggleCtrlModifier?: () => void
 		readonly openComboPicker?: (options: {
 			readonly sendText: (data: string) => Promise<void>
 			readonly focusIfNeeded: () => void
@@ -108,6 +109,12 @@ export function createDrawer(
 					focusIfNeeded: () => conditionalFocus(term, kbWasOpen),
 					sendText: sendWithHooks,
 					sendRawText: sendWithHooks,
+					toggleCtrlModifier: config.toggleCtrlModifier
+						? () => {
+								config.toggleCtrlModifier?.()
+								conditionalFocus(term, kbWasOpen)
+							}
+						: undefined,
 					openComboPicker: config.openComboPicker,
 				})
 				.catch((error) => {

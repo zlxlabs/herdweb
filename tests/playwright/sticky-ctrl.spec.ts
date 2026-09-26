@@ -13,6 +13,9 @@ writeFileSync(
 		{ id: 'test-ctrl', label: 'Ctrl', description: 'Sticky Ctrl', action: { type: 'ctrl-modifier' } },
 		{ id: 'test-drawer', label: '☰', description: 'Open drawer', action: { type: 'drawer-toggle' } },
 	] },
+	floatingButtons: [{ position: 'top-left', buttons: [
+		{ id: 'test-floating-ctrl', label: 'Ctrl', description: 'Sticky Ctrl', action: { type: 'ctrl-modifier' } },
+	] }],
 }`,
 )
 test.use({ serveOptions: { configPath } })
@@ -46,6 +49,33 @@ test('armed Ctrl sends the next soft-keyboard letter once as a control byte', as
 	const ctrl = page.locator('#wt-toolbar button[data-herdweb-action="ctrl-modifier"]')
 	await ctrl.tap()
 	await expect.poll(() => ctrl.evaluate((button) => (button as HTMLElement).style.background)).not.toBe('')
+	await page.locator('#terminal textarea').focus()
+	await page.keyboard.type('c')
+
+	await expect.poll(() => receivedBytes(page)).toEqual(['03'])
+})
+
+test('drawer Ctrl arms the shared state and stays indicated after the drawer closes', async ({
+	page,
+}) => {
+	await startByteEcho(page)
+	await page.locator('#wt-toolbar button[data-herdweb-action="drawer-toggle"]').tap()
+	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
+	await page.locator('#wt-drawer-grid').getByRole('button', { name: 'Ctrl', exact: true }).tap()
+	await expect(page.locator('#wt-drawer')).not.toHaveClass(/open/)
+	await expect(page.locator('#wt-ctrl-indicator')).toBeVisible()
+
+	await page.locator('#terminal textarea').focus()
+	await page.keyboard.type('c')
+
+	await expect.poll(() => receivedBytes(page)).toEqual(['03'])
+	await expect(page.locator('#wt-ctrl-indicator')).toBeHidden()
+})
+
+test('floating Ctrl uses the same sticky input path', async ({ page }) => {
+	await startByteEcho(page)
+	await page.locator('.wt-floating-group button', { hasText: 'Ctrl' }).tap()
+	await expect(page.locator('#wt-ctrl-indicator')).toBeVisible()
 	await page.locator('#terminal textarea').focus()
 	await page.keyboard.type('c')
 

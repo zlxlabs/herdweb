@@ -187,11 +187,14 @@ export function createDefaultActionRegistry(deps: DefaultActionDeps = {}): Actio
 	})
 
 	registry.register('ctrl-modifier', (_action, context) => {
-		if (context.toggleCtrlModifier) {
-			context.toggleCtrlModifier()
-		} else {
-			context.focusIfNeeded()
+		if (!context.toggleCtrlModifier) {
+			const error = new Error(
+				'herdweb: ctrl-modifier action requires a toggleCtrlModifier callback',
+			)
+			console.error(error)
+			throw error
 		}
+		context.toggleCtrlModifier()
 	})
 
 	registry.register('drawer-toggle', (_action, context) => {
