@@ -158,8 +158,8 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.toolbar.row2).toEqual([])
 	})
 
-	test('has 25 drawer buttons', () => {
-		expect(defaultConfig.drawer.buttons).toHaveLength(26)
+	test('has 43 drawer buttons', () => {
+		expect(defaultConfig.drawer.buttons).toHaveLength(43)
 	})
 
 	test('default row1 contains the image-upload button; the drawer does not', () => {
@@ -169,7 +169,7 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.drawer.buttons.some((button) => button.id === 'image-upload')).toBe(false)
 	})
 
-	test('default drawer uses herdr bindings only', () => {
+	test('default drawer keeps herdr bindings', () => {
 		const byId = new Map(defaultConfig.drawer.buttons.map((button) => [button.id, button]))
 
 		expect(byId.get('herdr-split-v')?.action).toEqual({ type: 'send', data: '\x02v' })
