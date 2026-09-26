@@ -96,7 +96,11 @@ test('drawer taps send Answer, Codex, and Claude bytes to the PTY', async ({ pag
 	await expect.poll(() => screenText(page)).toContain('79')
 
 	await openDrawer(page)
-	await page.locator('#wt-drawer-grid button').filter({ hasText: /^Queue$/ }).first().tap()
+	await page
+		.locator('#wt-drawer-grid button')
+		.filter({ hasText: /^Queue$/ })
+		.first()
+		.tap()
 	await expect.poll(() => screenText(page)).toContain('09')
 
 	await openDrawer(page)
