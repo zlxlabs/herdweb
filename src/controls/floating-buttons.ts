@@ -21,6 +21,7 @@ function createGroupButton(
 				readonly focusIfNeeded: () => void
 		  }) => void)
 		| undefined,
+	toggleCtrlModifier: (() => void) | undefined,
 ): HTMLButtonElement {
 	const button = el('button')
 	button.textContent = def.label
@@ -66,6 +67,12 @@ function createGroupButton(
 				sendRawText: sendWithHooks,
 				openDrawer,
 				openComboPicker,
+				toggleCtrlModifier: toggleCtrlModifier
+					? () => {
+							toggleCtrlModifier()
+							conditionalFocus(term, kbWasOpen)
+						}
+					: undefined,
 			})
 			.catch((error) => {
 				console.error('herdweb: floating button action failed', error)
@@ -98,6 +105,7 @@ export function createFloatingButtons(
 		readonly sendText: (data: string) => Promise<void>
 		readonly focusIfNeeded: () => void
 	}) => void,
+	toggleCtrlModifier?: () => void,
 ): { elements: HTMLDivElement[] } {
 	const elements: HTMLDivElement[] = []
 
@@ -108,7 +116,16 @@ export function createFloatingButtons(
 
 		for (const def of group.buttons) {
 			container.appendChild(
-				createGroupButton(term, def, config, hooks, actions, openDrawer, openComboPicker),
+				createGroupButton(
+					term,
+					def,
+					config,
+					hooks,
+					actions,
+					openDrawer,
+					openComboPicker,
+					toggleCtrlModifier,
+				),
 			)
 		}
 

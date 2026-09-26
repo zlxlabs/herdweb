@@ -87,4 +87,65 @@ describe('parseComboInput', () => {
 		const parsed = parseComboInput('Ctrl-Enter')
 		expect(parsed.ok).toBe(false)
 	})
+
+	test('parses Shift+Tab as the terminal reverse-tab sequence', () => {
+		expect(parseComboInput('S-Tab')).toEqual({ ok: true, data: '\x1b[Z' })
+	})
+
+	test('uppercases a single shifted letter after other supported modifiers', () => {
+		expect(parseComboInput('S-a')).toEqual({ ok: true, data: 'A' })
+		expect(parseComboInput('M-S-a')).toEqual({ ok: true, data: '\x1bA' })
+	})
+
+	test('picker sends Shift+Tab as reverse-tab', () => {
+		const picker = createComboPicker()
+		document.body.appendChild(picker.element)
+		const sent: string[] = []
+		picker.open({
+			async sendText(data) {
+				sent.push(data)
+			},
+			focusIfNeeded() {},
+		})
+
+		const input = picker.element.querySelector<HTMLInputElement>('input')
+		const sendButton = picker.element.querySelector<HTMLButtonElement>('button:last-child')
+		if (!input || !sendButton) throw new Error('combo picker controls are missing')
+		input.value = 'S-Tab'
+		sendButton.click()
+
+		expect(sent).toEqual(['\x1b[Z'])
+	})
+
+	test.each(['S-Enter', 'S-Up', 'S-F8', 'C-S-Tab'])(
+		'rejects unsupported Shift combination %s',
+		(value) => {
+			expect(parseComboInput(value)).toEqual({
+				ok: false,
+				error: expect.stringContaining('Shift'),
+			})
+		},
+	)
+
+	test('shows an unsupported Shift error in the picker without sending', async () => {
+		const picker = createComboPicker()
+		document.body.appendChild(picker.element)
+		const sent: string[] = []
+		picker.open({
+			async sendText(data) {
+				sent.push(data)
+			},
+			focusIfNeeded() {},
+		})
+
+		const input = picker.element.querySelector('input')
+		const sendButton = picker.element.querySelector<HTMLButtonElement>('button:last-child')
+		if (!input || !sendButton) throw new Error('combo picker controls are missing')
+		input.value = 'S-Enter'
+		sendButton.click()
+
+		expect(picker.element.querySelector('.wt-combo-error')?.textContent).toContain('Shift')
+		expect(sent).toEqual([])
+		expect(picker.element.style.display).toBe('flex')
+	})
 })

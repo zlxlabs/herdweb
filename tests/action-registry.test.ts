@@ -278,23 +278,25 @@ describe('createDefaultActionRegistry', () => {
 		expect(opened).toBe(true)
 	})
 
-	test('ctrl-modifier falls back to focus when toggle unavailable', async () => {
+	test('ctrl-modifier fails when its toggle callback is unavailable', async () => {
 		const registry = createDefaultActionRegistry()
 		let focused = false
 
-		await registry.execute(
-			{ type: 'ctrl-modifier' },
-			{
-				term: mockTerminal(),
-				kbWasOpen: false,
-				focusIfNeeded() {
-					focused = true
+		await expect(
+			registry.execute(
+				{ type: 'ctrl-modifier' },
+				{
+					term: mockTerminal(),
+					kbWasOpen: false,
+					focusIfNeeded() {
+						focused = true
+					},
+					async sendText(_data: string) {},
 				},
-				async sendText(_data: string) {},
-			},
-		)
+			),
+		).rejects.toThrow('herdweb: ctrl-modifier action requires a toggleCtrlModifier callback')
 
-		expect(focused).toBe(true)
+		expect(focused).toBe(false)
 	})
 
 	test('paste failure surfaces a toast and restores focus (fail-loud, not silent)', async () => {

@@ -18,6 +18,10 @@ interface ComboTokens {
 	readonly key: string
 }
 
+type ComboModifiersResult =
+	| { readonly ok: true; readonly ctrl: boolean; readonly alt: boolean; readonly shift: boolean }
+	| { readonly ok: false; readonly error: string }
+
 const NAMED_KEYS = [
 	'pagedown',
 	'pageup',
@@ -136,30 +140,36 @@ function applyCtrl(base: string, key: string, keyLower: string): ComboParseResul
 	}
 }
 
+function parseModifiers(modifiers: readonly string[]): ComboModifiersResult {
+	const hasShift = modifiers.some((modifier) => ['s', 'shift'].includes(modifier.toLowerCase()))
+	const supported = new Set(['c', 'ctrl', 'control', 'm', 'meta', 'alt', 'a', 's', 'shift'])
+	if (hasShift && modifiers.some((modifier) => !supported.has(modifier.toLowerCase()))) {
+		return { ok: false, error: 'Unsupported Shift combo for this key.' }
+	}
+
+	let ctrl = false
+	let alt = false
+	let shift = false
+	for (const modifier of modifiers) {
+		const token = modifier.toLowerCase()
+		if (token === 'c' || token === 'ctrl' || token === 'control') ctrl = true
+		else if (token === 'm' || token === 'meta' || token === 'alt' || token === 'a') alt = true
+		else if (token === 's' || token === 'shift') shift = true
+		else return { ok: false, error: `Unknown modifier: ${modifier}` }
+	}
+
+	return { ok: true, ctrl, alt, shift }
+}
+
 export function parseComboInput(value: string): ComboParseResult {
 	const tokens = parseComboTokens(value)
 	if (!tokens) {
 		return { ok: false, error: 'Type a combo like C-s, M-Enter, or C-[.' }
 	}
 
-	let ctrl = false
-	let alt = false
-
-	for (const modifier of tokens.modifiers) {
-		const token = modifier.toLowerCase()
-		if (token === 'c' || token === 'ctrl' || token === 'control') {
-			ctrl = true
-			continue
-		}
-		if (token === 'm' || token === 'meta' || token === 'alt' || token === 'a') {
-			alt = true
-			continue
-		}
-		if (token === 's' || token === 'shift') {
-			continue
-		}
-		return { ok: false, error: `Unknown modifier: ${modifier}` }
-	}
+	const parsedModifiers = parseModifiers(tokens.modifiers)
+	if (!parsedModifiers.ok) return parsedModifiers
+	const { ctrl, alt, shift } = parsedModifiers
 
 	const keyToken = tokens.key
 	if (!keyToken) {
@@ -171,6 +181,21 @@ export function parseComboInput(value: string): ComboParseResult {
 	if (!base.ok) return base
 
 	let data = base.data
+	if (shift) {
+		if (keyLower === 'tab') {
+			if (ctrl) {
+				return { ok: false, error: 'Unsupported Shift combo for this key.' }
+			}
+			data = '\x1b[Z'
+		} else if (
+			keyToken.length === 1 &&
+			((keyToken >= 'A' && keyToken <= 'Z') || (keyToken >= 'a' && keyToken <= 'z'))
+		) {
+			data = keyToken.toUpperCase()
+		} else {
+			return { ok: false, error: 'Unsupported Shift combo for this key.' }
+		}
+	}
 	if (ctrl) {
 		const next = applyCtrl(data, keyToken, keyLower)
 		if (!next.ok) return next

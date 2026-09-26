@@ -13,14 +13,14 @@ import { createAttachmentGuard, sendData } from '../util/terminal'
 /** Ctrl sticky modifier state */
 interface CtrlState {
 	active: boolean
-	disposer: { dispose(): void } | null
 	buttonEl: HTMLButtonElement | null
+	indicatorEl: HTMLSpanElement | null
 	generation: string | null | undefined
 }
 
 /** Create the ctrl modifier state manager */
 function createCtrlState(): CtrlState {
-	return { active: false, disposer: null, buttonEl: null, generation: undefined }
+	return { active: false, buttonEl: null, indicatorEl: null, generation: undefined }
 }
 
 /** Create the inline composer icon used by the circular voice-input entry. */
@@ -47,36 +47,23 @@ function createComposerIcon(): SVGSVGElement {
 
 /** Activate ctrl sticky modifier */
 function activateCtrl(state: CtrlState, term: XTerminal, theme: HerdwebConfig['theme']): void {
-	if (!state.buttonEl) return
 	state.active = true
 	state.generation = term.getAttachmentId?.()
-	state.buttonEl.style.background = theme.blue
-	state.buttonEl.style.color = theme.background
-
-	if (!state.disposer) {
-		state.disposer = term.onData((data: string) => {
-			if (state.active && term.getAttachmentId?.() === state.generation && data.length === 1) {
-				const code = data.charCodeAt(0)
-				deactivateCtrl(state, theme)
-				if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
-					sendData(term, String.fromCharCode(code & 0x1f))
-				}
-			}
-		})
+	if (state.buttonEl) {
+		state.buttonEl.style.background = theme.blue
+		state.buttonEl.style.color = theme.background
 	}
+	if (state.indicatorEl) state.indicatorEl.hidden = false
 }
 
 /** Deactivate ctrl sticky modifier */
 function deactivateCtrl(state: CtrlState, theme: HerdwebConfig['theme']): void {
-	if (!state.buttonEl) return
 	state.active = false
-	state.buttonEl.style.background = theme.black
-	state.buttonEl.style.color = theme.foreground
-
-	if (state.disposer) {
-		state.disposer.dispose()
-		state.disposer = null
+	if (state.buttonEl) {
+		state.buttonEl.style.background = theme.black
+		state.buttonEl.style.color = theme.foreground
 	}
+	if (state.indicatorEl) state.indicatorEl.hidden = true
 }
 
 /** Wire up a single button's click handler based on its action type */
@@ -90,6 +77,7 @@ function wireButton(
 	hooks: HookRegistry,
 	openDrawer: () => void,
 	micController: MicController | undefined,
+	toggleCtrlModifier: () => void,
 	openComboPicker?: (options: {
 		readonly sendText: (data: string) => Promise<void>
 		readonly focusIfNeeded: () => void
@@ -119,7 +107,7 @@ function wireButton(
 			if (!isGenerationCurrent()) return
 
 			let nextData = before.data
-			if (ctrlState.active && ctrlState.buttonEl) {
+			if (ctrlState.active) {
 				deactivateCtrl(ctrlState, config.theme)
 				if (nextData.length === 1) {
 					const code = nextData.charCodeAt(0)
@@ -173,11 +161,7 @@ function wireButton(
 				openDrawer,
 				openComboPicker,
 				toggleCtrlModifier: () => {
-					if (ctrlState.active) {
-						deactivateCtrl(ctrlState, config.theme)
-					} else {
-						activateCtrl(ctrlState, term, config.theme)
-					}
+					toggleCtrlModifier()
 					conditionalFocus(term, kbWasOpen)
 				},
 			})
@@ -204,6 +188,7 @@ function buildRow(
 	hooks: HookRegistry,
 	openDrawer: () => void,
 	micController: MicController | undefined,
+	toggleCtrlModifier: () => void,
 	openComboPicker?: (options: {
 		readonly sendText: (data: string) => Promise<void>
 		readonly focusIfNeeded: () => void
@@ -238,6 +223,7 @@ function buildRow(
 			hooks,
 			openDrawer,
 			micController,
+			toggleCtrlModifier,
 			openComboPicker,
 		)
 		row.appendChild(button)
@@ -249,6 +235,9 @@ function buildRow(
 interface ToolbarResult {
 	readonly element: HTMLDivElement
 	readonly ctrlState: CtrlState
+	readonly ctrlIndicatorElement: HTMLSpanElement
+	readonly transformStickyCtrlInput: (data: string) => string
+	readonly toggleCtrlModifier: () => void
 }
 
 /** Create the toolbar; empty rows are skipped (single-row by default) */
@@ -266,6 +255,13 @@ export function createToolbar(
 ): ToolbarResult {
 	const toolbar = el('div', { id: 'wt-toolbar' })
 	const ctrlState = createCtrlState()
+	const toggleCtrlModifier = (): void => {
+		if (ctrlState.active) {
+			deactivateCtrl(ctrlState, config.theme)
+		} else {
+			activateCtrl(ctrlState, term, config.theme)
+		}
+	}
 
 	for (const buttons of [config.toolbar.row1, config.toolbar.row2]) {
 		if (buttons.length === 0) continue
@@ -279,14 +275,55 @@ export function createToolbar(
 				hooks,
 				openDrawer,
 				micController,
+				toggleCtrlModifier,
 				openComboPicker,
 			),
 		)
 	}
 
+	const ctrlIndicator = el('span', {
+		id: 'wt-ctrl-indicator',
+		role: 'status',
+		'aria-live': 'polite',
+	})
+	ctrlIndicator.textContent = 'Ctrl armed'
+	ctrlIndicator.hidden = true
+	ctrlIndicator.style.background = config.theme.blue
+	ctrlIndicator.style.color = config.theme.background
+	ctrlIndicator.style.borderRadius = '6px'
+	ctrlIndicator.style.fontSize = '12px'
+	ctrlIndicator.style.fontWeight = '600'
+	ctrlIndicator.style.padding = '3px 10px'
+	ctrlIndicator.style.position = 'fixed'
+	ctrlIndicator.style.right = '12px'
+	ctrlIndicator.style.bottom = 'calc(var(--wt-toolbar-height, 64px) + var(--kb-inset, 0px) + 8px)'
+	ctrlIndicator.style.zIndex = '10000'
+	ctrlState.indicatorEl = ctrlIndicator
+
 	term.onConnectionStatusChange((status) => {
 		if (status.state !== 'synced' && ctrlState.active) deactivateCtrl(ctrlState, config.theme)
 	})
 
-	return { element: toolbar, ctrlState }
+	return {
+		element: toolbar,
+		ctrlState,
+		ctrlIndicatorElement: ctrlIndicator,
+		toggleCtrlModifier,
+		transformStickyCtrlInput(data: string): string {
+			if (
+				!ctrlState.active ||
+				term.getAttachmentId?.() !== ctrlState.generation ||
+				data.length !== 1
+			) {
+				return data
+			}
+
+			const code = data.charCodeAt(0)
+			deactivateCtrl(ctrlState, config.theme)
+			if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+				return String.fromCharCode(code & 0x1f)
+			}
+			return data
+		},
+	}
 }

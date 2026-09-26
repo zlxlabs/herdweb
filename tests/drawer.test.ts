@@ -104,4 +104,24 @@ describe('drawer section headings', () => {
 		expect(drawer.querySelectorAll('#wt-drawer-grid .wt-drawer-section').length).toBe(0)
 		expect(drawer.querySelectorAll('#wt-drawer-grid button').length).toBe(2)
 	})
+
+	test('ctrl-modifier invokes the shared toolbar state callback', () => {
+		const config = defineConfig()
+		let toggled = false
+		const { drawer, open, isOpen } = createDrawer(mockTerminal(), config.drawer.buttons, {
+			hooks: createHookRegistry(),
+			appConfig: config,
+			toggleCtrlModifier() {
+				toggled = true
+			},
+		})
+		open()
+		const ctrl = [...drawer.querySelectorAll<HTMLButtonElement>('#wt-drawer-grid button')].find(
+			(button) => button.textContent === 'Ctrl',
+		)
+		ctrl?.click()
+
+		expect(toggled).toBe(true)
+		expect(isOpen()).toBe(false)
+	})
 })
