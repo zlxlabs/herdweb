@@ -15,3 +15,8 @@ herdweb.config.ts
 herdweb.config.js
 herdweb.config.local.ts
 herdweb.config.local.js
+
+# Local flock targets created by the acceptance/consult ledgers — never authored by hand
+retro/*.lock
+# Local scratch dir (e.g. design-reference clips linked from docs/designs)
+/tmp/
