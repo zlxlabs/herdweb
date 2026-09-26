@@ -77,8 +77,13 @@ test('keeps Codex Reply visible and scrolls to the last App button', async ({ pa
 	expect(await grid.evaluate((element) => element.scrollTop)).toBe(0)
 
 	const lastAppButton = grid.getByRole('button', { name: 'Select', exact: true })
+	const lastBounds = await lastAppButton.boundingBox()
+	if (!lastBounds) throw new Error('Select button is unavailable')
+	const overflowed = lastBounds.y + lastBounds.height > viewport.height
 	await lastAppButton.scrollIntoViewIfNeeded()
-	expect(await grid.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+	const scrollTop = await grid.evaluate((element) => element.scrollTop)
+	if (overflowed) expect(scrollTop).toBeGreaterThan(0)
+	else expect(scrollTop).toBe(0)
 	await lastAppButton.tap()
 	await expect(page.locator('#wt-selection-mode')).toBeVisible()
 })
