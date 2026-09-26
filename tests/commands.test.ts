@@ -2,8 +2,8 @@ import { describe, expect, test } from 'vitest'
 import { defaultDrawerButtons } from '../src/drawer/commands'
 
 describe('defaultDrawerButtons', () => {
-	test('has 43 commands', () => {
-		expect(defaultDrawerButtons).toHaveLength(43)
+	test('has 44 commands', () => {
+		expect(defaultDrawerButtons).toHaveLength(44)
 	})
 
 	test('all commands have id, label, description, and action', () => {

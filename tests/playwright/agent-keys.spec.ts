@@ -50,6 +50,7 @@ test('shows Answer and agent sections and lists their Guide descriptions', async
 		'Answer option 3',
 		'Answer yes',
 		'Answer no',
+		'Codex: answer pending question (Alt+↑)',
 		'Codex: queue message (Tab)',
 		'Codex: less reasoning (Alt+,)',
 		'Codex: more reasoning (Alt+.)',
@@ -94,6 +95,10 @@ test('drawer taps send Answer, Codex, and Claude bytes to the PTY', async ({ pag
 	await openDrawer(page)
 	await page.getByRole('button', { name: 'y', exact: true }).tap()
 	await expect.poll(() => screenText(page)).toContain('79')
+
+	await openDrawer(page)
+	await page.getByRole('button', { name: 'Reply', exact: true }).tap()
+	await expect.poll(() => screenText(page)).toContain('1b5b313b3341')
 
 	await openDrawer(page)
 	await page

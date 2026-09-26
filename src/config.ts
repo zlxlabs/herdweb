@@ -190,6 +190,13 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		section: 'Answer',
 	},
 	{
+		id: 'codex-reply',
+		label: 'Reply',
+		description: 'Codex: answer pending question (Alt+↑)',
+		action: { type: 'send', data: '\x1b[1;3A' },
+		section: 'Codex',
+	},
+	{
 		id: 'codex-queue',
 		label: 'Queue',
 		description: 'Codex: queue message (Tab)',
