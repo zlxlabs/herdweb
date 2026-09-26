@@ -337,7 +337,7 @@ export function init(
 				})
 
 				// Create toolbar
-				const { element: toolbar } = createToolbar(
+				const toolbarResult = createToolbar(
 					term,
 					effectiveConfig,
 					drawer.open,
@@ -346,6 +346,10 @@ export function init(
 					comboPicker.open,
 					micController,
 				)
+				;(term as XTerminal & {
+					setStickyCtrlInputHandler?: (handler: (data: string) => string) => void
+				}).setStickyCtrlInputHandler?.(toolbarResult.transformStickyCtrlInput)
+				const { element: toolbar } = toolbarResult
 				if (targetPicker) toolbar.prepend(targetPicker.badge)
 				document.body.appendChild(toolbar)
 				await hooks.runToolbarCreated({ term, config: effectiveConfig, toolbar })

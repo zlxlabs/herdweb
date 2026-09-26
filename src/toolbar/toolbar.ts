@@ -13,14 +13,13 @@ import { createAttachmentGuard, sendData } from '../util/terminal'
 /** Ctrl sticky modifier state */
 interface CtrlState {
 	active: boolean
-	disposer: { dispose(): void } | null
 	buttonEl: HTMLButtonElement | null
 	generation: string | null | undefined
 }
 
 /** Create the ctrl modifier state manager */
 function createCtrlState(): CtrlState {
-	return { active: false, disposer: null, buttonEl: null, generation: undefined }
+	return { active: false, buttonEl: null, generation: undefined }
 }
 
 /** Create the inline composer icon used by the circular voice-input entry. */
@@ -52,18 +51,6 @@ function activateCtrl(state: CtrlState, term: XTerminal, theme: HerdwebConfig['t
 	state.generation = term.getAttachmentId?.()
 	state.buttonEl.style.background = theme.blue
 	state.buttonEl.style.color = theme.background
-
-	if (!state.disposer) {
-		state.disposer = term.onData((data: string) => {
-			if (state.active && term.getAttachmentId?.() === state.generation && data.length === 1) {
-				const code = data.charCodeAt(0)
-				deactivateCtrl(state, theme)
-				if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
-					sendData(term, String.fromCharCode(code & 0x1f))
-				}
-			}
-		})
-	}
 }
 
 /** Deactivate ctrl sticky modifier */
@@ -73,10 +60,6 @@ function deactivateCtrl(state: CtrlState, theme: HerdwebConfig['theme']): void {
 	state.buttonEl.style.background = theme.black
 	state.buttonEl.style.color = theme.foreground
 
-	if (state.disposer) {
-		state.disposer.dispose()
-		state.disposer = null
-	}
 }
 
 /** Wire up a single button's click handler based on its action type */
@@ -249,6 +232,7 @@ function buildRow(
 interface ToolbarResult {
 	readonly element: HTMLDivElement
 	readonly ctrlState: CtrlState
+	readonly transformStickyCtrlInput: (data: string) => string
 }
 
 /** Create the toolbar; empty rows are skipped (single-row by default) */
@@ -288,5 +272,25 @@ export function createToolbar(
 		if (status.state !== 'synced' && ctrlState.active) deactivateCtrl(ctrlState, config.theme)
 	})
 
-	return { element: toolbar, ctrlState }
+	return {
+		element: toolbar,
+		ctrlState,
+		transformStickyCtrlInput(data: string): string {
+			if (
+				!ctrlState.active ||
+				!ctrlState.buttonEl ||
+				term.getAttachmentId?.() !== ctrlState.generation ||
+				data.length !== 1
+			) {
+				return data
+			}
+
+			const code = data.charCodeAt(0)
+			deactivateCtrl(ctrlState, config.theme)
+			if ((code >= 65 && code <= 90) || (code >= 97 && code <= 122)) {
+				return String.fromCharCode(code & 0x1f)
+			}
+			return data
+		},
+	}
 }

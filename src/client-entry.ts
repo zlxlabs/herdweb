@@ -95,6 +95,11 @@ type TerminalMessage =
 	| { readonly type: 'input'; readonly data: string }
 	| { readonly type: 'resize'; readonly cols: number; readonly rows: number }
 
+interface StickyCtrlInputTerminal {
+	setStickyCtrlInputHandler(handler: (data: string) => string): void
+	transformStickyCtrlInput(data: string): string
+}
+
 function createTermBridge(
 	term: Terminal,
 	send: (message: TerminalMessage) => void,
@@ -106,7 +111,8 @@ function createTermBridge(
 	getSessionId: () => string | null,
 	sendInputAction: (id: string, data: string) => boolean,
 	onInputActionResult: (handler: (result: InputActionResult) => void) => { dispose(): void },
-): XTerminal {
+): XTerminal & StickyCtrlInputTerminal {
+	let stickyCtrlInputHandler = (data: string): string => data
 	const options: XTerminal['options'] = {
 		get fontSize() {
 			return typeof term.options.fontSize === 'number' ? term.options.fontSize : 14
@@ -204,6 +210,12 @@ function createTermBridge(
 		},
 		onData(handler: (data: string) => void) {
 			return term.onData(handler)
+		},
+		setStickyCtrlInputHandler(handler: (data: string) => string) {
+			stickyCtrlInputHandler = handler
+		},
+		transformStickyCtrlInput(data: string) {
+			return stickyCtrlInputHandler(data)
 		},
 		isConnected,
 		onConnectionChange,
@@ -1129,7 +1141,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	}
 	// xterm handles real keyboard/touch input locally; forward it to the shared PTY.
 	term.onData((data) => {
-		send({ type: 'input', data })
+		send({ type: 'input', data: termBridge.transformStickyCtrlInput(data) })
 	})
 	window.term = termBridge
 	window.__herdwebResize = syncSize
