@@ -15,7 +15,7 @@ async function openDrawer(page: Page): Promise<void> {
 	await page.locator('#wt-toolbar button', { hasText: '☰' }).tap()
 	await expect(drawer).toHaveClass(/open/)
 	// class=open starts the 0.25s translateY slide; measuring before it
-	// settles puts Answer below the viewport (CI: y-bottom 842 > 727).
+	// settles puts Codex Reply below the viewport (CI: y-bottom 842 > 727).
 	await expect
 		.poll(() =>
 			drawer.evaluate((element) => {
@@ -41,13 +41,10 @@ async function screenText(page: Page): Promise<string> {
 	return (await page.locator('#terminal .xterm-rows').textContent()) ?? ''
 }
 
-test('shows Answer and agent sections and lists their Guide descriptions', async ({ page }) => {
+test('shows agent sections and lists their Guide descriptions', async ({ page }) => {
 	await openDrawer(page)
 	await expect(page.locator('#wt-drawer-grid .wt-drawer-section')).toHaveText([
-		'Answer',
-		'Codex',
-		'Claude',
-		'Pi',
+		'Agent',
 		'herdr',
 		'Terminal',
 		'App',
@@ -57,70 +54,52 @@ test('shows Answer and agent sections and lists their Guide descriptions', async
 	const help = page.locator('#wt-help')
 	await expect(help).toBeVisible()
 	for (const description of [
-		'Answer option 1',
-		'Answer option 2',
-		'Answer option 3',
-		'Answer yes',
-		'Answer no',
 		'Codex: answer pending question (Alt+↑)',
-		'Codex: queue message (Tab)',
-		'Codex: less reasoning (Alt+,)',
-		'Codex: more reasoning (Alt+.)',
-		'Codex: open transcript (Ctrl+T)',
-		'Claude Code: cycle mode (Shift+Tab)',
-		'Claude Code: verbose output (Ctrl+O)',
-		'Claude Code: toggle tasks (Ctrl+T)',
-		'Claude Code: switch model (Alt+P)',
-		'Pi: queue follow-up (Alt+Enter)',
-		'Pi: cycle thinking level (Shift+Tab)',
-		'Pi: cycle models (Ctrl+P)',
-		'Pi: toggle tool output (Ctrl+O)',
+		'Open slash commands',
+		'Codex: invoke a skill',
 	]) {
 		await expect(help).toContainText(description)
 	}
 })
 
-test('keeps Answer visible and scrolls to the last App button', async ({ page }) => {
+test('keeps Codex Reply visible and scrolls to the last App button', async ({ page }) => {
 	await openDrawer(page)
 
 	const grid = page.locator('#wt-drawer-grid')
-	const answerYes = page.getByRole('button', { name: 'y', exact: true })
-	const answerBounds = await answerYes.boundingBox()
+	const reply = page.getByRole('button', { name: 'Reply', exact: true })
+	const replyBounds = await reply.boundingBox()
 	const viewport = page.viewportSize()
-	if (!answerBounds || !viewport) throw new Error('Answer button or viewport is unavailable')
-	expect(answerBounds.x).toBeGreaterThanOrEqual(0)
-	expect(answerBounds.y).toBeGreaterThanOrEqual(0)
-	expect(answerBounds.x + answerBounds.width).toBeLessThanOrEqual(viewport.width)
-	expect(answerBounds.y + answerBounds.height).toBeLessThanOrEqual(viewport.height)
+	if (!replyBounds || !viewport) throw new Error('Reply button or viewport is unavailable')
+	expect(replyBounds.x).toBeGreaterThanOrEqual(0)
+	expect(replyBounds.y).toBeGreaterThanOrEqual(0)
+	expect(replyBounds.x + replyBounds.width).toBeLessThanOrEqual(viewport.width)
+	expect(replyBounds.y + replyBounds.height).toBeLessThanOrEqual(viewport.height)
 	expect(await grid.evaluate((element) => element.scrollTop)).toBe(0)
 
 	const lastAppButton = grid.getByRole('button', { name: 'Select', exact: true })
+	const lastBounds = await lastAppButton.boundingBox()
+	if (!lastBounds) throw new Error('Select button is unavailable')
+	const overflowed = lastBounds.y + lastBounds.height > viewport.height
 	await lastAppButton.scrollIntoViewIfNeeded()
-	expect(await grid.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+	const scrollTop = await grid.evaluate((element) => element.scrollTop)
+	if (overflowed) expect(scrollTop).toBeGreaterThan(0)
+	else expect(scrollTop).toBe(0)
 	await lastAppButton.tap()
 	await expect(page.locator('#wt-selection-mode')).toBeVisible()
 })
 
-test('drawer taps send Answer, Codex, and Claude bytes to the PTY', async ({ page }) => {
+test('drawer taps send Agent bytes to the PTY', async ({ page }) => {
 	await startByteEcho(page)
-
-	await openDrawer(page)
-	await page.getByRole('button', { name: 'y', exact: true }).tap()
-	await expect.poll(() => screenText(page)).toContain('79')
 
 	await openDrawer(page)
 	await page.getByRole('button', { name: 'Reply', exact: true }).tap()
 	await expect.poll(() => screenText(page)).toContain('1b5b313b3341')
 
 	await openDrawer(page)
-	await page
-		.locator('#wt-drawer-grid button')
-		.filter({ hasText: /^Queue$/ })
-		.first()
-		.tap()
-	await expect.poll(() => screenText(page)).toContain('09')
+	await page.getByRole('button', { name: '/', exact: true }).tap()
+	await expect.poll(() => screenText(page)).toContain('2f')
 
 	await openDrawer(page)
-	await page.getByRole('button', { name: 'Mode', exact: true }).tap()
-	await expect.poll(() => screenText(page)).toContain('1b5b5a')
+	await page.getByRole('button', { name: '$', exact: true }).tap()
+	await expect.poll(() => screenText(page)).toContain('24')
 })

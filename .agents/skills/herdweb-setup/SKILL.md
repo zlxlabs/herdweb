@@ -67,7 +67,7 @@ herdr has a built-in single-column layout for narrow terminals (`ui.mobile_width
 Present a summary of what you found and what you plan to configure:
 
 > "Based on your setup, here's what I'll configure:
-> - Default drawer sections: Answer (1/2/3/y/n), Codex (Reply / Queue / Think− / Think+ / Transcript), Claude, and Pi shortcuts, followed by herdr, terminal, and herdweb controls
+> - Default drawer sections: Agent (Reply / / / $), followed by herdr, terminal, and herdweb controls. Remaining agent shortcuts can be added via combo-picker or in the user config.
 > - Auto-zoom on mobile load (pane fills the phone screen)
 > - Floating zoom button (one-tap zoom toggle)
 > - Swipe gestures for next/previous herdr tab (opt-in)"
