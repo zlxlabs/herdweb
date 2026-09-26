@@ -40,7 +40,9 @@ async function sendCombo(page: Page, value: string): Promise<void> {
 	await input.press('Enter')
 }
 
-test('combo M-Up, F8, and C-Home write the probe-backed CSI bytes', async ({ page }) => {
+test('combo M-Up, F8, and C-Home write the probe-backed CSI bytes; S-Enter writes nothing', async ({
+	page,
+}) => {
 	await startByteEcho(page)
 	let start = (await receivedBytes(page)).length
 
@@ -60,13 +62,10 @@ test('combo M-Up, F8, and C-Home write the probe-backed CSI bytes', async ({ pag
 	await expect
 		.poll(async () => (await receivedBytes(page)).slice(start).join(''))
 		.toBe('1b5b313b3548')
-})
 
-test('S-Enter shows the d-pad newline hint and writes nothing', async ({ page }) => {
-	await startByteEcho(page)
-	const before = await receivedBytes(page)
+	const beforeEnter = await receivedBytes(page)
 	await sendCombo(page, 'S-Enter')
 	await expect(page.locator('.wt-combo-error')).toContainText('用 d-pad 长按 ⏎ 换行')
 	await expect(page.locator('#wt-combo-backdrop')).toBeVisible()
-	expect(await receivedBytes(page)).toEqual(before)
+	expect(await receivedBytes(page)).toEqual(beforeEnter)
 })
