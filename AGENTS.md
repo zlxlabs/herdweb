@@ -68,6 +68,18 @@ See `docs/architecture/module-layout.md`.
 
 See `docs/architecture/publishing.md`.
 
+## Issue triage
+
+标签沿用 gate-hub 的前缀体系：`type:bug|docs|feature|maintenance`（单选）、`priority:P0`–`P3`、
+`area:ci|notify|testing`（可多选）、`status:ready|needs-investigation|needs-design|blocked`（单选）。
+标签只是索引，判据在正文。
+
+每条 `status:needs-investigation` 的 issue **顶楼**必须带一个 `## Repro / 最后确认` 块：
+一段可直接复跑的命令 + 一行 `最后确认于 <sha> / <date> / n/N`（n = 命中次数，N = 尝试次数）。
+分诊的动作就是跑一次那条命令并更新这一行；**复现不出来的断言直接关单**——git log 是历史，
+issue 清单不是，而腐烂的前提会被下一张卡当成事实引用（实例：herdweb#175 声称的「main 长期红」
+在分诊时已不复现，而 herdweb#190 在同一轮里仍真实成立）。
+
 ## Conventions
 
 - Button actions use discriminated unions (`type: 'send' | 'ctrl-modifier' | 'paste' | 'combo-picker' | 'drawer-toggle' | 'font-size' | 'help' | 'keyboard-toggle' | 'dpad-toggle' | 'voice-input' | 'image-upload' | 'prefix' | 'notify-panel' | 'select-mode'`)
