@@ -493,13 +493,17 @@ describe('press lifecycle (attachment binding + abort paths)', () => {
 		switchTo(id: string): void
 	} {
 		let attachment: string | null = 'session-a'
+		let target: string | null = 'target-a'
 		const term = {
 			...mockTerminalWithSent(),
 			getAttachmentId: () => attachment,
+			getCurrentTargetId: () => target,
 		}
 		return Object.assign(term, {
 			switchTo(id: string) {
+				// selectTarget always beginAttach: both identities change together
 				attachment = id
+				target = `target-of-${id}`
 			},
 		})
 	}
@@ -538,6 +542,70 @@ describe('press lifecycle (attachment binding + abort paths)', () => {
 			vi.advanceTimersByTime(300)
 			term.switchTo('session-b')
 			vi.advanceTimersByTime(400) // past the 500ms long-press threshold
+			expect(term.sent).toEqual([])
+
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual([])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	function mockSwitchableTargetAndAttachment(): ReturnType<typeof mockTerminalWithSent> & {
+		switchAttachment(id: string): void
+		switchTarget(id: string): void
+	} {
+		let attachment: string | null = 'att-a'
+		let target: string | null = 'target-a'
+		const term = {
+			...mockTerminalWithSent(),
+			getAttachmentId: () => attachment,
+			getCurrentTargetId: () => target,
+		}
+		return Object.assign(term, {
+			switchAttachment(id: string) {
+				attachment = id
+			},
+			switchTarget(id: string) {
+				target = id
+				attachment = `att-after-${id}`
+			},
+		})
+	}
+
+	test('same target + new attachment mid-long-press still fires the hold action', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockSwitchableTargetAndAttachment()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(300)
+			term.switchAttachment('att-b')
+			vi.advanceTimersByTime(400)
+			expect(term.sent).toEqual(['\n'])
+
+			enter.dispatchEvent(new MouseEvent('mouseup'))
+			enter.click()
+			expect(term.sent).toEqual(['\n'])
+		} finally {
+			vi.useRealTimers()
+		}
+	})
+
+	test('switching target mid-long-press sends neither the hold nor the tap action', () => {
+		vi.useFakeTimers()
+		try {
+			const term = mockSwitchableTargetAndAttachment()
+			const { dpad } = createTestDpad(term)
+			const enter = keyByLabel(dpad.element, '⏎')
+
+			enter.dispatchEvent(new MouseEvent('mousedown'))
+			vi.advanceTimersByTime(300)
+			term.switchTarget('target-b')
+			vi.advanceTimersByTime(400)
 			expect(term.sent).toEqual([])
 
 			enter.dispatchEvent(new MouseEvent('mouseup'))

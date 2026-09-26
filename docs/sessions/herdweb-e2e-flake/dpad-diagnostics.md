@@ -55,3 +55,19 @@
 ```
 
 - **解读**：第 4 段记录 ⏎ 按钮 `pointerdown=1`、`mousedown=1`，证明 Playwright 按压有效落入按钮；第 5 段帧 7 包含 `\n` input 负载，证明 500ms 长按触发且未被客户端阻断；第 1/6 段屏幕回显 `0a`，断言命中。
+
+## 5. D1 触发源结论（herdweb#147）
+
+失败样本（#147 评论，chromium-android 10 轮第 9 轮）：出口帧 `input(byte-ready) → resize → [1004ms] attach-target → snapshot-applied → ping`，无 `input "\n"`。
+
+第二次 attach 是 **同 target 的 reconnect 重挂**，不是多 target 切换：
+
+1. 某次 `failConnection`（`src/client-entry.ts:752`）把当时仍 synced 的连接打成 disconnected；`invalidateConnection`（`:737`）清掉 `targetId`/`attachmentId`，**保留** `selectedTargetId`。
+2. `scheduleReconnect`（`:724-734`）用 `RECONNECT_BACKOFF_MS[0]=1000`，与样本 1004ms 对齐。
+3. 新 WS `open` → 服务端 `onOpen` 发 `targets`（`src/serve.ts:717-718`）→ 客户端 `case 'targets'` 用同一个 `selectedTargetId` 调 `beginAttach`（`src/client-entry.ts:921-930`）。
+4. 旧守卫 `createAttachmentGuard` 绑的是 attachment id，re-attach 后 `pressStillCurrent` fail-closed 吞掉长按。
+
+已排除：心跳 timeout（15s/25s 对不上 1s）、resize 非 live 当场 `beginAttach`（该 resize 作为出口帧发出了，说明当时 live）、`resumeProbeInFlight`（会先发 ping）、visibility/PWA（60s grace）、同 socket 上服务端主动 `targets`（只在新 WS onOpen 发）。
+
+`failConnection` 的原始 reason 在 dump 时已被第二次 attach-committed 抹掉；本卡不改挂载流程，只把守卫改成按 target 粒度抑制。多余 reconnect 本身记 #147 后续。
+
