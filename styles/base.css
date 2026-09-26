@@ -375,6 +375,13 @@ body.wt-composer-open .wt-target-badge {
 	transform: translateY(0);
 }
 
+#wt-drawer {
+	box-sizing: border-box;
+	display: flex;
+	flex-direction: column;
+	max-height: calc(100vh - var(--wt-toolbar-height, 64px) - var(--kb-inset, 0px));
+}
+
 /* Handle row: centred drag handle + explicit close button on the right */
 #wt-drawer-header {
 	position: relative;
@@ -455,8 +462,12 @@ body.wt-composer-open .wt-target-badge {
  */
 #wt-drawer-grid {
 	display: grid;
+	flex: 1 1 auto;
 	grid-template-columns: repeat(4, 1fr);
 	gap: 8px;
+	min-height: 0;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 
 #wt-drawer-grid button,

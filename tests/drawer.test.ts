@@ -75,7 +75,7 @@ describe('drawer section headings', () => {
 		const headings = [...drawer.querySelectorAll('#wt-drawer-grid .wt-drawer-section')].map(
 			(h) => h.textContent,
 		)
-		expect(headings).toEqual(['herdr', 'Terminal', 'App'])
+		expect(headings).toEqual(['Answer', 'Codex', 'Claude', 'Pi', 'herdr', 'Terminal', 'App'])
 	})
 
 	test('each heading precedes the first button of its section', () => {
