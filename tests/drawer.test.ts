@@ -75,7 +75,7 @@ describe('drawer section headings', () => {
 		const headings = [...drawer.querySelectorAll('#wt-drawer-grid .wt-drawer-section')].map(
 			(h) => h.textContent,
 		)
-		expect(headings).toEqual(['Codex', 'Claude', 'Pi', 'herdr', 'Terminal', 'App'])
+		expect(headings).toEqual(['Agent', 'herdr', 'Terminal', 'App'])
 	})
 
 	test('each heading precedes the first button of its section', () => {
@@ -85,8 +85,8 @@ describe('drawer section headings', () => {
 
 		const herdrHeading = children.findIndex((c) => c.textContent === 'herdr')
 		expect(children[herdrHeading + 1]?.textContent).toBe('+ Win')
-		const codexHeading = children.findIndex((c) => c.textContent === 'Codex')
-		expect(children[codexHeading + 1]?.textContent).toBe('Reply')
+		const agentHeading = children.findIndex((c) => c.textContent === 'Agent')
+		expect(children[agentHeading + 1]?.textContent).toBe('Reply')
 		const terminalHeading = children.findIndex((c) => c.textContent === 'Terminal')
 		expect(children[terminalHeading + 1]?.textContent).toBe('PgUp')
 		const appHeading = children.findIndex((c) => c.textContent === 'App')

@@ -79,28 +79,18 @@ describe('defaultRow1 (moshi-style single row)', () => {
 
 	test('starts with agent keys before herdr', () => {
 		const expected = [
-			{ section: 'Codex', label: 'Reply', data: '\x1b[1;3A' },
-			{ section: 'Codex', label: 'Queue', data: '\t' },
-			{ section: 'Codex', label: 'Think−', data: '\x1b,' },
-			{ section: 'Codex', label: 'Think+', data: '\x1b.' },
-			{ section: 'Codex', label: 'Transcript', data: '\x14' },
-			{ section: 'Claude', label: 'Mode', data: '\x1b[Z' },
-			{ section: 'Claude', label: 'Verbose', data: '\x0f' },
-			{ section: 'Claude', label: 'Tasks', data: '\x14' },
-			{ section: 'Claude', label: 'Model', data: '\x1bp' },
-			{ section: 'Pi', label: 'Queue', data: '\x1b\r' },
-			{ section: 'Pi', label: 'Think', data: '\x1b[Z' },
-			{ section: 'Pi', label: 'Model', data: '\x10' },
-			{ section: 'Pi', label: 'Expand', data: '\x0f' },
+			{ section: 'Agent', label: 'Reply', data: '\x1b[1;3A' },
+			{ section: 'Agent', label: '/', data: '/' },
+			{ section: 'Agent', label: '$', data: '$' },
 		]
 		expect(
-			defaultDrawerButtons.slice(0, 13).map(({ section, label, action }) => ({
+			defaultDrawerButtons.slice(0, 3).map(({ section, label, action }) => ({
 				section,
 				label,
 				data: action.type === 'send' ? action.data : undefined,
 			})),
 		).toEqual(expected)
-		expect(defaultDrawerButtons[13]?.section).toBe('herdr')
+		expect(defaultDrawerButtons[3]?.section).toBe('herdr')
 	})
 })
 
