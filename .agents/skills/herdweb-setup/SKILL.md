@@ -67,7 +67,7 @@ herdr has a built-in single-column layout for narrow terminals (`ui.mobile_width
 Present a summary of what you found and what you plan to configure:
 
 > "Based on your setup, here's what I'll configure:
-> - Default herdr drawer buttons (split, zoom, workspaces, sidebar, scrollback, kill, help, prefix)
+> - Default drawer sections: Answer (1/2/3/y/n), Codex, Claude, and Pi shortcuts, followed by herdr, terminal, and herdweb controls
 > - Auto-zoom on mobile load (pane fills the phone screen)
 > - Floating zoom button (one-tap zoom toggle)
 > - Swipe gestures for next/previous herdr tab (opt-in)"
