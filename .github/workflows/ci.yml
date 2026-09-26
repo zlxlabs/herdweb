@@ -7,7 +7,8 @@ on:
     branches: [main, dev]
 
 jobs:
-  # Docs-only fast path ('**.md' + 'docs/**', same convention as zlxlabs/gate callers).
+  # Docs-only fast path ('**.md' + 'docs/**', same convention as zlxlabs/gate callers),
+  # plus 'retro/**' (acceptance/consult ledgers; no code reads them).
   # `check` is a REQUIRED status check on main, so the workflow must always trigger:
   # a job skipped by `if:` reports Success, but a workflow skipped by paths-ignore
   # leaves the required context pending forever and blocks the merge. Any detection
@@ -33,7 +34,7 @@ jobs:
             exit 0
           fi
           changed="$(git diff --name-only "$base"...HEAD)"
-          if [ -n "$changed" ] && ! grep -qvE '^docs/|\.md$' <<< "$changed"; then
+          if [ -n "$changed" ] && ! grep -qvE '^docs/|^retro/|\.md$' <<< "$changed"; then
             echo "docs-only=true" >> "$GITHUB_OUTPUT"
           else
             echo "docs-only=false" >> "$GITHUB_OUTPUT"
