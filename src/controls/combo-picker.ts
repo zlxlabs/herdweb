@@ -91,7 +91,8 @@ const F_KEY_TILDE: Readonly<Record<string, number>> = {
 	f12: 24,
 }
 
-const S_ENTER_ERROR = 'Shift+Enter is indistinguishable from Enter here; 用 d-pad 长按 ⏎ 换行'
+const S_ENTER_ERROR =
+	'Shift+Enter is indistinguishable from Enter here; hold ⏎ on the d-pad for a newline'
 
 function csiModifier(shift: boolean, alt: boolean, ctrl: boolean): number {
 	return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0)

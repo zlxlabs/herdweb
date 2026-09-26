@@ -142,7 +142,7 @@ describe('parseComboInput', () => {
 		sendButton.click()
 
 		expect(picker.element.querySelector('.wt-combo-error')?.textContent).toContain(
-			'用 d-pad 长按 ⏎ 换行',
+			'hold ⏎ on the d-pad for a newline',
 		)
 		expect(sent).toEqual([])
 		expect(picker.element.style.display).toBe('flex')
@@ -195,7 +195,7 @@ describe('parseComboInput', () => {
 		const parsed = parseComboInput('S-Enter')
 		expect(parsed.ok).toBe(false)
 		if (parsed.ok) throw new Error('expected S-Enter to stay rejected')
-		expect(parsed.error).toContain('用 d-pad 长按 ⏎ 换行')
+		expect(parsed.error).toContain('hold ⏎ on the d-pad for a newline')
 	})
 
 	test('single-character Alt and Ctrl encodings stay unchanged', () => {

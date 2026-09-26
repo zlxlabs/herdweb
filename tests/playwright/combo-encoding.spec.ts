@@ -65,7 +65,7 @@ test('combo M-Up, F8, and C-Home write the probe-backed CSI bytes; S-Enter write
 
 	const beforeEnter = await receivedBytes(page)
 	await sendCombo(page, 'S-Enter')
-	await expect(page.locator('.wt-combo-error')).toContainText('用 d-pad 长按 ⏎ 换行')
+	await expect(page.locator('.wt-combo-error')).toContainText('hold ⏎ on the d-pad for a newline')
 	await expect(page.locator('#wt-combo-backdrop')).toBeVisible()
 	expect(await receivedBytes(page)).toEqual(beforeEnter)
 })
