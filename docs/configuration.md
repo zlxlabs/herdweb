@@ -389,6 +389,28 @@ in history only. A `202` response from `POST /api/events` means the event
 was accepted into history (and de-duplicated) — not that it will be
 pushed, and not that the phone has already displayed it.
 
+The table below specifies the delivery contract for each `outcome` variant
+returned in the HTTP `202 Accepted` JSON response (`NotifyDispatchResult`).
+For callers, every `202` represents a terminal acceptance state by herdweb —
+callers should not retry a `202` response. Specific outcomes reflect deliberate
+design choices: `withheld` is intentional non-delivery, `duplicate` is deduplication
+discard, while `deferred` and `coalesced` buffer the event in memory before eventual
+delivery.
+
+| Outcome | Semantics & Delivery | In-Memory Lifetime | Process Exit Behaviour |
+|---------|----------------------|--------------------|------------------------|
+| `dispatched` | Immediately triggered outbound dispatch to push subscriptions and configured channels. Does not guarantee actual receipt. | None (handed off immediately to async in-flight promises). | In-flight dispatch promises are awaited during graceful shutdown drain (`notifyDrain` in `src/serve.ts:1041`). |
+| `withheld` | Intentionally not delivered by design (e.g. non-attention events, child subagent completions, informational events per attention policy). Terminal; will never be pushed. | None (evaluated and dropped immediately). | N/A (not retained in memory). |
+| `deferred` | Held for 300s presence deferral because user was recently active on the terminal. Released when user becomes away or 300s elapses. | 300s (`PRESENCE_DEFER_MS`; held only in memory `Map` + timer). | SIGINT/SIGTERM triggers `notifyDrain` (`src/serve.ts:1041`) → `awaitInFlight` flushes all deferred events (`src/notify/service.ts:447-449`), not lost. SIGKILL or abnormal crash silently loses pending events without replay. |
+| `coalesced` | Held for 600s done-coalescing window to collapse redundant task completion notifications into a trailing summary. | 600s (`DONE_COALESCE_MS`; held only in memory `Map` + timer). | SIGINT/SIGTERM triggers `notifyDrain` (`src/serve.ts:1041`) → `awaitInFlight` flushes all coalesced events (`src/notify/service.ts:447-449`), not lost. SIGKILL or abnormal crash silently loses pending events without replay. |
+| `duplicate` | Identical event (`targetId` + `id`) was already accepted into dedup cache (`normalized.kind !== 'test'`). Dropped; will never be pushed. | None (dropped immediately without appending to history). | N/A (not retained in memory). |
+
+Key delivery guarantees and caller invariants (verified in source):
+- **`dispatched` does not mean anyone received the notification**: when zero subscriptions exist, `pushToAll` logs a notice and returns immediately (`src/notify/service.ts:196-200`), yet the route still responds with `dispatched`.
+- **No retry or persistent queue on push failure**: after `dispatched`, outbound `webpush.sendNotification` failure only logs `console.error` with no automatic retries and no offline queue (`src/notify/service.ts:281-284`).
+- **`POST /api/push/test` returns an empty body `202`**: test pushes return `c.body(null, 202)` (`src/notify/routes.ts:229`); callers must not treat test push responses as containing a dispatch outcome receipt.
+
+
 **Known limitations**
 
 Some Android devices cannot receive any Web Push notification when the device's
