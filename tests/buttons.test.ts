@@ -20,7 +20,7 @@ describe('defaultRow1 (moshi-style single row)', () => {
 
 	test('starts with Esc', () => {
 		expect(defaultRow1[0]?.label).toBe('Esc')
-		expect(defaultRow1[0]?.action).toEqual({ type: 'send', data: '\x1b' })
+		expect(defaultRow1[0]?.action).toEqual({ type: 'send', data: '\x1b[27u' })
 	})
 
 	test('has a dedicated C-c second — double-tap quits coding agents', () => {
@@ -41,7 +41,10 @@ describe('defaultRow1 (moshi-style single row)', () => {
 	test('has no arrow keys — the floating d-pad (✥) owns them now', () => {
 		const arrows = defaultRow1.filter(
 			(b) =>
-				b.action.type === 'send' && b.action.data.startsWith('\x1b[') && b.action.data !== '\x1b[Z',
+				b.action.type === 'send' &&
+				b.action.data.startsWith('\x1b[') &&
+				b.action.data !== '\x1b[Z' &&
+				b.action.data !== '\x1b[27u',
 		)
 		expect(arrows).toEqual([])
 		const dpad = defaultRow1.find((b) => b.id === 'dpad-toggle')

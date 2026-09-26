@@ -45,7 +45,7 @@ export default {
     // Single row by default: Esc, C-c, ✥ dpad-toggle, ⏎ Enter, 🎤 voice-input,
     // 🖼 image-upload, ⌨ keyboard-toggle, ☰ drawer-toggle
     row1: [
-      { id: 'esc', label: 'Esc', description: 'Send Escape key', action: { type: 'send', data: '\x1b' } },
+      { id: 'esc', label: 'Esc', description: 'Send Escape key', action: { type: 'send', data: '\x1b[27u' } },
       { id: 'ctrl-c', label: 'C-c', description: 'Send Ctrl-C interrupt', action: { type: 'send', data: '\x03' } },
       // ...
     ],

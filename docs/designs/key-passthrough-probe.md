@@ -6,7 +6,7 @@
 
 - Herdr 会按 pane 请求的键盘模式重新编码部分按键。无模式时，多数旧式 CSI、SS3、ESC 前缀和控制字节原样到达；pane 请求 Kitty 或 xterm modifyOtherKeys 后，Herdr 会把输入翻成对应模式的字节。
 - Kitty flags 1 与 flags 9 在本矩阵里对修饰键产生相同输出。flags 9 下普通 `a` 仍收到 `61`，没有观察到“所有键都编码成 CSI u”的变化。
-- ESC 与后续字节拆开 20ms，对矩阵内的候选没有造成额外差异。裸 `ESC ESC` 即使拆开 100ms 仍只到达一个 Escape 编码；成对的 `CSI 27u` 则能跨四种模式表示两次 Escape。
+- ESC 与后续字节拆开 20ms，对矩阵内的候选没有造成额外差异。裸 `ESC ESC` 即使拆开 100ms、以及两次裸 `\x1b` 间隔 150 / 300 / 500ms，四种模式都只到达一个 Escape 编码。两次 `\x1b[27u` 间隔 300ms 则四种模式各得两次 Escape。因此默认 toolbar Esc 按钮改为发送 `\x1b[27u`。
 - Codex 两次 3 秒启动采样都请求 Kitty `CSI > 7u`。Claude 与 pi 的启动输出在两次采样间有差异：Claude 仅第一次出现 xterm modifyOtherKeys 重置序列，pi 仅第一次出现 Kitty `CSI > 7u`；因此不能把单次 3 秒窗口当作稳定的 agent 协议声明。
 
 ## 测量方法
@@ -80,10 +80,32 @@ xterm `CSI > 4;2m` 启用 modifyOtherKeys level 2，`CSI > 4;0m` 关闭它；省
 | Ctrl+Space | `\x00` | 无模式和 xterm 2 原样；Kitty 输出 `\x1b[32;5u`。 |
 | F3 / F4 / F8 | `\x1bOR` / `\x1bOS` / `\x1b[19~` | 无模式和 xterm 2 原样。Kitty 下 F3 输出 `\x1b[13~`、F4 输出 `\x1b[S`、F8 原样；Kitty 的功能键表将 F3、F4 分别列为 `CSI 13~` 与省略默认参数的 `CSI S`。[功能键编码表](https://sw.kovidgoyal.net/kitty/keyboard-protocol/) |
 | Ctrl+Home / Ctrl+End | `\x1b[1;5H` / `\x1b[1;5F` | 四种模式均原样。 |
+| Shift+↑ / Ctrl+← / Ctrl+PgUp | `\x1b[1;2A` / `\x1b[1;5D` / `\x1b[5;5~` | 四种模式均原样（[`20260926T121822Z-4166459-13397`](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/)）。 |
+| F5 / Ctrl+F8 | `\x1b[15~` / `\x1b[19;5~` | 四种模式均原样。 |
 | Ctrl+T / Ctrl+O | `\x14` / `\x0f` | 无模式和 xterm 2 原样；Kitty 输出 `\x1b[116;5u` / `\x1b[111;5u`。 |
-| Esc Esc | `\x1b[27u\x1b[27u` | Kitty 下两段均原样；无模式和 xterm 2 输出 `\x1b\x1b`。裸 `\x1b\x1b` 在一次写、20ms 拆写、100ms 拆写下都只输出一个 Escape 编码。 |
+| toolbar Esc / Esc Esc | `\x1b[27u`（单击）；两次单击即两次 `\x1b[27u` | 两次裸 `\x1b` 在 150 / 300 / 500ms 间隔下四种模式都只到一个 Escape。两次 `\x1b[27u` 间隔 300ms：Kitty 原样两次 CSI u；无模式和 xterm 2 改写为 `\x1b\x1b`，仍是两次 Escape。 |
 
 ## 需向 herdr 上游提的问题草稿
 
 1. Herdr 客户端是否承诺按 pane 的 Kitty/xterm 键盘模式转换输入？如果承诺，F3/F4 的当前转换（`ESC O R/S` 到 `CSI 13~` / `CSI S`）是否属于稳定映射？
-2. 是否能提供有文档保证的原始字节写入入口，让需要 `Esc Esc` 等序列的调用方绕过客户端快捷键解析？裸双 ESC 在本测量中被合并为一个 Escape 编码。
+2. 是否能提供有文档保证的原始字节写入入口，让需要 `Esc Esc` 等序列的调用方绕过客户端快捷键解析？两次裸 ESC 在 150 / 300 / 500ms 间隔下仍被合并为一个 Escape 编码。
+
+## 2026-09-26 复跑：修饰 CSI 补点与 Esc 双击
+
+测量数据：[`results/20260926T121822Z-4166459-13397`](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/)；[`matrix.txt`](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/matrix.txt)。四种模式健康标记 **65/65**，无未归属输入。session `keyprobe-20260926T121822Z-4166459-13397` 已销毁；收工时 `default` 仍为 running。
+
+列标题链接到本次发送/接收流。D1 未覆盖代表一律 `原`（一次写入；ESC 开头候选另有 20ms 拆写，结果与一次写入相同，表中省略）。
+
+| 目标键 | 写入候选 | 无模式 [发](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/sent-none.hex) · [收](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/received-none.hex) | Kitty 1 [发](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/sent-kitty-1.hex) · [收](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/received-kitty-1.hex) | Kitty 9 [发](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/sent-kitty-9.hex) · [收](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/received-kitty-9.hex) | xterm 2 [发](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/sent-modify-other-keys-2.hex) · [收](../../scripts/probe/key-passthrough/results/20260926T121822Z-4166459-13397/received-modify-other-keys-2.hex) |
+|---|---|---|---|---|---|
+| Shift+↑ | `\x1b[1;2A` | 原 | 原 | 原 | 原 |
+| Ctrl+← | `\x1b[1;5D` | 原 | 原 | 原 | 原 |
+| Ctrl+PgUp | `\x1b[5;5~` | 原 | 原 | 原 | 原 |
+| F5 | `\x1b[15~` | 原 | 原 | 原 | 原 |
+| Ctrl+F8 | `\x1b[19;5~` | 原 | 原 | 原 | 原 |
+| 两次裸 `\x1b` 间隔 150ms | `\x1b` + 150ms + `\x1b` | 改→`\x1b`（1 次 Escape） | 改→`\x1b[27u`（1） | 改→`\x1b[27u`（1） | 改→`\x1b`（1） |
+| 两次裸 `\x1b` 间隔 300ms | `\x1b` + 300ms + `\x1b` | 改→`\x1b`（1） | 改→`\x1b[27u`（1） | 改→`\x1b[27u`（1） | 改→`\x1b`（1） |
+| 两次裸 `\x1b` 间隔 500ms | `\x1b` + 500ms + `\x1b` | 改→`\x1b`（1） | 改→`\x1b[27u`（1） | 改→`\x1b[27u`（1） | 改→`\x1b`（1） |
+| 两次 `\x1b[27u` 间隔 300ms | `\x1b[27u` + 300ms + `\x1b[27u` | 改→`\x1b\x1b`（2 次 Escape） | 原（2） | 原（2） | 改→`\x1b\x1b`（2） |
+
+判据：300ms 间隔下四种模式均把两次裸 `\x1b` 合并为一个 Escape → 默认 toolbar `id: 'esc'` 改为发送 `\x1b[27u`。

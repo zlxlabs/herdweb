@@ -70,7 +70,7 @@ const defaultRow1: HerdwebConfig['toolbar']['row1'] = [
 		id: 'esc',
 		label: 'Esc',
 		description: 'Send Escape key',
-		action: { type: 'send', data: '\x1b' },
+		action: { type: 'send', data: '\x1b[27u' },
 	},
 	{
 		// Dedicated C-c: coding agents need double Ctrl-C to quit, which neither
