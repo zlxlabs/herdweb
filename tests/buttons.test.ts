@@ -77,13 +77,8 @@ describe('defaultRow1 (moshi-style single row)', () => {
 		expect(button?.section).toBe('App')
 	})
 
-	test('starts with Answer and agent keys before herdr', () => {
+	test('starts with agent keys before herdr', () => {
 		const expected = [
-			{ section: 'Answer', label: '1', data: '1' },
-			{ section: 'Answer', label: '2', data: '2' },
-			{ section: 'Answer', label: '3', data: '3' },
-			{ section: 'Answer', label: 'y', data: 'y' },
-			{ section: 'Answer', label: 'n', data: 'n' },
 			{ section: 'Codex', label: 'Reply', data: '\x1b[1;3A' },
 			{ section: 'Codex', label: 'Queue', data: '\t' },
 			{ section: 'Codex', label: 'Think−', data: '\x1b,' },
@@ -99,13 +94,13 @@ describe('defaultRow1 (moshi-style single row)', () => {
 			{ section: 'Pi', label: 'Expand', data: '\x0f' },
 		]
 		expect(
-			defaultDrawerButtons.slice(0, 18).map(({ section, label, action }) => ({
+			defaultDrawerButtons.slice(0, 13).map(({ section, label, action }) => ({
 				section,
 				label,
 				data: action.type === 'send' ? action.data : undefined,
 			})),
 		).toEqual(expected)
-		expect(defaultDrawerButtons[18]?.section).toBe('herdr')
+		expect(defaultDrawerButtons[13]?.section).toBe('herdr')
 	})
 })
 

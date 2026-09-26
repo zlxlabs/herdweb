@@ -152,43 +152,8 @@ export function withVoiceComposerEntry(config: HerdwebConfig): HerdwebConfig {
 	}
 }
 
-/** Default drawer commands — agent keys, herdr session keys, terminal keys, and herdweb app controls */
+/** Default drawer commands — Codex/Claude/Pi agent keys, herdr session keys, terminal keys, and herdweb app controls */
 export const defaultDrawerButtons: readonly ControlButton[] = [
-	{
-		id: 'answer-1',
-		label: '1',
-		description: 'Answer option 1',
-		action: { type: 'send', data: '1' },
-		section: 'Answer',
-	},
-	{
-		id: 'answer-2',
-		label: '2',
-		description: 'Answer option 2',
-		action: { type: 'send', data: '2' },
-		section: 'Answer',
-	},
-	{
-		id: 'answer-3',
-		label: '3',
-		description: 'Answer option 3',
-		action: { type: 'send', data: '3' },
-		section: 'Answer',
-	},
-	{
-		id: 'answer-y',
-		label: 'y',
-		description: 'Answer yes',
-		action: { type: 'send', data: 'y' },
-		section: 'Answer',
-	},
-	{
-		id: 'answer-n',
-		label: 'n',
-		description: 'Answer no',
-		action: { type: 'send', data: 'n' },
-		section: 'Answer',
-	},
 	{
 		id: 'codex-reply',
 		label: 'Reply',
