@@ -144,6 +144,21 @@ export function parseComboInput(value: string): ComboParseResult {
 
 	let ctrl = false
 	let alt = false
+	let shift = false
+	const hasShift = tokens.modifiers.some(
+		(modifier) => modifier.toLowerCase() === 's' || modifier.toLowerCase() === 'shift',
+	)
+	if (
+		hasShift &&
+		tokens.modifiers.some(
+			(modifier) =>
+				!['c', 'ctrl', 'control', 'm', 'meta', 'alt', 'a', 's', 'shift'].includes(
+					modifier.toLowerCase(),
+				),
+		)
+	) {
+		return { ok: false, error: 'Unsupported Shift combo for this key.' }
+	}
 
 	for (const modifier of tokens.modifiers) {
 		const token = modifier.toLowerCase()
@@ -156,6 +171,7 @@ export function parseComboInput(value: string): ComboParseResult {
 			continue
 		}
 		if (token === 's' || token === 'shift') {
+			shift = true
 			continue
 		}
 		return { ok: false, error: `Unknown modifier: ${modifier}` }
@@ -171,6 +187,21 @@ export function parseComboInput(value: string): ComboParseResult {
 	if (!base.ok) return base
 
 	let data = base.data
+	if (shift) {
+		if (keyLower === 'tab') {
+			if (ctrl) {
+				return { ok: false, error: 'Unsupported Shift combo for this key.' }
+			}
+			data = '\x1b[Z'
+		} else if (
+			keyToken.length === 1 &&
+			((keyToken >= 'A' && keyToken <= 'Z') || (keyToken >= 'a' && keyToken <= 'z'))
+		) {
+			data = keyToken.toUpperCase()
+		} else {
+			return { ok: false, error: 'Unsupported Shift combo for this key.' }
+		}
+	}
 	if (ctrl) {
 		const next = applyCtrl(data, keyToken, keyLower)
 		if (!next.ok) return next
