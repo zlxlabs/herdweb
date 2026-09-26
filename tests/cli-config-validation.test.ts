@@ -155,28 +155,24 @@ async function reservePort(): Promise<number> {
 	return address.port
 }
 
-function captureRecentStderr(proc?: SpawnedProcess, maxLines = 20): () => string[] {
-	if (!proc?.stderr) return () => []
+const READY_LINE_PREFIX = 'herdweb: serving on '
+const HANG_GUARD_MS = 60_000
+
+function captureRecentLines(
+	stream: SpawnedProcess['stdout'] | SpawnedProcess['stderr'] | undefined,
+	maxLines = 20,
+): () => string[] {
+	if (!stream) return () => []
 	const lines: string[] = []
-	let buffer = ''
-	proc.stderr.setEncoding('utf8')
-	proc.stderr.on('data', (chunk: string) => {
-		buffer += chunk
-		const parts = buffer.split('\n')
-		buffer = parts.pop() ?? ''
-		for (const line of parts) {
-			lines.push(line)
-			if (lines.length > maxLines) lines.shift()
-		}
+	let rest = ''
+	stream.setEncoding('utf8')
+	stream.on('data', (chunk: string) => {
+		const parts = (rest + chunk).split('\n')
+		rest = parts.pop() ?? ''
+		lines.push(...parts)
+		if (lines.length > maxLines) lines.splice(0, lines.length - maxLines)
 	})
-	return () => {
-		const result = [...lines]
-		if (buffer.length > 0) {
-			result.push(buffer)
-			if (result.length > maxLines) result.shift()
-		}
-		return result
-	}
+	return () => (rest ? [...lines, rest].slice(-maxLines) : [...lines])
 }
 
 function formatHttpWaitError(
@@ -190,12 +186,26 @@ function formatHttpWaitError(
 	)
 }
 
+function formatHangGuardError(
+	url: string,
+	hangGuardMs: number,
+	stdoutLines: readonly string[],
+	stderrLines: readonly string[],
+): Error {
+	const stdoutOutput = stdoutLines.length > 0 ? stdoutLines.join('\n') : '<no stdout>'
+	const stderrOutput = stderrLines.length > 0 ? stderrLines.join('\n') : '<no stderr>'
+	return new Error(
+		`timed out waiting for ${url}: 就绪行未出现 (process still running after ${hangGuardMs}ms)\nstdout:\n${stdoutOutput}\nstderr:\n${stderrOutput}`,
+	)
+}
+
 async function waitForHttp(
 	url: string,
 	proc?: SpawnedProcess,
-	timeoutMs = 10_000,
+	hangGuardMs = HANG_GUARD_MS,
 ): Promise<string> {
-	const getStderr = captureRecentStderr(proc)
+	const getStdout = captureRecentLines(proc?.stdout)
+	const getStderr = captureRecentLines(proc?.stderr)
 	let exitStatus: { code: number } | null = null
 	proc?.exited.then(
 		(code) => {
@@ -206,31 +216,26 @@ async function waitForHttp(
 		},
 	)
 	const getExitStatus = (): { code: number } | null => exitStatus
-
-	const deadline = Date.now() + timeoutMs
+	const deadline = Date.now() + hangGuardMs
 	while (Date.now() < deadline) {
 		const earlyExit = getExitStatus()
 		if (earlyExit !== null) {
 			throw formatHttpWaitError(url, `exit code ${earlyExit.code}`, getStderr())
 		}
-		try {
+		if (getStdout().some((line) => line.startsWith(READY_LINE_PREFIX))) {
 			const response = await fetch(url)
-			if (response.ok) {
-				return await response.text()
+			if (!response.ok) {
+				throw new Error(`ready line seen but HTTP ${response.status} for ${url}`)
 			}
-		} catch {
-			// server not ready yet
-		}
-		const lateExit = getExitStatus()
-		if (lateExit !== null) {
-			throw formatHttpWaitError(url, `exit code ${lateExit.code}`, getStderr())
+			return await response.text()
 		}
 		await sleep(100)
 	}
 	const finalExit = getExitStatus()
-	const state =
-		finalExit !== null ? `exit code ${finalExit.code}` : `still running after ${timeoutMs}ms`
-	throw formatHttpWaitError(url, state, getStderr())
+	if (finalExit !== null) {
+		throw formatHttpWaitError(url, `exit code ${finalExit.code}`, getStderr())
+	}
+	throw formatHangGuardError(url, hangGuardMs, getStdout(), getStderr())
 }
 
 describe('CLI command validation', () => {

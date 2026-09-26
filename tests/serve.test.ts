@@ -115,28 +115,24 @@ async function reservePort(): Promise<number> {
 	return address.port
 }
 
-function captureRecentStderr(proc?: SpawnedProcess, maxLines = 20): () => string[] {
-	if (!proc?.stderr) return () => []
+const READY_LINE_PREFIX = 'herdweb: serving on '
+const HANG_GUARD_MS = 60_000
+
+function captureRecentLines(
+	stream: SpawnedProcess['stdout'] | SpawnedProcess['stderr'] | undefined,
+	maxLines = 20,
+): () => string[] {
+	if (!stream) return () => []
 	const lines: string[] = []
-	let buffer = ''
-	proc.stderr.setEncoding('utf8')
-	proc.stderr.on('data', (chunk: string) => {
-		buffer += chunk
-		const parts = buffer.split('\n')
-		buffer = parts.pop() ?? ''
-		for (const line of parts) {
-			lines.push(line)
-			if (lines.length > maxLines) lines.shift()
-		}
+	let rest = ''
+	stream.setEncoding('utf8')
+	stream.on('data', (chunk: string) => {
+		const parts = (rest + chunk).split('\n')
+		rest = parts.pop() ?? ''
+		lines.push(...parts)
+		if (lines.length > maxLines) lines.splice(0, lines.length - maxLines)
 	})
-	return () => {
-		const result = [...lines]
-		if (buffer.length > 0) {
-			result.push(buffer)
-			if (result.length > maxLines) result.shift()
-		}
-		return result
-	}
+	return () => (rest ? [...lines, rest].slice(-maxLines) : [...lines])
 }
 
 function formatHttpWaitError(
@@ -150,8 +146,26 @@ function formatHttpWaitError(
 	)
 }
 
-async function waitForHttp(url: string, proc?: SpawnedProcess, timeoutMs = 10_000): Promise<void> {
-	const getStderr = captureRecentStderr(proc)
+function formatHangGuardError(
+	url: string,
+	hangGuardMs: number,
+	stdoutLines: readonly string[],
+	stderrLines: readonly string[],
+): Error {
+	const stdoutOutput = stdoutLines.length > 0 ? stdoutLines.join('\n') : '<no stdout>'
+	const stderrOutput = stderrLines.length > 0 ? stderrLines.join('\n') : '<no stderr>'
+	return new Error(
+		`timed out waiting for ${url}: 就绪行未出现 (process still running after ${hangGuardMs}ms)\nstdout:\n${stdoutOutput}\nstderr:\n${stderrOutput}`,
+	)
+}
+
+async function waitForHttp(
+	url: string,
+	proc?: SpawnedProcess,
+	hangGuardMs = HANG_GUARD_MS,
+): Promise<void> {
+	const getStdout = captureRecentLines(proc?.stdout)
+	const getStderr = captureRecentLines(proc?.stderr)
 	let exitStatus: { code: number } | null = null
 	proc?.exited.then(
 		(code) => {
@@ -162,40 +176,20 @@ async function waitForHttp(url: string, proc?: SpawnedProcess, timeoutMs = 10_00
 		},
 	)
 	const getExitStatus = (): { code: number } | null => exitStatus
-
-	const deadline = Date.now() + timeoutMs
+	const deadline = Date.now() + hangGuardMs
 	while (Date.now() < deadline) {
 		const earlyExit = getExitStatus()
 		if (earlyExit !== null) {
 			throw formatHttpWaitError(url, `exit code ${earlyExit.code}`, getStderr())
 		}
-		try {
-			const statusCode = await requestStatus(url)
-			if (statusCode >= 200 && statusCode < 300) return
-		} catch {
-			// The serve process may still be starting.
-		}
-		const lateExit = getExitStatus()
-		if (lateExit !== null) {
-			throw formatHttpWaitError(url, `exit code ${lateExit.code}`, getStderr())
-		}
+		if (getStdout().some((line) => line.startsWith(READY_LINE_PREFIX))) return
 		await sleep(100)
 	}
 	const finalExit = getExitStatus()
-	const state =
-		finalExit !== null ? `exit code ${finalExit.code}` : `still running after ${timeoutMs}ms`
-	throw formatHttpWaitError(url, state, getStderr())
-}
-
-function requestStatus(url: string): Promise<number> {
-	return new Promise((resolve, reject) => {
-		const request = httpRequest(url, (response) => {
-			response.resume()
-			response.once('end', () => resolve(response.statusCode ?? 0))
-		})
-		request.once('error', reject)
-		request.end()
-	})
+	if (finalExit !== null) {
+		throw formatHttpWaitError(url, `exit code ${finalExit.code}`, getStderr())
+	}
+	throw formatHangGuardError(url, hangGuardMs, getStdout(), getStderr())
 }
 
 function requestResource(
@@ -257,7 +251,6 @@ async function startServe(
 			env: { ...process.env, ...(options.dropDir ? { TMPDIR: options.dropDir } : {}) },
 		},
 	)
-	proc.stdout?.resume()
 	runningProcesses.push(proc)
 	const url = `http://127.0.0.1:${port}`
 	await waitForHttp(url, proc)
@@ -563,9 +556,18 @@ describe('waitForHttp failure instrumentation', () => {
 			{ stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
 		)
 		runningProcesses.push(proc)
+		const stderr = proc.stderr
+		if (!stderr) throw new Error('stderr pipe missing')
+		if (stderr.readableLength === 0) {
+			await new Promise<void>((resolve, reject) => {
+				stderr.once('readable', () => resolve())
+				void proc.exited.then(() => reject(new Error('process exited before stderr')))
+			})
+		}
 		const error = await waitForHttp(`http://127.0.0.1:${port}`, proc, 200).catch((err) => err)
 		expect(error).toBeInstanceOf(Error)
 		expect((error as Error).message).toContain(`http://127.0.0.1:${port}`)
+		expect((error as Error).message).toContain('就绪行未出现')
 		expect((error as Error).message).toContain('still running after 200ms')
 		expect((error as Error).message).toContain('booting slowly')
 	})

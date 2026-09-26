@@ -12,6 +12,8 @@ import { spawnProcess } from '../../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '../..')
 const tsxBin = join(repoRoot, 'node_modules/.bin/tsx')
+const READY_LINE_PREFIX = 'herdweb: serving on '
+const HANG_GUARD_MS = 60_000
 
 export async function reservePort(): Promise<number> {
 	const server = createNetServer()
@@ -40,23 +42,81 @@ export async function reservePort(): Promise<number> {
 	return address.port
 }
 
-export async function waitForHttp(url: string, timeoutMs = 10_000): Promise<void> {
-	const deadline = Date.now() + timeoutMs
+type ServeProc = ReturnType<typeof spawnProcess>
 
-	while (Date.now() < deadline) {
-		try {
-			const response = await fetch(url)
-			if (response.ok) {
-				return
+function captureRecentLines(
+	stream: ServeProc['stdout'] | ServeProc['stderr'] | undefined,
+	maxLines = 20,
+): () => string[] {
+	if (!stream) return () => []
+	const lines: string[] = []
+	let rest = ''
+	stream.setEncoding('utf8')
+	stream.on('data', (chunk: string) => {
+		const parts = (rest + chunk).split('\n')
+		rest = parts.pop() ?? ''
+		lines.push(...parts)
+		if (lines.length > maxLines) lines.splice(0, lines.length - maxLines)
+	})
+	return () => (rest ? [...lines, rest].slice(-maxLines) : [...lines])
+}
+
+/** `proc` present: wait for `herdweb: serving on `. One-arg calls (proxy.spec.ts) poll HTTP. */
+export async function waitForHttp(
+	url: string,
+	proc?: ServeProc,
+	hangGuardMs = HANG_GUARD_MS,
+): Promise<void> {
+	if (!proc) {
+		const deadline = Date.now() + hangGuardMs
+		while (Date.now() < deadline) {
+			try {
+				const response = await fetch(url)
+				if (response.ok) return
+			} catch {
+				// proxy not ready yet
 			}
-		} catch {
-			// server not ready yet
+			await new Promise((resolve) => setTimeout(resolve, 100))
 		}
-
-		await new Promise((resolve) => setTimeout(resolve, 100))
+		throw new Error(`timed out waiting for ${url} (HTTP never became ready after ${hangGuardMs}ms)`)
 	}
 
-	throw new Error(`timed out waiting for ${url}`)
+	const getStdout = captureRecentLines(proc.stdout)
+	const getStderr = captureRecentLines(proc.stderr)
+	let exitStatus: { code: number } | null = null
+	proc.exited.then(
+		(code) => {
+			exitStatus = { code }
+		},
+		() => {
+			exitStatus = { code: 1 }
+		},
+	)
+	const getExitStatus = (): { code: number } | null => exitStatus
+	const deadline = Date.now() + hangGuardMs
+	while (Date.now() < deadline) {
+		const earlyExit = getExitStatus()
+		if (earlyExit !== null) {
+			const stderrOutput = getStderr().length > 0 ? getStderr().join('\n') : '<no stderr>'
+			throw new Error(
+				`timed out waiting for ${url} (process exit code ${earlyExit.code})\nstderr:\n${stderrOutput}`,
+			)
+		}
+		if (getStdout().some((line) => line.startsWith(READY_LINE_PREFIX))) return
+		await new Promise((resolve) => setTimeout(resolve, 100))
+	}
+	const finalExit = getExitStatus()
+	if (finalExit !== null) {
+		const stderrOutput = getStderr().length > 0 ? getStderr().join('\n') : '<no stderr>'
+		throw new Error(
+			`timed out waiting for ${url} (process exit code ${finalExit.code})\nstderr:\n${stderrOutput}`,
+		)
+	}
+	const stdoutOutput = getStdout().length > 0 ? getStdout().join('\n') : '<no stdout>'
+	const stderrOutput = getStderr().length > 0 ? getStderr().join('\n') : '<no stderr>'
+	throw new Error(
+		`timed out waiting for ${url}: 就绪行未出现 (process still running after ${hangGuardMs}ms)\nstdout:\n${stdoutOutput}\nstderr:\n${stderrOutput}`,
+	)
 }
 
 interface IsolatedServe {
@@ -129,7 +189,7 @@ export async function startIsolatedServe(
 
 	const url = `http://127.0.0.1:${port}${basePath ?? ''}`
 	try {
-		await waitForHttp(url, 30_000)
+		await waitForHttp(url, proc)
 	} catch (error) {
 		if (!exited) {
 			proc.kill('SIGINT')
