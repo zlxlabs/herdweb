@@ -11,8 +11,20 @@ test.beforeEach(async ({ page }) => {
 })
 
 async function openDrawer(page: Page): Promise<void> {
+	const drawer = page.locator('#wt-drawer')
 	await page.locator('#wt-toolbar button', { hasText: '☰' }).tap()
-	await expect(page.locator('#wt-drawer')).toHaveClass(/open/)
+	await expect(drawer).toHaveClass(/open/)
+	// class=open starts the 0.25s translateY slide; measuring before it
+	// settles puts Answer below the viewport (CI: y-bottom 842 > 727).
+	await expect
+		.poll(() =>
+			drawer.evaluate((element) => {
+				const transform = getComputedStyle(element).transform
+				if (transform === 'none') return 0
+				return Math.round(Math.abs(new DOMMatrixReadOnly(transform).f))
+			}),
+		)
+		.toBe(0)
 }
 
 async function startByteEcho(page: Page): Promise<void> {

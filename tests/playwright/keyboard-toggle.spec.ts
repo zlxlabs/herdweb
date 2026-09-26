@@ -118,12 +118,12 @@ test('send button produces a WS input payload while the keyboard is suppressed',
 		)
 		.toEqual({
 			type: 'input',
-			data: '\x1b',
+			data: '\x1b[27u',
 			attachmentId: expect.stringMatching(/./),
 		})
 
-	// Escape leaves interactive bash's readline waiting for the next byte;
-	// return the PTY to a killable state before isolated-serve teardown.
+	// CSI 27u is Escape in kitty encoding; bash still consumes the sequence as
+	// incomplete readline input. Send Ctrl-C so the PTY can die on teardown.
 	await page.evaluate(() => window.term?.input('\x03', true))
 })
 
