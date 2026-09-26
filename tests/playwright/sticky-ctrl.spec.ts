@@ -32,7 +32,7 @@ test.beforeEach(async ({ page }) => {
 async function startByteEcho(page: Page): Promise<void> {
 	await page.evaluate(() => {
 		window.term?.input(
-			"stty -echo -icanon -isig -icrnl; python3 -u -c 'import os; print(\"byte-ready\", flush=True); exec(\"while True:\\n b = os.read(0, 1)\\n print(\\\"<byte:\\\" + b.hex() + \\\">\\\", flush=True)\")'\r",
+			'stty -echo -icanon -isig -icrnl; python3 -u -c \'import os; print("byte-ready", flush=True); exec("while True:\\n b = os.read(0, 1)\\n print(\\"<byte:\\" + b.hex() + \\">\\", flush=True)")\'\r',
 			true,
 		)
 	})
@@ -48,7 +48,9 @@ test('armed Ctrl sends the next soft-keyboard letter once as a control byte', as
 	await startByteEcho(page)
 	const ctrl = page.locator('#wt-toolbar button[data-herdweb-action="ctrl-modifier"]')
 	await ctrl.tap()
-	await expect.poll(() => ctrl.evaluate((button) => (button as HTMLElement).style.background)).not.toBe('')
+	await expect
+		.poll(() => ctrl.evaluate((button) => (button as HTMLElement).style.background))
+		.not.toBe('')
 	await page.locator('#terminal textarea').focus()
 	await page.keyboard.type('c')
 
@@ -82,7 +84,9 @@ test('floating Ctrl uses the same sticky input path', async ({ page }) => {
 	await expect.poll(() => receivedBytes(page)).toEqual(['03'])
 })
 
-test('ordinary keyboard input sends one unchanged byte when Ctrl is not armed', async ({ page }) => {
+test('ordinary keyboard input sends one unchanged byte when Ctrl is not armed', async ({
+	page,
+}) => {
 	await startByteEcho(page)
 	await page.locator('#terminal textarea').focus()
 	await page.keyboard.type('c')

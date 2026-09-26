@@ -267,12 +267,12 @@ export function init(
 					showToast,
 					toggleSelectMode: selectionMode.toggle,
 				})
-				let toggleCtrlModifier: (() => void) | undefined
+				const ctrlModifierState: { toggle: (() => void) | undefined } = { toggle: undefined }
 				const toggleSharedCtrlModifier = (): void => {
-					if (!toggleCtrlModifier) {
+					if (!ctrlModifierState.toggle) {
 						throw new Error('herdweb: toolbar Ctrl modifier is not initialized')
 					}
-					toggleCtrlModifier()
+					ctrlModifierState.toggle()
 				}
 
 				// Floating d-pad. send keys emit bytes directly (the typed-input
@@ -354,10 +354,11 @@ export function init(
 					comboPicker.open,
 					micController,
 				)
-				;(term as XTerminal & {
+				const stickyCtrlTerminal: XTerminal & {
 					setStickyCtrlInputHandler?: (handler: (data: string) => string) => void
-				}).setStickyCtrlInputHandler?.(toolbarResult.transformStickyCtrlInput)
-				toggleCtrlModifier = toolbarResult.toggleCtrlModifier
+				} = term
+				stickyCtrlTerminal.setStickyCtrlInputHandler?.(toolbarResult.transformStickyCtrlInput)
+				ctrlModifierState.toggle = toolbarResult.toggleCtrlModifier
 				const { element: toolbar } = toolbarResult
 				if (targetPicker) toolbar.prepend(targetPicker.badge)
 				document.body.appendChild(toolbar)

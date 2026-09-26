@@ -296,8 +296,7 @@ export function createToolbar(
 	ctrlIndicator.style.padding = '3px 10px'
 	ctrlIndicator.style.position = 'fixed'
 	ctrlIndicator.style.right = '12px'
-	ctrlIndicator.style.bottom =
-		'calc(var(--wt-toolbar-height, 64px) + var(--kb-inset, 0px) + 8px)'
+	ctrlIndicator.style.bottom = 'calc(var(--wt-toolbar-height, 64px) + var(--kb-inset, 0px) + 8px)'
 	ctrlIndicator.style.zIndex = '10000'
 	ctrlState.indicatorEl = ctrlIndicator
 

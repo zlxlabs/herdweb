@@ -108,8 +108,11 @@ describe('parseComboInput', () => {
 			focusIfNeeded() {},
 		})
 
-		picker.element.querySelector<HTMLInputElement>('input')!.value = 'S-Tab'
-		picker.element.querySelector<HTMLButtonElement>('button:last-child')!.click()
+		const input = picker.element.querySelector<HTMLInputElement>('input')
+		const sendButton = picker.element.querySelector<HTMLButtonElement>('button:last-child')
+		if (!input || !sendButton) throw new Error('combo picker controls are missing')
+		input.value = 'S-Tab'
+		sendButton.click()
 
 		expect(sent).toEqual(['\x1b[Z'])
 	})
@@ -136,8 +139,10 @@ describe('parseComboInput', () => {
 		})
 
 		const input = picker.element.querySelector('input')
-		input!.value = 'S-Enter'
-		picker.element.querySelector<HTMLButtonElement>('button:last-child')!.click()
+		const sendButton = picker.element.querySelector<HTMLButtonElement>('button:last-child')
+		if (!input || !sendButton) throw new Error('combo picker controls are missing')
+		input.value = 'S-Enter'
+		sendButton.click()
 
 		expect(picker.element.querySelector('.wt-combo-error')?.textContent).toContain('Shift')
 		expect(sent).toEqual([])
