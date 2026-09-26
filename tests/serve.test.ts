@@ -23,7 +23,7 @@ import {
 } from '../src/serve'
 import { type ServerMessage, serialiseServerMessage } from '../src/session-protocol'
 import * as nodeCompat from '../src/util/node-compat'
-import { sleep, spawnProcess } from '../src/util/node-compat'
+import { type SpawnedProcess, sleep, spawnProcess } from '../src/util/node-compat'
 
 const repoRoot = join(import.meta.dirname, '..')
 const runningProcesses: ReturnType<typeof spawnProcess>[] = []
@@ -115,18 +115,76 @@ async function reservePort(): Promise<number> {
 	return address.port
 }
 
-async function waitForHttp(url: string): Promise<void> {
-	const deadline = Date.now() + 10_000
+function captureRecentStderr(proc?: SpawnedProcess, maxLines = 20): () => string[] {
+	if (!proc?.stderr) return () => []
+	const lines: string[] = []
+	let buffer = ''
+	proc.stderr.setEncoding('utf8')
+	proc.stderr.on('data', (chunk: string) => {
+		buffer += chunk
+		const parts = buffer.split('\n')
+		buffer = parts.pop() ?? ''
+		for (const line of parts) {
+			lines.push(line)
+			if (lines.length > maxLines) lines.shift()
+		}
+	})
+	return () => {
+		const result = [...lines]
+		if (buffer.length > 0) {
+			result.push(buffer)
+			if (result.length > maxLines) result.shift()
+		}
+		return result
+	}
+}
+
+function formatHttpWaitError(
+	url: string,
+	processState: string,
+	stderrLines: readonly string[],
+): Error {
+	const stderrOutput = stderrLines.length > 0 ? stderrLines.join('\n') : '<no stderr>'
+	return new Error(
+		`timed out waiting for ${url} (process ${processState})\nstderr:\n${stderrOutput}`,
+	)
+}
+
+async function waitForHttp(url: string, proc?: SpawnedProcess, timeoutMs = 10_000): Promise<void> {
+	const getStderr = captureRecentStderr(proc)
+	let exitStatus: { code: number } | null = null
+	proc?.exited.then(
+		(code) => {
+			exitStatus = { code }
+		},
+		() => {
+			exitStatus = { code: 1 }
+		},
+	)
+	const getExitStatus = (): { code: number } | null => exitStatus
+
+	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
+		const earlyExit = getExitStatus()
+		if (earlyExit !== null) {
+			throw formatHttpWaitError(url, `exit code ${earlyExit.code}`, getStderr())
+		}
 		try {
 			const statusCode = await requestStatus(url)
 			if (statusCode >= 200 && statusCode < 300) return
 		} catch {
 			// The serve process may still be starting.
 		}
+		const lateExit = getExitStatus()
+		if (lateExit !== null) {
+			throw formatHttpWaitError(url, `exit code ${lateExit.code}`, getStderr())
+		}
 		await sleep(100)
 	}
-	throw new Error(`timed out waiting for ${url}`)
+	const finalExit = getExitStatus()
+	const state =
+		finalExit !== null ? `exit code ${finalExit.code}` : `still running after ${timeoutMs}ms`
+	throw formatHttpWaitError(url, state, getStderr())
 }
 
 function requestStatus(url: string): Promise<number> {
@@ -194,14 +252,15 @@ async function startServe(
 		{
 			cwd: repoRoot,
 			stdin: 'ignore',
-			stdout: 'ignore',
-			stderr: 'ignore',
+			stdout: 'pipe',
+			stderr: 'pipe',
 			env: { ...process.env, ...(options.dropDir ? { TMPDIR: options.dropDir } : {}) },
 		},
 	)
+	proc.stdout?.resume()
 	runningProcesses.push(proc)
 	const url = `http://127.0.0.1:${port}`
-	await waitForHttp(url)
+	await waitForHttp(url, proc)
 	return { port, url }
 }
 
@@ -477,5 +536,52 @@ describe('image drop write', () => {
 		writeFileSpy.mockRestore()
 		rmSync(join(dropDir, 'probe'))
 		expect(readdirSync(dropDir)).toEqual([])
+	})
+})
+
+describe('waitForHttp failure instrumentation', () => {
+	test('waitForHttp fails fast with exit code and stderr on early process exit', async () => {
+		const port = await reservePort()
+		const proc = spawnProcess(
+			['node', '-e', 'process.stderr.write("fatal crash before listen\\n"); process.exit(3)'],
+			{ stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+		)
+		runningProcesses.push(proc)
+		const start = Date.now()
+		const error = await waitForHttp(`http://127.0.0.1:${port}`, proc).catch((err) => err)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain(`http://127.0.0.1:${port}`)
+		expect((error as Error).message).toContain('exit code 3')
+		expect((error as Error).message).toContain('fatal crash before listen')
+		expect(Date.now() - start).toBeLessThan(4_000)
+	})
+
+	test('waitForHttp reports running process status and stderr on timeout', async () => {
+		const port = await reservePort()
+		const proc = spawnProcess(
+			['node', '-e', 'process.stderr.write("booting slowly\\n"); setInterval(() => {}, 1000)'],
+			{ stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+		)
+		runningProcesses.push(proc)
+		const error = await waitForHttp(`http://127.0.0.1:${port}`, proc, 200).catch((err) => err)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain(`http://127.0.0.1:${port}`)
+		expect((error as Error).message).toContain('still running after 200ms')
+		expect((error as Error).message).toContain('booting slowly')
+	})
+
+	test('waitForHttp reports <no stderr> when process emits no stderr on exit', async () => {
+		const port = await reservePort()
+		const proc = spawnProcess(['node', '-e', 'process.exit(2)'], {
+			stdin: 'ignore',
+			stdout: 'pipe',
+			stderr: 'pipe',
+		})
+		runningProcesses.push(proc)
+		const error = await waitForHttp(`http://127.0.0.1:${port}`, proc, 5_000).catch((err) => err)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain(`http://127.0.0.1:${port}`)
+		expect((error as Error).message).toContain('exit code 2')
+		expect((error as Error).message).toContain('<no stderr>')
 	})
 })

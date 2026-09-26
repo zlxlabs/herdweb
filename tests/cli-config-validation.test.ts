@@ -155,23 +155,82 @@ async function reservePort(): Promise<number> {
 	return address.port
 }
 
-async function waitForHttp(url: string, timeoutMs = 10_000): Promise<string> {
-	const deadline = Date.now() + timeoutMs
+function captureRecentStderr(proc?: SpawnedProcess, maxLines = 20): () => string[] {
+	if (!proc?.stderr) return () => []
+	const lines: string[] = []
+	let buffer = ''
+	proc.stderr.setEncoding('utf8')
+	proc.stderr.on('data', (chunk: string) => {
+		buffer += chunk
+		const parts = buffer.split('\n')
+		buffer = parts.pop() ?? ''
+		for (const line of parts) {
+			lines.push(line)
+			if (lines.length > maxLines) lines.shift()
+		}
+	})
+	return () => {
+		const result = [...lines]
+		if (buffer.length > 0) {
+			result.push(buffer)
+			if (result.length > maxLines) result.shift()
+		}
+		return result
+	}
+}
 
+function formatHttpWaitError(
+	url: string,
+	processState: string,
+	stderrLines: readonly string[],
+): Error {
+	const stderrOutput = stderrLines.length > 0 ? stderrLines.join('\n') : '<no stderr>'
+	return new Error(
+		`timed out waiting for ${url} (process ${processState})\nstderr:\n${stderrOutput}`,
+	)
+}
+
+async function waitForHttp(
+	url: string,
+	proc?: SpawnedProcess,
+	timeoutMs = 10_000,
+): Promise<string> {
+	const getStderr = captureRecentStderr(proc)
+	let exitStatus: { code: number } | null = null
+	proc?.exited.then(
+		(code) => {
+			exitStatus = { code }
+		},
+		() => {
+			exitStatus = { code: 1 }
+		},
+	)
+	const getExitStatus = (): { code: number } | null => exitStatus
+
+	const deadline = Date.now() + timeoutMs
 	while (Date.now() < deadline) {
+		const earlyExit = getExitStatus()
+		if (earlyExit !== null) {
+			throw formatHttpWaitError(url, `exit code ${earlyExit.code}`, getStderr())
+		}
 		try {
 			const response = await fetch(url)
 			if (response.ok) {
-				return response.text()
+				return await response.text()
 			}
 		} catch {
 			// server not ready yet
 		}
-
+		const lateExit = getExitStatus()
+		if (lateExit !== null) {
+			throw formatHttpWaitError(url, `exit code ${lateExit.code}`, getStderr())
+		}
 		await sleep(100)
 	}
-
-	throw new Error(`timed out waiting for ${url}`)
+	const finalExit = getExitStatus()
+	const state =
+		finalExit !== null ? `exit code ${finalExit.code}` : `still running after ${timeoutMs}ms`
+	throw formatHttpWaitError(url, state, getStderr())
 }
 
 describe('CLI command validation', () => {
@@ -239,8 +298,8 @@ describe('CLI command validation', () => {
 				'--literal',
 			],
 			repoRoot,
-			async () => {
-				await waitForHttp(`http://127.0.0.1:${port}`)
+			async (proc) => {
+				await waitForHttp(`http://127.0.0.1:${port}`, proc)
 				await openSession(port)
 			},
 		)
@@ -297,7 +356,7 @@ describe('CLI command validation', () => {
 		)
 
 		try {
-			const html = await waitForHttp(`http://127.0.0.1:${port}`)
+			const html = await waitForHttp(`http://127.0.0.1:${port}`, proc)
 			expect(html).toContain('<title>local-override</title>')
 		} finally {
 			proc.kill('SIGINT')
@@ -384,7 +443,7 @@ describe('CLI command validation', () => {
 		}
 
 		try {
-			const html = await waitForHttp(`http://127.0.0.1:${port}/`)
+			const html = await waitForHttp(`http://127.0.0.1:${port}/`, proc)
 			expect(html).toContain('<title>legacy-name</title>')
 			const stdout = stdoutChunks.join('')
 			expect(stdout).toContain('loaded legacy config')
@@ -419,7 +478,7 @@ describe('CLI command validation', () => {
 		)
 
 		try {
-			const html = await waitForHttp(`http://127.0.0.1:${port}/`)
+			const html = await waitForHttp(`http://127.0.0.1:${port}/`, proc)
 			expect(html).toContain('herdweb-name')
 			expect(html).not.toContain('legacy-name')
 		} finally {
@@ -449,11 +508,26 @@ describe('CLI command validation', () => {
 		)
 
 		try {
-			const html = await waitForHttp(`http://127.0.0.1:${port}/`)
+			const html = await waitForHttp(`http://127.0.0.1:${port}/`, proc)
 			expect(html).toContain('herdweb')
 		} finally {
 			proc.kill('SIGTERM')
 			await proc.exited
 		}
+	})
+
+	test('waitForHttp fails fast with exit code and stderr on early process exit', async () => {
+		const port = await reservePort()
+		const proc = spawnProcess(
+			['node', '-e', 'process.stderr.write("validation early crash\\n"); process.exit(3)'],
+			{ stdin: 'ignore', stdout: 'pipe', stderr: 'pipe' },
+		)
+		const start = Date.now()
+		const error = await waitForHttp(`http://127.0.0.1:${port}`, proc, 5_000).catch((err) => err)
+		expect(error).toBeInstanceOf(Error)
+		expect((error as Error).message).toContain(`http://127.0.0.1:${port}`)
+		expect((error as Error).message).toContain('exit code 3')
+		expect((error as Error).message).toContain('validation early crash')
+		expect(Date.now() - start).toBeLessThan(4_000)
 	})
 })
