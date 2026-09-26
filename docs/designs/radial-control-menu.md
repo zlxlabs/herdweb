@@ -6,7 +6,8 @@
 
 ## 观察
 
-外部视频（`tmp/memory1789826465040.mp4`，约 10s）：手机单手操作 herdr TUI 里的
+外部视频（本机文件、未入库；写主 checkout 的绝对路径，免得在新 worktree / 克隆里悬空：
+`/home/zlx/projects/oss/herdweb/tmp/memory1789826465040.mp4`，约 10s）：手机单手操作 herdr TUI 里的
 OpenAI Codex CLI，长按/点按终端内容区后**在触点处弹出径向菜单**——8 个小圆钮
 （麦克风、Agent logo、键盘、撤销、⌘、Tab、历史、^）围绕手指等距排开；点键盘图标
 唤起软键盘；随后出现第二层径向菜单（d-pad + ⌫ + ⏎）。
