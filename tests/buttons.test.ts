@@ -20,7 +20,7 @@ describe('defaultRow1 (moshi-style single row)', () => {
 
 	test('starts with Esc', () => {
 		expect(defaultRow1[0]?.label).toBe('Esc')
-		expect(defaultRow1[0]?.action).toEqual({ type: 'send', data: '\x1b' })
+		expect(defaultRow1[0]?.action).toEqual({ type: 'send', data: '\x1b[27u' })
 	})
 
 	test('has a dedicated C-c second — double-tap quits coding agents', () => {
@@ -41,7 +41,10 @@ describe('defaultRow1 (moshi-style single row)', () => {
 	test('has no arrow keys — the floating d-pad (✥) owns them now', () => {
 		const arrows = defaultRow1.filter(
 			(b) =>
-				b.action.type === 'send' && b.action.data.startsWith('\x1b[') && b.action.data !== '\x1b[Z',
+				b.action.type === 'send' &&
+				b.action.data.startsWith('\x1b[') &&
+				b.action.data !== '\x1b[Z' &&
+				b.action.data !== '\x1b[27u',
 		)
 		expect(arrows).toEqual([])
 		const dpad = defaultRow1.find((b) => b.id === 'dpad-toggle')
@@ -81,6 +84,7 @@ describe('defaultRow1 (moshi-style single row)', () => {
 			{ section: 'Answer', label: '3', data: '3' },
 			{ section: 'Answer', label: 'y', data: 'y' },
 			{ section: 'Answer', label: 'n', data: 'n' },
+			{ section: 'Codex', label: 'Reply', data: '\x1b[1;3A' },
 			{ section: 'Codex', label: 'Queue', data: '\t' },
 			{ section: 'Codex', label: 'Think−', data: '\x1b,' },
 			{ section: 'Codex', label: 'Think+', data: '\x1b.' },
@@ -95,13 +99,13 @@ describe('defaultRow1 (moshi-style single row)', () => {
 			{ section: 'Pi', label: 'Expand', data: '\x0f' },
 		]
 		expect(
-			defaultDrawerButtons.slice(0, 17).map(({ section, label, action }) => ({
+			defaultDrawerButtons.slice(0, 18).map(({ section, label, action }) => ({
 				section,
 				label,
 				data: action.type === 'send' ? action.data : undefined,
 			})),
 		).toEqual(expected)
-		expect(defaultDrawerButtons[17]?.section).toBe('herdr')
+		expect(defaultDrawerButtons[18]?.section).toBe('herdr')
 	})
 })
 

@@ -43,7 +43,96 @@ const NAMED_KEYS = [
 	'del',
 	'esc',
 	'bs',
+	'f12',
+	'f11',
+	'f10',
+	'f9',
+	'f8',
+	'f7',
+	'f6',
+	'f5',
+	'f4',
+	'f3',
+	'f2',
+	'f1',
 ] as const
+
+const ARROW_FINAL: Readonly<Record<string, string>> = {
+	up: 'A',
+	down: 'B',
+	right: 'C',
+	left: 'D',
+	home: 'H',
+	end: 'F',
+}
+
+const PAGE_CODE: Readonly<Record<string, number>> = {
+	pageup: 5,
+	pgup: 5,
+	pagedown: 6,
+	pgdn: 6,
+}
+
+const F_KEY_SS3: Readonly<Record<string, string>> = {
+	f1: 'P',
+	f2: 'Q',
+	f3: 'R',
+	f4: 'S',
+}
+
+const F_KEY_TILDE: Readonly<Record<string, number>> = {
+	f5: 15,
+	f6: 17,
+	f7: 18,
+	f8: 19,
+	f9: 20,
+	f10: 21,
+	f11: 23,
+	f12: 24,
+}
+
+const S_ENTER_ERROR =
+	'Shift+Enter is indistinguishable from Enter here; hold ⏎ on the d-pad for a newline'
+
+function csiModifier(shift: boolean, alt: boolean, ctrl: boolean): number {
+	return 1 + (shift ? 1 : 0) + (alt ? 2 : 0) + (ctrl ? 4 : 0)
+}
+
+function encodeNamedSpecialKey(
+	keyLower: string,
+	ctrl: boolean,
+	alt: boolean,
+	shift: boolean,
+): ComboParseResult | null {
+	const hasMod = ctrl || alt || shift
+	const m = csiModifier(shift, alt, ctrl)
+
+	const arrow = ARROW_FINAL[keyLower]
+	if (arrow) {
+		if (!hasMod) return { ok: true, data: `\x1b[${arrow}` }
+		return { ok: true, data: `\x1b[1;${m}${arrow}` }
+	}
+
+	const page = PAGE_CODE[keyLower]
+	if (page !== undefined) {
+		if (!hasMod) return { ok: true, data: `\x1b[${page}~` }
+		return { ok: true, data: `\x1b[${page};${m}~` }
+	}
+
+	const ss3 = F_KEY_SS3[keyLower]
+	if (ss3) {
+		if (!hasMod) return { ok: true, data: `\x1bO${ss3}` }
+		return { ok: true, data: `\x1b[1;${m}${ss3}` }
+	}
+
+	const tilde = F_KEY_TILDE[keyLower]
+	if (tilde !== undefined) {
+		if (!hasMod) return { ok: true, data: `\x1b[${tilde}~` }
+		return { ok: true, data: `\x1b[${tilde};${m}~` }
+	}
+
+	return null
+}
 
 function parseComboTokens(value: string): ComboTokens | null {
 	const trimmed = value.trim()
@@ -177,6 +266,13 @@ export function parseComboInput(value: string): ComboParseResult {
 	}
 
 	const keyLower = keyToken.toLowerCase()
+	if (shift && (keyLower === 'enter' || keyLower === 'return')) {
+		return { ok: false, error: S_ENTER_ERROR }
+	}
+
+	const special = encodeNamedSpecialKey(keyLower, ctrl, alt, shift)
+	if (special) return special
+
 	const base = resolveBaseKey(keyToken, keyLower)
 	if (!base.ok) return base
 

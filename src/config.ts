@@ -70,7 +70,7 @@ const defaultRow1: HerdwebConfig['toolbar']['row1'] = [
 		id: 'esc',
 		label: 'Esc',
 		description: 'Send Escape key',
-		action: { type: 'send', data: '\x1b' },
+		action: { type: 'send', data: '\x1b[27u' },
 	},
 	{
 		// Dedicated C-c: coding agents need double Ctrl-C to quit, which neither
@@ -188,6 +188,13 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		description: 'Answer no',
 		action: { type: 'send', data: 'n' },
 		section: 'Answer',
+	},
+	{
+		id: 'codex-reply',
+		label: 'Reply',
+		description: 'Codex: answer pending question (Alt+↑)',
+		action: { type: 'send', data: '\x1b[1;3A' },
+		section: 'Codex',
 	},
 	{
 		id: 'codex-queue',

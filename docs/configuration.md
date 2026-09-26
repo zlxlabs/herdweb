@@ -45,7 +45,7 @@ export default {
     // Single row by default: Esc, C-c, ✥ dpad-toggle, ⏎ Enter, 🎤 voice-input,
     // 🖼 image-upload, ⌨ keyboard-toggle, ☰ drawer-toggle
     row1: [
-      { id: 'esc', label: 'Esc', description: 'Send Escape key', action: { type: 'send', data: '\x1b' } },
+      { id: 'esc', label: 'Esc', description: 'Send Escape key', action: { type: 'send', data: '\x1b[27u' } },
       { id: 'ctrl-c', label: 'C-c', description: 'Send Ctrl-C interrupt', action: { type: 'send', data: '\x03' } },
       // ...
     ],
@@ -58,6 +58,7 @@ export default {
       { id: 'answer-3', label: '3', description: 'Answer option 3', action: { type: 'send', data: '3' }, section: 'Answer' },
       { id: 'answer-y', label: 'y', description: 'Answer yes', action: { type: 'send', data: 'y' }, section: 'Answer' },
       { id: 'answer-n', label: 'n', description: 'Answer no', action: { type: 'send', data: 'n' }, section: 'Answer' },
+      { id: 'codex-reply', label: 'Reply', description: 'Codex: answer pending question (Alt+↑)', action: { type: 'send', data: '\x1b[1;3A' }, section: 'Codex' },
       { id: 'codex-queue', label: 'Queue', description: 'Codex: queue message (Tab)', action: { type: 'send', data: '\t' }, section: 'Codex' },
       { id: 'codex-think−', label: 'Think−', description: 'Codex: less reasoning (Alt+,)', action: { type: 'send', data: '\x1b,' }, section: 'Codex' },
       { id: 'codex-think+', label: 'Think+', description: 'Codex: more reasoning (Alt+.)', action: { type: 'send', data: '\x1b.' }, section: 'Codex' },

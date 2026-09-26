@@ -67,7 +67,7 @@ herdr has a built-in single-column layout for narrow terminals (`ui.mobile_width
 Present a summary of what you found and what you plan to configure:
 
 > "Based on your setup, here's what I'll configure:
-> - Default drawer sections: Answer (1/2/3/y/n), Codex, Claude, and Pi shortcuts, followed by herdr, terminal, and herdweb controls
+> - Default drawer sections: Answer (1/2/3/y/n), Codex (Reply / Queue / Think− / Think+ / Transcript), Claude, and Pi shortcuts, followed by herdr, terminal, and herdweb controls
 > - Auto-zoom on mobile load (pane fills the phone screen)
 > - Floating zoom button (one-tap zoom toggle)
 > - Swipe gestures for next/previous herdr tab (opt-in)"
@@ -208,9 +208,9 @@ name  theme  font  toolbar  drawer  dpad  gestures  mobile  floatingButtons  scr
 |------------------|---------------------|-------|
 | `send`           | `data: string`      | Optional `keyLabel?: string` for help overlay |
 | `prefix`         | `data: string`      | Sends prefix byte then opens combo picker |
-| `ctrl-modifier`  | (none)              | Opens Ctrl+key combo UI |
+| `ctrl-modifier`  | (none)              | One-shot sticky Ctrl shared by drawer, toolbar, and floating; next key is sent as a control byte |
 | `paste`          | (none)              | Paste from clipboard |
-| `combo-picker`   | (none)              | Opens Ctrl/Alt + key modal |
+| `combo-picker`   | (none)              | Combo sender: `C-`/`Ctrl`, `M-`/`Alt`, `S-`/`Shift`. Modified arrows/Home/End → `CSI 1;m X` (`m = 1+Shift+Alt×2+Ctrl×4`, e.g. `M-Up` → `\x1b[1;3A`). PgUp/PgDn → `CSI 5;m~` / `CSI 6;m~`. F1–F12 (plain `F8` is the function key). `S-Enter` errors: use d-pad long-press ⏎ |
 | `drawer-toggle`  | (none)              | Opens/closes command drawer |
 | `font-size`      | `delta: number`     | Adjust terminal font size |
 | `help`           | (none)              | Opens the help overlay |

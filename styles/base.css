@@ -380,6 +380,7 @@ body.wt-composer-open .wt-target-badge {
 	display: flex;
 	flex-direction: column;
 	max-height: calc(100vh - var(--wt-toolbar-height, 64px) - var(--kb-inset, 0px));
+	max-height: calc(100dvh - var(--wt-toolbar-height, 64px) - var(--kb-inset, 0px));
 }
 
 /* Handle row: centred drag handle + explicit close button on the right */

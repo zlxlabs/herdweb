@@ -32,6 +32,11 @@ const cases = [
 	['f8', 'csi-19-tilde', '1b5b31397e'],
 	['ctrl-home', 'csi-1-5-h', '1b5b313b3548'],
 	['ctrl-end', 'csi-1-5-f', '1b5b313b3546'],
+	['shift-up', 'csi-1-2-a', '1b5b313b3241'],
+	['ctrl-left', 'csi-1-5-d', '1b5b313b3544'],
+	['ctrl-pgup', 'csi-5-5-tilde', '1b5b353b357e'],
+	['f5', 'csi-15-tilde', '1b5b31357e'],
+	['ctrl-f8', 'csi-19-5-tilde', '1b5b31393b357e'],
 	['ctrl-t', 'control-byte', '14'],
 	['ctrl-o', 'control-byte', '0f'],
 	['esc-esc', 'chord', '1b1b'],
@@ -211,7 +216,14 @@ for (const mode of modes) {
 	await sleep(160)
 
 	const modeCases = []
-	const send = async (label, payload, split = false, kind = 'candidate', splitMs = 20) => {
+	const send = async (
+		label,
+		payload,
+		split = false,
+		kind = 'candidate',
+		splitMs = 20,
+		twice = false,
+	) => {
 		const start = relative(ready.start_ns)
 		const writes = []
 		const part = (bytes) => {
@@ -225,7 +237,11 @@ for (const mode of modes) {
 			client.write(input)
 			writes.push([at, wire])
 		}
-		if (split) {
+		if (twice) {
+			part(payload)
+			await sleep(splitMs)
+			part(payload)
+		} else if (split) {
 			part(payload.subarray(0, 1))
 			await sleep(splitMs)
 			part(payload.subarray(1))
@@ -234,13 +250,15 @@ for (const mode of modes) {
 		await sleep(kind === 'health' ? 90 : 130)
 		const end = relative(ready.start_ns)
 		writeHexLine(sentPath, writes)
+		const expected = twice ? Buffer.concat([payload, payload]) : payload
 		const item = {
 			mode,
 			label,
 			kind,
-			expected_hex: payload.toString('hex'),
+			expected_hex: expected.toString('hex'),
 			split,
-			split_ms: split ? splitMs : null,
+			split_ms: split || twice ? splitMs : null,
+			twice,
 			start_ns: start,
 			middle_ns: middle,
 			end_ns: end,
@@ -311,6 +329,48 @@ for (const mode of modes) {
 			}
 		}
 	}
+
+	for (const gap of [150, 300, 500]) {
+		const twiceEsc = await send(
+			`esc-esc/bare-twice-${gap}ms`,
+			Buffer.from('\x1b'),
+			false,
+			'candidate',
+			gap,
+			true,
+		)
+		twiceEsc.key = 'esc-esc'
+		twiceEsc.candidate = 'bare-twice'
+		twiceEsc.delivery = `twice-${gap}ms`
+		const twiceHealth = await send(
+			`health-after/esc-esc/bare-twice-${gap}ms`,
+			sentinel,
+			false,
+			'health',
+		)
+		twiceHealth.key = 'esc-esc'
+		twiceHealth.candidate = 'bare-twice'
+	}
+
+	const twiceCsi = await send(
+		'esc-esc/csi-27u-twice-300ms',
+		Buffer.from('\x1b[27u'),
+		false,
+		'candidate',
+		300,
+		true,
+	)
+	twiceCsi.key = 'esc-esc'
+	twiceCsi.candidate = 'csi-27u-twice'
+	twiceCsi.delivery = 'twice-300ms'
+	const twiceCsiHealth = await send(
+		'health-after/esc-esc/csi-27u-twice-300ms',
+		sentinel,
+		false,
+		'health',
+	)
+	twiceCsiHealth.key = 'esc-esc'
+	twiceCsiHealth.candidate = 'csi-27u-twice'
 
 	await sleep(100)
 	process.kill(ready.pid, 'SIGTERM')
