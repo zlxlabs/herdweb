@@ -5,12 +5,13 @@ import { keyboardToggleButton } from '../src/controls/keyboard-controller'
 import { defaultRow1, defaultRow2 } from '../src/toolbar/buttons'
 
 describe('defaultRow1 (moshi-style single row)', () => {
-	test('is exactly the 8-button set in render order: control keys left, input modes right', () => {
+	test('is exactly the 9-button set in render order: control keys left, input modes right', () => {
 		expect(defaultRow1.map((b) => b.id)).toEqual([
 			'esc',
 			'ctrl-c',
 			'dpad-toggle',
 			'enter',
+			'question-toggle',
 			'voice-input',
 			'image-upload',
 			'keyboard-toggle',
@@ -51,9 +52,17 @@ describe('defaultRow1 (moshi-style single row)', () => {
 		expect(dpad).toEqual(dpadToggleButton)
 	})
 
-	test('voice-input sits between ⏎ and 🖼 in the right-hand input zone', () => {
+	test('sends a bare Ctrl+] from 问卷显隐, between ⏎ and the input zone', () => {
 		const ids = defaultRow1.map((b) => b.id)
-		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('enter') + 1)
+		expect(ids.indexOf('question-toggle')).toBe(ids.indexOf('enter') + 1)
+		expect(ids.indexOf('question-toggle')).toBeLessThan(ids.indexOf('voice-input'))
+		const toggle = defaultRow1.find((b) => b.id === 'question-toggle')
+		expect(toggle?.action).toEqual({ type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' })
+	})
+
+	test('voice-input sits between 问卷显隐 and 🖼 in the right-hand input zone', () => {
+		const ids = defaultRow1.map((b) => b.id)
+		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('question-toggle') + 1)
 		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('image-upload') - 1)
 	})
 
