@@ -150,16 +150,16 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.theme.foreground).toBe('#cdd6f4')
 	})
 
-	test('has 9 row1 buttons (moshi-style single row)', () => {
-		expect(defaultConfig.toolbar.row1).toHaveLength(9)
+	test('has 8 row1 buttons (moshi-style single row)', () => {
+		expect(defaultConfig.toolbar.row1).toHaveLength(8)
 	})
 
 	test('row2 defaults to empty — single-row toolbar', () => {
 		expect(defaultConfig.toolbar.row2).toEqual([])
 	})
 
-	test('has 29 drawer buttons', () => {
-		expect(defaultConfig.drawer.buttons).toHaveLength(29)
+	test('has 30 drawer buttons', () => {
+		expect(defaultConfig.drawer.buttons).toHaveLength(30)
 	})
 
 	test('default row1 contains the image-upload button; the drawer does not', () => {
@@ -183,18 +183,19 @@ describe('defaultConfig', () => {
 		expect(byId.has('tmux-copy')).toBe(false)
 	})
 
-	test('row1 is Esc, C-c, ✥, ⏎, 问卷显隐, Voice, 🖼, ⌨, ☰', () => {
+	test('row1 is Esc, C-c, ✥, ⏎, Voice, 🖼, ⌨, ☰', () => {
 		const labels = defaultConfig.toolbar.row1.map((b) => b.label)
-		expect(labels).toEqual(['Esc', 'C-c', '✥', '⏎', '问卷显隐', 'Voice', '🖼', '⌨', '☰'])
+		expect(labels).toEqual(['Esc', 'C-c', '✥', '⏎', 'Voice', '🖼', '⌨', '☰'])
 	})
 
-	test('row1 question-toggle sends a bare Ctrl+] byte right after Enter', () => {
-		const labels = defaultConfig.toolbar.row1.map((b) => b.label)
-		const button = defaultConfig.toolbar.row1.find((b) => b.label === '问卷显隐')
-		expect(button?.id).toBe('question-toggle')
+	test('drawer Agent section carries Ctrl+] between Reply and /', () => {
+		const labels = defaultConfig.drawer.buttons.map((b) => b.label)
+		const button = defaultConfig.drawer.buttons.find((b) => b.id === 'question-toggle')
+		expect(button?.label).toBe('Ctrl+]')
+		expect(button?.section).toBe('Agent')
 		expect(button?.action).toEqual({ type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' })
-		expect(labels.indexOf('问卷显隐')).toBe(labels.indexOf('⏎') + 1)
-		expect(labels.indexOf('问卷显隐')).toBeLessThan(labels.indexOf('Voice'))
+		expect(labels.indexOf('Ctrl+]')).toBe(labels.indexOf('Reply') + 1)
+		expect(labels.indexOf('Ctrl+]')).toBe(labels.indexOf('/') - 1)
 	})
 
 	test('default mobile font size is 13', () => {
