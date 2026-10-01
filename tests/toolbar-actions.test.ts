@@ -1,6 +1,6 @@
 import { GlobalRegistrator } from '@happy-dom/global-registrator'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
-import { defineConfig } from '../src/config'
+import { defaultConfig, defineConfig } from '../src/config'
 import { createDrawer } from '../src/drawer/drawer'
 import { createHookRegistry } from '../src/hooks/registry'
 import { createToolbar } from '../src/toolbar/toolbar'
@@ -71,5 +71,25 @@ describe('toolbar action behaviour', () => {
 		await new Promise((resolve) => setTimeout(resolve, 0))
 
 		expect(term.sent).toEqual(['abc', '\x11'])
+	})
+
+	test('the default question-toggle toolbar button sends a bare Ctrl+] byte on every tap', async () => {
+		const term = mockTerminalWithSent()
+		const hooks = createHookRegistry()
+		const drawer = createDrawer(term, defaultConfig.drawer.buttons, {
+			hooks,
+			appConfig: defaultConfig,
+		})
+		const { element: toolbar } = createToolbar(term, defaultConfig, drawer.open, hooks)
+		document.body.appendChild(toolbar)
+
+		const toggle = findButtonByLabel(toolbar, '问卷显隐')
+		toggle.click()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		toggle.click()
+		await new Promise((resolve) => setTimeout(resolve, 0))
+
+		// One raw 0x1d per tap — no Ctrl modifier, no ANSI, no duplicate input.
+		expect(term.sent).toEqual(['\x1d', '\x1d'])
 	})
 })

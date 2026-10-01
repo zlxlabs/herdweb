@@ -41,6 +41,13 @@ async function screenText(page: Page): Promise<string> {
 	return (await page.locator('#terminal .xterm-rows').textContent()) ?? ''
 }
 
+/** Count byte-echo rows showing exactly `hex` — each echoed byte owns one row. */
+async function countEchoedByte(page: Page, hex: string): Promise<number> {
+	return page
+		.locator('#terminal .xterm-rows > div')
+		.evaluateAll((rows, byte) => rows.filter((row) => row.textContent?.trim() === byte).length, hex)
+}
+
 test('shows agent sections and lists their Guide descriptions', async ({ page }) => {
 	await openDrawer(page)
 	await expect(page.locator('#wt-drawer-grid .wt-drawer-section')).toHaveText([
@@ -102,4 +109,21 @@ test('drawer taps send Agent bytes to the PTY', async ({ page }) => {
 	await openDrawer(page)
 	await page.getByRole('button', { name: '$', exact: true }).tap()
 	await expect.poll(() => screenText(page)).toContain('24')
+})
+
+test('the toolbar 问卷显隐 tap sends Ctrl+] to the PTY on every press', async ({ page }) => {
+	await startByteEcho(page)
+
+	const toggle = page.locator('#wt-toolbar button', { hasText: '问卷显隐' })
+	await expect(toggle).toHaveCount(1)
+	// The button sits on the default row1 without opening the drawer.
+	await expect(page.locator('#wt-drawer')).not.toHaveClass(/open/)
+
+	await toggle.tap()
+	await expect.poll(() => countEchoedByte(page, '1d')).toBe(1)
+
+	await toggle.tap()
+	await expect.poll(() => countEchoedByte(page, '1d')).toBe(2)
+	// One raw 0x1d per tap — no Ctrl modifier, no bracketed-paste wrapper.
+	expect(await countEchoedByte(page, '9b')).toBe(0)
 })

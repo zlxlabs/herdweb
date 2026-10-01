@@ -150,8 +150,8 @@ describe('defaultConfig', () => {
 		expect(defaultConfig.theme.foreground).toBe('#cdd6f4')
 	})
 
-	test('has 8 row1 buttons (moshi-style single row)', () => {
-		expect(defaultConfig.toolbar.row1).toHaveLength(8)
+	test('has 9 row1 buttons (moshi-style single row)', () => {
+		expect(defaultConfig.toolbar.row1).toHaveLength(9)
 	})
 
 	test('row2 defaults to empty — single-row toolbar', () => {
@@ -183,9 +183,18 @@ describe('defaultConfig', () => {
 		expect(byId.has('tmux-copy')).toBe(false)
 	})
 
-	test('row1 is Esc, C-c, ✥, ⏎, Voice, 🖼, ⌨, ☰', () => {
+	test('row1 is Esc, C-c, ✥, ⏎, 问卷显隐, Voice, 🖼, ⌨, ☰', () => {
 		const labels = defaultConfig.toolbar.row1.map((b) => b.label)
-		expect(labels).toEqual(['Esc', 'C-c', '✥', '⏎', 'Voice', '🖼', '⌨', '☰'])
+		expect(labels).toEqual(['Esc', 'C-c', '✥', '⏎', '问卷显隐', 'Voice', '🖼', '⌨', '☰'])
+	})
+
+	test('row1 question-toggle sends a bare Ctrl+] byte right after Enter', () => {
+		const labels = defaultConfig.toolbar.row1.map((b) => b.label)
+		const button = defaultConfig.toolbar.row1.find((b) => b.label === '问卷显隐')
+		expect(button?.id).toBe('question-toggle')
+		expect(button?.action).toEqual({ type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' })
+		expect(labels.indexOf('问卷显隐')).toBe(labels.indexOf('⏎') + 1)
+		expect(labels.indexOf('问卷显隐')).toBeLessThan(labels.indexOf('Voice'))
 	})
 
 	test('default mobile font size is 13', () => {
