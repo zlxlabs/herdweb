@@ -73,17 +73,16 @@ describe('toolbar action behaviour', () => {
 		expect(term.sent).toEqual(['abc', '\x11'])
 	})
 
-	test('the default question-toggle toolbar button sends a bare Ctrl+] byte on every tap', async () => {
+	test('the default drawer Ctrl+] button sends a bare Ctrl+] byte on every tap', async () => {
 		const term = mockTerminalWithSent()
 		const hooks = createHookRegistry()
 		const drawer = createDrawer(term, defaultConfig.drawer.buttons, {
 			hooks,
 			appConfig: defaultConfig,
 		})
-		const { element: toolbar } = createToolbar(term, defaultConfig, drawer.open, hooks)
-		document.body.appendChild(toolbar)
+		document.body.appendChild(drawer.drawer)
 
-		const toggle = findButtonByLabel(toolbar, '问卷显隐')
+		const toggle = findButtonByLabel(drawer.drawer, 'Ctrl+]')
 		toggle.click()
 		await new Promise((resolve) => setTimeout(resolve, 0))
 		toggle.click()

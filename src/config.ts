@@ -60,7 +60,7 @@ const voiceComposerButton: ControlButton = {
 
 /**
  * Default row 1 buttons (moshi-style single row): control keys on the left
- * (Esc, C-c, ✥, ⏎, 问卷显隐), input modes on the right (🎤, 🖼, ⌨, ☰). ⌫ left
+ * (Esc, C-c, ✥, ⏎), input modes on the right (🎤, 🖼, ⌨, ☰). ⌫ left
  * the row — the floating d-pad and the voice composer textarea cover it. The
  * voice entry stays on the row even when ASR is disabled; the toolbar hides it
  * until a mic controller exists.
@@ -87,16 +87,6 @@ const defaultRow1: HerdwebConfig['toolbar']['row1'] = [
 		label: '\u23CE',
 		description: 'Send Enter/Return key',
 		action: { type: 'send', data: '\r' },
-	},
-	// 问卷显隐 collapses/reopens the Pi ask_user_question card so the answers
-	// can be read (and the context scrolled) underneath it. herdweb cannot see
-	// whether a question is open, so this is a plain one-shot 0x1d send — the
-	// agent decides what the byte means, exactly like a hardware Ctrl+] press.
-	{
-		id: 'question-toggle',
-		label: '问卷显隐',
-		description: 'Show or hide the agent question card (Ctrl+])',
-		action: { type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' },
 	},
 	// Voice is the primary input method — a first-class row1 member, not an
 	// asr.enabled patch-in. Hidden by the toolbar when no mic controller exists.
@@ -169,6 +159,17 @@ export const defaultDrawerButtons: readonly ControlButton[] = [
 		label: 'Reply',
 		description: 'Codex: answer pending question (Alt+↑)',
 		action: { type: 'send', data: '\x1b[1;3A' },
+		section: 'Agent',
+	},
+	{
+		// Ctrl+] collapses/reopens the Pi ask_user_question card so the answers
+		// can be read (and the context scrolled) underneath it. herdweb cannot
+		// see whether a question is open, so this is a plain one-shot 0x1d send —
+		// the agent decides what the byte means, exactly like a hardware press.
+		id: 'question-toggle',
+		label: 'Ctrl+]',
+		description: 'Show or hide the agent question card',
+		action: { type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' },
 		section: 'Agent',
 	},
 	{

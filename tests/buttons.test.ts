@@ -5,13 +5,12 @@ import { keyboardToggleButton } from '../src/controls/keyboard-controller'
 import { defaultRow1, defaultRow2 } from '../src/toolbar/buttons'
 
 describe('defaultRow1 (moshi-style single row)', () => {
-	test('is exactly the 9-button set in render order: control keys left, input modes right', () => {
+	test('is exactly the 8-button set in render order: control keys left, input modes right', () => {
 		expect(defaultRow1.map((b) => b.id)).toEqual([
 			'esc',
 			'ctrl-c',
 			'dpad-toggle',
 			'enter',
-			'question-toggle',
 			'voice-input',
 			'image-upload',
 			'keyboard-toggle',
@@ -52,17 +51,19 @@ describe('defaultRow1 (moshi-style single row)', () => {
 		expect(dpad).toEqual(dpadToggleButton)
 	})
 
-	test('sends a bare Ctrl+] from 问卷显隐, between ⏎ and the input zone', () => {
-		const ids = defaultRow1.map((b) => b.id)
-		expect(ids.indexOf('question-toggle')).toBe(ids.indexOf('enter') + 1)
-		expect(ids.indexOf('question-toggle')).toBeLessThan(ids.indexOf('voice-input'))
-		const toggle = defaultRow1.find((b) => b.id === 'question-toggle')
+	test('sends a bare Ctrl+] from the drawer Ctrl+] button in the Agent section', () => {
+		const ids = defaultDrawerButtons.map((b) => b.id)
+		expect(ids.indexOf('question-toggle')).toBe(ids.indexOf('agent-reply') + 1)
+		expect(ids.indexOf('question-toggle')).toBeLessThan(ids.indexOf('agent-slash'))
+		const toggle = defaultDrawerButtons.find((b) => b.id === 'question-toggle')
+		expect(toggle?.label).toBe('Ctrl+]')
+		expect(toggle?.section).toBe('Agent')
 		expect(toggle?.action).toEqual({ type: 'send', data: '\x1d', keyLabel: 'Ctrl+]' })
 	})
 
-	test('voice-input sits between 问卷显隐 and 🖼 in the right-hand input zone', () => {
+	test('voice-input heads the right-hand input zone before 🖼', () => {
 		const ids = defaultRow1.map((b) => b.id)
-		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('question-toggle') + 1)
+		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('enter') + 1)
 		expect(ids.indexOf('voice-input')).toBe(ids.indexOf('image-upload') - 1)
 	})
 
@@ -89,17 +90,18 @@ describe('defaultRow1 (moshi-style single row)', () => {
 	test('starts with agent keys before herdr', () => {
 		const expected = [
 			{ section: 'Agent', label: 'Reply', data: '\x1b[1;3A' },
+			{ section: 'Agent', label: 'Ctrl+]', data: '\x1d' },
 			{ section: 'Agent', label: '/', data: '/' },
 			{ section: 'Agent', label: '$', data: '$' },
 		]
 		expect(
-			defaultDrawerButtons.slice(0, 3).map(({ section, label, action }) => ({
+			defaultDrawerButtons.slice(0, 4).map(({ section, label, action }) => ({
 				section,
 				label,
 				data: action.type === 'send' ? action.data : undefined,
 			})),
 		).toEqual(expected)
-		expect(defaultDrawerButtons[3]?.section).toBe('herdr')
+		expect(defaultDrawerButtons[4]?.section).toBe('herdr')
 	})
 })
 

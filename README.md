@@ -236,15 +236,16 @@ Voice capture needs a secure context (HTTPS on a phone; `localhost` is fine).
 A plain HTTP LAN address is not — herdweb hides the control rather than showing
 a dead mic.
 
-### Toolbar: 问卷显隐 (question card)
+### Drawer: Ctrl+] (question card)
 
-The default bottom toolbar carries a **问卷显隐** button right after ⏎ (Enter)
-and before the input-mode icons. One tap writes a single `0x1d` byte (Ctrl+])
-to the agent's PTY; a second tap writes it again.
+The default bottom toolbar carries only general terminal keys. The agent-only
+**Ctrl+]** button lives in the drawer's `Agent` section, right below `Reply`.
+One tap writes a single `0x1d` byte (Ctrl+]) to the agent's PTY; a second tap
+writes it again.
 
 Agents that bind Ctrl+] — Pi's `ask_user_question` plugin, for one — use that
 byte to collapse the question card so you can read and scroll the context
-underneath it. The answers you already picked are kept: tapping 问卷显隐 again
+underneath it. The answers you already picked are kept: tapping Ctrl+] again
 brings the same card back with your selections intact.
 
 It is **not** a hide switch, and it is not stateful: herdweb cannot see whether
