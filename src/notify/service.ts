@@ -26,7 +26,7 @@ import {
 } from './push'
 import { appendEventLine } from './state'
 
-const PUSH_TTL_SECONDS = 3600
+const PUSH_TTL_SECONDS = 86400
 const STALE_SCAN_INTERVAL_MS = 24 * 60 * 60 * 1000
 
 function readStatusCode(error: unknown): number | undefined {
@@ -209,13 +209,17 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 		const results = await Promise.allSettled(
 			subs.map(async (sub) => {
 				try {
+					const options =
+						event.kind === 'asking' || event.level === 'act_now'
+							? { TTL: PUSH_TTL_SECONDS, urgency: 'high' as const }
+							: { TTL: PUSH_TTL_SECONDS }
 					await send(
 						{
 							endpoint: sub.endpoint,
 							keys: sub.keys,
 						},
 						payload,
-						{ TTL: PUSH_TTL_SECONDS },
+						options,
 					)
 					return now()
 				} catch (error: unknown) {
@@ -247,6 +251,11 @@ export function createNotifyService(deps: NotifyServiceDeps): NotifyService {
 					deltas.set(reason.endpoint, { snapshot: sub, remove: true })
 					console.log(
 						`herdweb: notify subscription removed (stale ) → ${formatEndpointForLog(reason.endpoint)}`,
+					)
+				} else {
+					const status = readStatusCode(reason)
+					console.log(
+						`herdweb: notify push failed → ${formatEndpointForLog(sub.endpoint)} (status=${status ?? 'network'})`,
 					)
 				}
 			}

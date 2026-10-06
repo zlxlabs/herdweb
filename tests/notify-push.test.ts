@@ -122,6 +122,43 @@ describe('notify push delivery', () => {
 		notifyService.dispose()
 	})
 
+	test('sets TTL to 24 hours and high urgency only for asking or act_now', async () => {
+		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-push-'))
+		writeSubscriptions(stateDir, [
+			{
+				endpoint: 'https://push.example/device',
+				keys: { p256dh: 'k', auth: 'a' },
+				lastSuccessAt: 0,
+			},
+		])
+		const sendPush = vi.fn().mockResolvedValue(undefined)
+		const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
+		const events = [
+			{ id: 'push-asking', kind: 'asking' as const },
+			{ id: 'push-act-now', kind: 'done' as const, level: 'act_now' as const },
+			{ id: 'push-done', kind: 'done' as const },
+		]
+		for (const [index, fields] of events.entries()) {
+			notifyService.dispatchEvent(
+				parseNotifyEvent(
+					JSON.stringify({
+						v: 1,
+						...fields,
+						title: 'T',
+						ts: 1_700_000_000_000 + index,
+					}),
+				),
+			)
+			await notifyService.awaitInFlight(1000)
+		}
+		expect(sendPush.mock.calls.map(([, , options]) => options)).toEqual([
+			{ TTL: 86400, urgency: 'high' },
+			{ TTL: 86400, urgency: 'high' },
+			{ TTL: 86400 },
+		])
+		notifyService.dispose()
+	})
+
 	test('removes subscription on 410', async () => {
 		stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-push-'))
 		writeSubscriptions(stateDir, [
