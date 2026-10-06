@@ -153,7 +153,7 @@ test('dispatchEvent sends encrypted WebPush to subscription endpoint', async () 
 		expect(endpoint.requests).toHaveLength(1)
 		const push = endpoint.requests[0]
 		expect(push?.method).toBe('POST')
-		expect(push?.headers.ttl).toBe('3600')
+		expect(push?.headers.ttl).toBe('86400')
 		const authorization = push?.headers.authorization
 		expect(typeof authorization).toBe('string')
 		expect(authorization).toMatch(/^vapid /)
@@ -258,6 +258,49 @@ test.each(mergeCases)('$name', async (mergeCase) => {
 	await notifyService.awaitInFlight(1000)
 
 	expect(readSubscriptions(stateDir)).toEqual(mergeCase.expected)
+	notifyService.dispose()
+})
+
+test('logs non-gone push failures without deleting subscriptions or exposing endpoints', async () => {
+	stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-delivery-failed-log-'))
+	writeSubscriptions(stateDir, [subscription('private/403', 1), subscription('private/network', 1)])
+	const sendPush = vi.fn(async (pushSubscription: { endpoint: string }) => {
+		if (pushSubscription.endpoint.endsWith('/403')) {
+			throw Object.assign(new Error('private response body'), { statusCode: 403 })
+		}
+		throw new Error('private network details')
+	})
+	const logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+	const notifyService = createNotifyService({ stateDir, historyLimit: 200, sendPush })
+	notifyService.dispatchEvent(
+		parseNotifyEvent(
+			JSON.stringify({
+				v: 1,
+				id: 'delivery-failed-log',
+				kind: 'done',
+				role: 'root',
+				title: 'Done',
+				ts: 1_700_000_000_000,
+			}),
+		),
+	)
+	await notifyService.awaitInFlight(1000)
+
+	const failureLines = logSpy.mock.calls
+		.map(([message]) => message)
+		.filter(
+			(message): message is string =>
+				typeof message === 'string' && message.includes('herdweb: notify push failed →'),
+		)
+	expect(failureLines).toEqual([
+		'herdweb: notify push failed → push.example (status=403)',
+		'herdweb: notify push failed → push.example (status=network)',
+	])
+	expect(readSubscriptions(stateDir)).toEqual([
+		subscription('private/403', 1),
+		subscription('private/network', 1),
+	])
+	logSpy.mockRestore()
 	notifyService.dispose()
 })
 

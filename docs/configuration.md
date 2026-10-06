@@ -257,6 +257,14 @@ when no page is open.
    few seconds.
 5. Tap the notification — herdweb should focus (or open) in the browser/PWA.
 
+Web Push messages have a 24-hour time-to-live. `asking` events and events with
+`level: 'act_now'` use high urgency; other events keep the Web Push default
+urgency. After the Service Worker registers on page load, herdweb compares an
+existing subscription's application server key with the server's VAPID key and
+re-registers a matching subscription. If the keys differ, it replaces the old
+subscription. This check does not request notification permission or create a
+subscription when none exists.
+
 On iPhone, if you are not in standalone mode, the panel shows a hint to add
 herdweb to the Home Screen first.
 
