@@ -1,7 +1,7 @@
 import { joinBasePath } from '../base-path'
 import { isRecord } from './events'
 
-export function urlBase64ToUint8Array(base64String: string): Uint8Array {
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
 	const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
 	const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
 	const raw = atob(base64)
@@ -12,7 +12,7 @@ export function urlBase64ToUint8Array(base64String: string): Uint8Array {
 	return output
 }
 
-export function arrayBufferToBase64(buffer: ArrayBuffer | null): string {
+function arrayBufferToBase64(buffer: ArrayBuffer | null): string {
 	if (buffer === null) return ''
 	const bytes = new Uint8Array(buffer)
 	let binary = ''
