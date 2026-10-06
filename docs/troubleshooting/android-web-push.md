@@ -77,7 +77,7 @@ adb shell am broadcast -a com.google.android.intent.action.GTALK_HEARTBEAT
 
 处置：在通知面板里把推送开关关掉再打开，重新订阅。
 
-> 计划中的改进：页面加载时自动对账本地订阅与服务端登记，避免此类不一致。
+> 已实现：页面加载时，若已授予通知权限且浏览器里有订阅，会自动向服务端重新上报该订阅；VAPID 公钥变化时会自动退订并重新订阅，避免此类不一致。
 
 ### b. FCM Fix（LSPosed 模块，需 root）作用域不全
 
@@ -114,36 +114,34 @@ adb shell su -c 'cat /proc/<pid>/wchan'
 
 被冻结时，`dumpsys ... GcmService` 也会超时。
 
-处置：把 `com.google.android.gms` 加入 `MILLET_NO_RESTRICT_APP`（system 命名空间，逗号加空格分隔）：
+处置（让 Google Play 服务的省电策略变为「无限制」）：
+
+1. 首选：设置 -> 应用 -> 应用管理 -> Google Play 服务 -> 省电策略 -> 无限制。
+2. HyperOS 上该页面可能没有「无限制」选项。此时用 root 通过「电量与性能」（`com.miui.powerkeeper`）的配置 ContentProvider 修改，与设置界面走同一条路径：
 
 ```bash
-old=$(adb shell settings get system MILLET_NO_RESTRICT_APP)
-echo "$old" > millet_no_restrict.bak   # 先备份
-adb shell settings put system MILLET_NO_RESTRICT_APP "'$old, com.google.android.gms'"
+# 查询当前策略（miuiAuto = 智能限制）
+adb shell "su -c 'content query --uri content://com.miui.powerkeeper.configure/userTable --where \"pkgName=\\\"com.google.android.gms\\\"\"'"
+# 改为无限制
+adb shell "su -c 'content update --uri content://com.miui.powerkeeper.configure/userTable --bind bgControl:s:noRestrict --where \"pkgName=\\\"com.google.android.gms\\\" AND userId=0\"'"
 ```
 
-若原值为 `null`（未设置），直接写 `com.google.android.gms`：
+改完数秒内 powerkeeper 会自行重写 `MILLET_NO_RESTRICT_APP`，其中出现 `com.google.android.gms` 即生效（自查：`adb shell settings get system MILLET_NO_RESTRICT_APP`）。之后亮屏再锁屏一次，让冻结策略重新判定。
 
-```bash
-adb shell settings put system MILLET_NO_RESTRICT_APP com.google.android.gms
-```
-
-之后亮屏再锁屏一次，让冻结策略重新判定。
+不要直接 `settings put system MILLET_NO_RESTRICT_APP ...`：该名单由「电量与性能」维护（`dumpsys settings` 中该键的写入方为 `pkg:com.miui.powerkeeper`），是各应用「省电策略 = 无限制」的汇总。powerkeeper 会按自己的数据库定期整份重写，手动追加的项约 1 小时内就会被冲掉，Google Play 服务随即再次被 quick freeze。
 
 验证：锁屏后 greezer 历史中不再出现 gms 的 `quick freeze`，GcmService 保持 `connected=`。
 
-实测：修复后，锁屏熄屏状态下从服务端发出到通知弹出约 1 秒。
+实测：锁屏 5 分钟后发送测试推送，约 1.5 秒送达。
 
 ## 4. 持久性说明
 
-- 该设置存于用户数据（Settings.System），重启与普通 OTA 不会丢失；生效不依赖 root。
+- 该策略存于 powerkeeper 自身的数据库（用户数据），重启与普通 OTA 一般会保留。
 - 会失效的情形：
-  - 恢复出厂或清除数据。
-  - 名单原本由第三方工具（如 Scene 等）维护，工具再次写入会覆盖，建议在该工具里同样加入 Google Play 服务。
+  - 恢复出厂，或清除「电量与性能」的数据。
   - 大版本系统更新可能改变机制或键名。
-  - 云端省电策略理论上可能覆盖（未观察到）。
 - OTA 后 root 往往需要重新修补；root 恢复前 LSPosed / FCM Fix 不生效，作用域配置会保留。
-- 自查一行，看输出是否含 `com.google.android.gms`：
+- 自查一行（powerkeeper 汇总后的结果），看输出是否含 `com.google.android.gms`：
 
 ```bash
 adb shell settings get system MILLET_NO_RESTRICT_APP
@@ -151,6 +149,7 @@ adb shell settings get system MILLET_NO_RESTRICT_APP
 
 ## 5. 补充
 
+- 推送 TTL 为 24 小时；`asking` 与 `act_now` 级事件以 high urgency 发送，其余事件使用 Web Push 默认 urgency（详见 [`docs/configuration.md`](../configuration.md)）。
 - 测试时手机插着 USB 充电，不会进入最深的 Doze；建议拔线放置一段时间后再验证一次。
 - 无 root 设备无法使用上述 Millet 设置与 FCM Fix，可依赖出站通道（message-pusher、企业微信 webhook，见 [`docs/configuration.md`](../configuration.md) 的通知配置部分）作为兜底。
 - 对比参考：同一设备上其他使用标准 Web Push 的 PWA（例如 HAPI）受同样影响，这不是 herdweb 特有的问题。

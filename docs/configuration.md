@@ -429,7 +429,9 @@ imply that FCM is reachable; Web Push depends on Google Play services
 maintaining a long-lived connection to `mtalk.google.com` on ports `5228`,
 `5229`, or `5230`. Configure an outbound channel above as the workaround for
 those devices; message-pusher and the WeCom webhook do not depend on the
-device's FCM connection.
+device's FCM connection. For a layered troubleshooting walkthrough and fix
+steps for Android/HyperOS devices, see
+[Android Web Push troubleshooting](troubleshooting/android-web-push.md).
 
 **State directory (per port)**
 
