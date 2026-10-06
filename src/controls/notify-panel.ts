@@ -1,5 +1,6 @@
 import { joinBasePath } from '../base-path'
 import { type NotifyEvent, type NotifyKind, type NotifyLevel, isRecord } from '../notify/events'
+import { serializePushSubscription, vapidApplicationServerKey } from '../notify/push-client'
 import { el } from '../util/dom'
 import { onTap } from '../util/tap'
 
@@ -41,27 +42,6 @@ function kindLabel(kind: NotifyKind): string {
 	return KIND_LABELS[kind]
 }
 
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-	const padding = '='.repeat((4 - (base64String.length % 4)) % 4)
-	const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/')
-	const raw = atob(base64)
-	const output = new Uint8Array(raw.length)
-	for (let i = 0; i < raw.length; i++) {
-		output[i] = raw.charCodeAt(i)
-	}
-	return output
-}
-
-function arrayBufferToBase64(buffer: ArrayBuffer | null): string {
-	if (buffer === null) return ''
-	const bytes = new Uint8Array(buffer)
-	let binary = ''
-	for (const byte of bytes) {
-		binary += String.fromCharCode(byte)
-	}
-	return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-}
-
 function isHistoryResponse(value: unknown): value is { events?: NotifyEvent[] } {
 	return isRecord(value) && (value.events === undefined || Array.isArray(value.events))
 }
@@ -85,13 +65,6 @@ function describePermission(): string {
 		default:
 			return '通知权限：未决定'
 	}
-}
-
-function vapidApplicationServerKey(base64: string): ArrayBuffer {
-	const bytes = urlBase64ToUint8Array(base64)
-	const buffer = new ArrayBuffer(bytes.length)
-	new Uint8Array(buffer).set(bytes)
-	return buffer
 }
 
 function formatAbsoluteTime(ts: number): string {
@@ -393,13 +366,7 @@ export function createNotifyPanel(deps: NotifyPanelDeps): NotifyPanelResult {
 			response = await fetchFn(joinBasePath(deps.basePath, '/api/push/subscribe'), {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({
-					endpoint: subscription.endpoint,
-					keys: {
-						p256dh: arrayBufferToBase64(subscription.getKey('p256dh')),
-						auth: arrayBufferToBase64(subscription.getKey('auth')),
-					},
-				}),
+				body: JSON.stringify(serializePushSubscription(subscription)),
 			})
 		} catch {
 			setStatus('Subscribe failed on server')

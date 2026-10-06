@@ -8,6 +8,7 @@ import { joinBasePath } from './base-path'
 import { createImageDropController } from './controls/image-drop-controller'
 import { createHookRegistry, init } from './index'
 import { isRecord } from './notify/events'
+import { reconcilePushSubscription } from './notify/push-client'
 import { type ClientMessage, parseServerMessage, serialiseClientMessage } from './session-protocol'
 import type { TargetSummary } from './session-protocol'
 import {
@@ -1301,7 +1302,7 @@ function main(config: ClientConfigProjection, version: string | undefined): void
 	})
 	document.body.appendChild(imageDrop.element)
 
-	void registerServiceWorker(basePath)
+	void registerServiceWorker(basePath).then(() => reconcilePushSubscription(basePath))
 
 	init(config, hooks, version, { openImageDrop: imageDrop.open, basePath })
 }
