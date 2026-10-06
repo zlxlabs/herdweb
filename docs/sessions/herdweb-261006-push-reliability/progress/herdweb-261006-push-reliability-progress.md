@@ -32,3 +32,9 @@
 - **本段结论**：远端分支 SHA 与本地 HEAD 一致；主干远端基线同步后通过 public-scan，PR 创建时无 CI 检查结果。完整验证红与证据已写执行报告。
 - **关键决策与已否决方案**：没有跳过 public-scan，也没有改范围外的 E2E/进程测试；维持 PR draft 并如实标记 outcome failed。
 - **下一步唯一动作**：主脑审阅 PR #209，实现通过后另行处理 CI 阻断并决定是否转 ready。
+
+## 2026-10-06 — GitHub CI 验证终态
+- **当前阶段**：GitHub hosted `check` job 成功；PR #209 保持 draft。
+- **本段结论**：hosted `pnpm run ci-check` 退出成功；84 files / 1502 passed / 1 skipped，Playwright 143 passed / 9 skipped。
+- **关键决策与已否决方案**：以 run/job 终态为准；保留本地失败记录，不改测试、不标 ready、不合并。
+- **下一步唯一动作**：主脑复核 PR #209 和执行报告。
