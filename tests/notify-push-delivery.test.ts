@@ -263,10 +263,7 @@ test.each(mergeCases)('$name', async (mergeCase) => {
 
 test('logs non-gone push failures without deleting subscriptions or exposing endpoints', async () => {
 	stateDir = mkdtempSync(join(tmpdir(), 'herdweb-notify-delivery-failed-log-'))
-	writeSubscriptions(stateDir, [
-		subscription('private/403', 1),
-		subscription('private/network', 1),
-	])
+	writeSubscriptions(stateDir, [subscription('private/403', 1), subscription('private/network', 1)])
 	const sendPush = vi.fn(async (pushSubscription: { endpoint: string }) => {
 		if (pushSubscription.endpoint.endsWith('/403')) {
 			throw Object.assign(new Error('private response body'), { statusCode: 403 })
@@ -291,13 +288,14 @@ test('logs non-gone push failures without deleting subscriptions or exposing end
 
 	const failureLines = logSpy.mock.calls
 		.map(([message]) => message)
-		.filter((message): message is string =>
-			typeof message === 'string' && message.includes('herdweb: notify push failed →'),
+		.filter(
+			(message): message is string =>
+				typeof message === 'string' && message.includes('herdweb: notify push failed →'),
 		)
 	expect(failureLines).toEqual([
-			'herdweb: notify push failed → push.example (status=403)',
-			'herdweb: notify push failed → push.example (status=network)',
-		])
+		'herdweb: notify push failed → push.example (status=403)',
+		'herdweb: notify push failed → push.example (status=network)',
+	])
 	expect(readSubscriptions(stateDir)).toEqual([
 		subscription('private/403', 1),
 		subscription('private/network', 1),
