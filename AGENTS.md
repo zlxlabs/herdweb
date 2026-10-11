@@ -70,7 +70,7 @@ See `docs/architecture/publishing.md`.
 
 ## Issue triage
 
-标签沿用 gate-hub 的前缀体系：`type:bug|docs|feature|maintenance`（单选）、`priority:P0`–`P3`、
+标签沿用 gate-hub 的前缀体系：`type:bug|docs|feature|maintenance`（单选）、`priority:P1`–`P3`、
 `area:ci|notify|testing`（可多选）、`status:ready|needs-investigation|needs-design|blocked`（单选）。
 标签只是索引，判据在正文。
 
