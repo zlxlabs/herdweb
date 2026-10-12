@@ -162,7 +162,7 @@ jobs:
             echo "HERDWEB_UI_REPORTER_TOKEN_MISSING" >&2
             exit 1
           fi
-          npx --yes --package=@cyborgtests/reporter@3.0.0 --package=streamx@2.28.1 playwright-reporter-cli upload playwright-report \
+          npx --yes --package=@cyborgtests/reporter@3.0.0 --package=streamx@2.28.1 playwright-reporter-cli upload test-results/playwright-report \
             --url "$PWRS_BASE" \
             --token "$PWRS_REPORTER_TOKEN" \
             --project "$GITHUB_REPOSITORY" \

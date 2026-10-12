@@ -410,7 +410,7 @@ describe('herdweb-visual.yml (UI evidence pipeline)', () => {
 	it('uploads the self-contained HTML report to PWRS with the head-SHA title', () => {
 		const uploadStep = stepByName('直传走查证据到 PWRS')
 		const run = String(uploadStep.run)
-		expect(run).toContain('playwright-reporter-cli upload playwright-report')
+		expect(run).toContain('playwright-reporter-cli upload test-results/playwright-report')
 		expect(run).toContain('--url "$PWRS_BASE"')
 		expect(run).toContain(
 			'--title "$GITHUB_REPOSITORY ui-evidence ${UI_EVIDENCE_HEAD_SHA} (run ${GITHUB_RUN_ID})"',
@@ -472,7 +472,7 @@ describe('playwright.visual.config.ts (visual walkthrough config)', () => {
 
 	it('writes a single self-contained HTML report to the directory the workflow uploads', () => {
 		expect(visualConfig.reporter).toEqual([
-			['html', { outputFolder: 'playwright-report', open: 'never' }],
+			['html', { outputFolder: 'test-results/playwright-report', open: 'never' }],
 		])
 	})
 

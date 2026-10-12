@@ -24,6 +24,8 @@ export default defineConfig({
 		trace: 'on',
 		screenshot: 'on',
 	},
-	reporter: [['html', { outputFolder: 'playwright-report', open: 'never' }]],
-	projects: baseConfig.projects.filter((project) => project.name === 'chromium-android'),
+	// Under test-results/ (git- and biome-ignored); the root-level
+	// 'playwright-report' name is not honored by biome's ignore list.
+	reporter: [['html', { outputFolder: 'test-results/playwright-report', open: 'never' }]],
+	projects: (baseConfig.projects ?? []).filter((project) => project.name === 'chromium-android'),
 })
