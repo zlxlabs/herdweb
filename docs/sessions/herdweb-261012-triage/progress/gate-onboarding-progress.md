@@ -100,3 +100,44 @@
   对默认端口 localhost:3000 探测并打印 ECONNREFUSED stderr，不影响退出码。
 - 下一步唯一动作：docs commit（AGENTS.md 豁免理由更正 + 本 progress）→ 单轮 push →
   gh 读一次远端 run 状态入档。
+
+## 里程碑 4：H1 单轮局部修复（dlg-20261012-160531-0ae9e6，F1–F4，只本地 commit）
+
+- 输入：独立审查 verdict（`git show fb966e39822e16e23c28f1cda8591387d2edd417:
+  docs/sessions/herdweb-261012-triage/reviews/gate-onboarding-verdict.md`）。
+- F1：`herdweb-visual.yml` job 级 `if`（搜 `Trusted-event admission`）：同仓 PR 且
+  作者非 dependabot[bot]，或显式 workflow_dispatch（短路在前，不触碰 PR 字段）；
+  不用 github.actor；`approval_policy=all_external_contributors` 保持未重复 PUT。
+- F2：`playwright.visual.config.ts` 新增 `outputDir: test-results/visual-artifacts`，
+  与报告目录同父兄弟；契约测试用 path 数学断言互不嵌套（非两字符串）。
+- F3：上传步 `id: upload`；发布步加 `steps.upload.outcome == 'success'` 门槛
+  （搜 `F3:`）；`e2e-status` 仍取原始 `steps.e2e.outcome`。
+- F4：真实模板切片 fixture（gate-hub `templates/ui-visual/workflow.yml` 冻结对象
+  d39ee21af70dc8902878b273c3a5e1ee0f8ff6e4，第 177–190 行，blob/hash/适配差异在
+  `tests/fixtures/gate-onboarding/SOURCE.md` 搜 `template-ui-visual`）；只切上传步，
+  不复制 MagicDNS 步（不新增公开扫描命中）。producer 测试（test 文件搜
+  `upload producer`）：真实 YAML run 块 → `bash -e`（GitHub Linux 默认，无
+  pipefail 声明）+ fake npx 收 NUL 分隔逐 token argv，断全参数与两 package 版本、
+  uploader 17→shell 17、空 token exit 1+marker+npx 未调用；token 显式虚构。
+- 红验：H0 上 3 条新断言 AssertionError（job.if / id+门槛 / outputDir 缺失）；
+  变异 ×3（删发布门槛、title 去 40 位 SHA、删准入项）均 AssertionError 后
+  byte-identical 还原复绿。事故记录：变异还原误用 `git checkout --` 连带回退了
+  未提交实现，已重放并改用精确反向替换。
+- 真实 CLI（TMPDIR=/tmp）：visual 2 passed (4.3s) 无 Configuration Error；
+  `test-results/visual-artifacts/` 2×video+2×trace；报告内嵌模型 12 条附件引用
+  全为相对 `data/<sha>` 且落盘可解析。本会话 dispatch env 即深路径 TMPDIR，
+  serve setup 30s 超时 ×2，TMPDIR=/tmp 后消失（与里程碑 2 结论同因）。
+- 完整质量：`TMPDIR=/tmp pnpm run ci-check` 单轮 exit 1——test:coverage 绿
+  (1560/1561，无 ps ENOBUFS)，test:pw 62 failed/81 passed 后链停；独立复跑
+  test:pw 52 failed/84 passed/8 skipped；两轮失败集合不相交（18–19 个 spec
+  文件受影响、非确定性），隔离探针三组（sticky-ctrl+dpad、asr+combo-encoding）
+  全绿 → 归因宿主并行竞争（他 delegate 在跑），非本卡改动（改动不在共享套件
+  导入图）。两次未收敛，按卡停止。其余分段单独全绿：build:dist / check（一次
+  biome 格式修正后）/ lint:ox / lint:typos / lint:knip / lint:publint / tsc /
+  test:deploy / 窄测 58/58 / 窄 visual 2/2。完整链未在单轮内 exit 0，不称全绿。
+- 预算：累计 additions 2096 / 2100 硬上限（fable 估 120–180，
+  实际本轮新增 332，主因 producer spawn 矩阵与准入/发布断言）。
+- 风险与缺口：job 级 if 与发布门槛为 GitHub 表达式，actionlint 绿但真实验值待
+  managed CI；真实 Actions/PWRS/PR 评论链 pending（lead 验收）；push 仍被
+  agent-config#4581 挡（实测 OPEN，未放行）→ 只本地 commit 不 push。
+- 下一步唯一动作：#4581 正式放行后单轮 push 本地 2+1 commit 并 ls-remote 核实。
