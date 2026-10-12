@@ -10,9 +10,17 @@
  */
 import { spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+	chmodSync,
+	existsSync,
+	mkdtempSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join, resolve, sep } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { parse } from 'yaml'
 import baseConfig from '../playwright.config'
@@ -30,11 +38,11 @@ const readYaml = (relativePath: string): Record<string, unknown> =>
 const readFixture = (name: string): string => readFileSync(join(fixtureDir, name), 'utf8')
 
 /** Fixture excerpts keep the producer's base indentation; dedent to parse. */
-const readDedentedFixture = (name: string): Record<string, unknown> =>
+const readDedentedFixture = (name: string, width = 2): Record<string, unknown> =>
 	parse(
 		readFixture(name)
 			.split('\n')
-			.map((line) => line.replace(/^ {2}/, ''))
+			.map((line) => line.replace(new RegExp(`^ {${width}}`), ''))
 			.join('\n'),
 	) as Record<string, unknown>
 
@@ -384,6 +392,24 @@ describe('herdweb-visual.yml (UI evidence pipeline)', () => {
 		expect(env.PWRS_BASE).toBeDefined()
 	})
 
+	it('admits only trusted events at the job level (self-hosted never runs untrusted code)', () => {
+		// Trust matrix: workflow_dispatch → maintainer-triggered, trusted, and
+		// short-circuits before any PR-context field is evaluated. pull_request
+		// → admitted only when the PR head branch lives in THIS repository
+		// (external forks never match head.repo.full_name == github.repository)
+		// AND the PR author is not dependabot[bot] (same-repo bot branches).
+		// github.actor is deliberately unused: a re-trigger can swap the actor.
+		const jobIf = String(job.if)
+		expect(jobIf).toContain("github.event_name == 'workflow_dispatch'")
+		expect(jobIf).toContain("github.event_name == 'pull_request'")
+		expect(jobIf).toContain('github.event.pull_request.head.repo.full_name == github.repository')
+		expect(jobIf).toContain("github.event.pull_request.user.login != 'dependabot[bot]'")
+		expect(jobIf).not.toContain('github.actor')
+		expect(jobIf.indexOf('workflow_dispatch')).toBeLessThan(
+			jobIf.indexOf('pull_request.head.repo.full_name'),
+		)
+	})
+
 	it('runs the visual config via playwright, never the shared blocking suite', () => {
 		const e2eStep = requireRecord(
 			stepRecords.find((record) => record.id === 'e2e'),
@@ -424,9 +450,19 @@ describe('herdweb-visual.yml (UI evidence pipeline)', () => {
 		}
 	})
 
-	it('publishes via the shared composite action with matching e2e status and head SHA', () => {
+	it('publishes via the shared composite action only after a successful upload', () => {
 		const publishStep = stepByName('发布走查证据评论')
 		expect(publishStep.uses).toBe('zlxlabs/gate-hub/.github/actions/ui-evidence-publish@main')
+		// F3: the publish gate references the upload step's own outcome — a
+		// failed upload leaves the job red and posts no new comment (the sticky
+		// comment keeps its previous state). e2e-status stays the raw e2e
+		// outcome: an upload-infrastructure failure is never re-labelled as a
+		// test failure.
+		expect(stepByName('直传走查证据到 PWRS').id).toBe('upload')
+		const publishIf = String(publishStep.if)
+		expect(publishIf).toContain('!cancelled()')
+		expect(publishIf).toContain("github.event_name == 'pull_request'")
+		expect(publishIf).toContain("steps.upload.outcome == 'success'")
 		const withInputs = requireRecord(publishStep.with, 'publish step with')
 		expect(withInputs['e2e-status']).toBe('${{ steps.e2e.outcome }}')
 		expect(withInputs['head-sha']).toBe('${{ env.UI_EVIDENCE_HEAD_SHA }}')
@@ -476,6 +512,18 @@ describe('playwright.visual.config.ts (visual walkthrough config)', () => {
 		])
 	})
 
+	it('keeps report and test artifacts as siblings under test-results/ (never nested)', () => {
+		// Playwright refuses an HTML report folder that clashes with the tests
+		// output folder; visual artifacts get their own sibling directory so
+		// neither is a subtree of the other (path math, not just two strings).
+		expect(visualConfig.outputDir).toBe('test-results/visual-artifacts')
+		const artifactsAbs = resolve(repoRoot, 'test-results/visual-artifacts')
+		const reportAbs = resolve(repoRoot, 'test-results/playwright-report')
+		expect(reportAbs.startsWith(`${artifactsAbs}${sep}`)).toBe(false)
+		expect(artifactsAbs.startsWith(`${reportAbs}${sep}`)).toBe(false)
+		expect(dirname(reportAbs)).toBe(dirname(artifactsAbs))
+	})
+
 	it('keeps the chromium-only matrix and the shared suite timeout', () => {
 		expect(visualConfig.projects?.map((project) => project.name)).toEqual(['chromium-android'])
 		expect(visualConfig.timeout).toBe(baseConfig.timeout)
@@ -498,6 +546,169 @@ describe('playwright.config.ts (blocking suite unchanged + precise isolation)', 
 		expect(baseConfig.timeout).toBe(30_000)
 		expect(baseConfig.retries).toBe(process.env.CI ? 2 : 0)
 		expect(baseConfig.failOnFlakyTests).toBe(Boolean(process.env.CI))
+	})
+})
+
+// ---------------------------------------------------------------------------
+// ui-visual upload producer: real workflow run block → bash → argv (F4)
+// ---------------------------------------------------------------------------
+
+describe('ui-visual upload producer (real YAML run block executed under bash)', () => {
+	const doc = readYaml('.github/workflows/herdweb-visual.yml')
+	const jobs = requireRecord(doc.jobs, 'herdweb-visual.yml jobs')
+	const job = requireRecord(jobs['ui-visual'], 'herdweb-visual.yml jobs.ui-visual')
+	const steps = requireArray(job.steps, 'herdweb-visual.yml jobs.ui-visual.steps')
+	const uploadStep = steps
+		.map((step, index) => requireRecord(step, `step #${index}`))
+		.find((record) => String(record.name).includes('直传走查证据到 PWRS'))
+	if (!uploadStep) {
+		throw new Error('upload step not found')
+	}
+	const uploadRun = String(uploadStep.run)
+
+	// Real template slice: the upload step of gate-hub templates/ui-visual/
+	// workflow.yml @ d39ee21af70dc8902878b273c3a5e1ee0f8ff6e4 (provenance in
+	// SOURCE.md). The slice is one steps list item (`- name: …`), so the
+	// dedented YAML parses as a one-element sequence; unwrap it. The adapter
+	// deltas vs these bytes are asserted below.
+	const templateSteps = readDedentedFixture('template-ui-visual-upload-step.yml', 6)
+	const templateStep = (Array.isArray(templateSteps) ? templateSteps[0] : templateSteps) as Record<
+		string,
+		unknown
+	>
+	const templateRun = String(templateStep.run)
+
+	// Neither the template nor the adapter declares `shell:` on the step, so
+	// GitHub's documented Linux default applies: `bash -e {0}`. The spawn below
+	// reproduces exactly that (no pipefail claim).
+	const TOKEN_CHECK = [
+		'# Fail loud on a missing reporter token; never print the value itself.',
+		'if [ -z "$PWRS_REPORTER_TOKEN" ]; then',
+		'  echo "HERDWEB_UI_REPORTER_TOKEN_MISSING" >&2',
+		'  exit 1',
+		'fi',
+	].join('\n')
+
+	const HEAD40 = '3f2a9c1e5b7d6084a2c4e6f8091b3d5f7a9c1e2b'
+	const FICTIONAL_TOKEN = 'fictional-test-token-never-a-real-secret'
+
+	it('upload-step fixture matches the frozen template slice bytes', () => {
+		expect(fixtureSha256('template-ui-visual-upload-step.yml')).toBe(
+			'9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6',
+		)
+	})
+
+	it('SOURCE.md registers the frozen template provenance and slice hash', () => {
+		const source = readFixture('SOURCE.md')
+		for (const needle of [
+			'd39ee21af70dc8902878b273c3a5e1ee0f8ff6e4',
+			'1a184b6af6646eab6cb7f80daf4297897ef8587f',
+			'5fa93c05234f74bd98d9a5c6dbfb4902e3398359491394255bd22618419e9a2f',
+			'9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6',
+			'template-ui-visual-upload-step.yml',
+		]) {
+			expect(source).toContain(needle)
+		}
+	})
+
+	it('keeps the producer run block byte-tied to the real template slice (documented deltas only)', () => {
+		expect(templateStep['working-directory']).toBe('e2e')
+		expect(uploadStep['working-directory']).toBeUndefined()
+		expect(templateStep.shell).toBeUndefined()
+		expect(uploadStep.shell).toBeUndefined()
+		const adaptedTemplate = templateRun.replace(
+			'upload playwright-report',
+			'upload test-results/playwright-report',
+		)
+		expect(adaptedTemplate).not.toBe(templateRun)
+		expect(uploadRun).toBe(`${TOKEN_CHECK}\n${adaptedTemplate}`)
+	})
+
+	/** Runs the real run block under GitHub's default Linux shell mode, with a
+	 * fake `npx` first on PATH capturing argv (NUL-delimited). All secret-ish
+	 * inputs are explicitly overridden with fictional values — never the real
+	 * environment. */
+	const runUploadScript = (envOverrides: Record<string, string>) => {
+		const dir = mkdtempSync(join(tmpdir(), 'ui-upload-producer-'))
+		const script = join(dir, 'upload-run.sh')
+		writeFileSync(script, uploadRun)
+		writeFileSync(
+			join(dir, 'npx'),
+			'#!/bin/sh\nprintf \'%s\\0\' "$@" > "$FAKE_NPX_ARGFILE"\nexit "$FAKE_NPX_EXIT"\n',
+		)
+		chmodSync(join(dir, 'npx'), 0o755)
+		return {
+			result: spawnSync('bash', ['-e', script], {
+				env: {
+					...process.env,
+					PATH: `${dir}:${process.env.PATH ?? ''}`,
+					PWRS_BASE: 'https://pwrs.example.invalid',
+					GITHUB_REPOSITORY: 'zlxlabs/herdweb',
+					GITHUB_RUN_ID: '12345',
+					GITHUB_REF_NAME: 'card/test-fixture',
+					UI_EVIDENCE_HEAD_SHA: HEAD40,
+					PWRS_REPORTER_TOKEN: FICTIONAL_TOKEN,
+					FAKE_NPX_ARGFILE: join(dir, 'argv.bin'),
+					FAKE_NPX_EXIT: '0',
+					...envOverrides,
+				},
+			}),
+			dir,
+		}
+	}
+
+	it('sends the exact upload argv to real bash with a fake npx on PATH', () => {
+		const { result, dir } = runUploadScript({})
+		try {
+			expect(result.status).toBe(0)
+			const argv = readFileSync(join(dir, 'argv.bin')).toString('utf8').split('\0')
+			expect(argv[argv.length - 1]).toBe('')
+			argv.pop()
+			expect(argv).toEqual([
+				'--yes',
+				'--package=@cyborgtests/reporter@3.0.0',
+				'--package=streamx@2.28.1',
+				'playwright-reporter-cli',
+				'upload',
+				'test-results/playwright-report',
+				'--url',
+				'https://pwrs.example.invalid',
+				'--token',
+				FICTIONAL_TOKEN,
+				'--project',
+				'zlxlabs/herdweb',
+				'--title',
+				`zlxlabs/herdweb ui-evidence ${HEAD40} (run 12345)`,
+				'--meta',
+				'branch=card/test-fixture',
+				'--meta',
+				'run_id=12345',
+				'--meta',
+				'environment=ui-evidence',
+			])
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('propagates a failing uploader exit code through the real shell', () => {
+		const { result, dir } = runUploadScript({ FAKE_NPX_EXIT: '17' })
+		try {
+			expect(result.status).toBe(17)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
+	})
+
+	it('fails loud on an empty token without ever invoking npx', () => {
+		const { result, dir } = runUploadScript({ PWRS_REPORTER_TOKEN: '' })
+		try {
+			expect(result.status).toBe(1)
+			expect(result.stderr.toString()).toContain('HERDWEB_UI_REPORTER_TOKEN_MISSING')
+			expect(existsSync(join(dir, 'argv.bin'))).toBe(false)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
+		}
 	})
 })
 
