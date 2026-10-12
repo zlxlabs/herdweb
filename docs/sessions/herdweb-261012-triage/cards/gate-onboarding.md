@@ -69,7 +69,7 @@ primary 与走查发布按显式失败停下上报，不降级验收、不绕过
 
 ## 实现要点（照抄平台真身，不自创）
 
-1. **`gate.yml`** —— 以 `gate-hub/.github/workflows/gate.yml` 为模板，差异只有三处：
+1. **`gate.yml`** —— 以平台 caller 模板 `gate-hub/templates/caller-ci.yml` 为模板，差异只有三处：
    - workflow `name: gate` 与 job id `gate`（required check 上下文 `gate / gate`，不得改名）；
    - `with:` 传 `tier: personal`（registry 与 `AGENTS.md` 的 `risk-tier: personal` 一致）、
      `runner: self`、`has_ui: true`；`control_runner` 不传（默认跟随 runner）；
