@@ -68,11 +68,17 @@
   契约测试锁死两者一致；报告仍满足「单目录、根即 index.html」上传不变式。
 - 继承红（机制归因，非基线比对；派发时主干基线不可用）：
   `tests/process-lifecycle.test.ts > isolated serve dies with the caller process`
-  在整仓并行跑时间歇 `spawnSync ps ENOBUFS` —— 测试 finally 清理段
-  `execFileSync('ps', ['-eo','pid=,args='])` 未设 maxBuffer（默认 1 MiB），
-  本宿主 ps 输出实测 1.10–1.13 MiB（其他 delegate 的大 argv 进程主导），
-  全仓并行时 worker 进程再推高输出越线；隔离跑 3/3 绿。测试文件不在本卡 Scope，
-  不修；与本卡 16 个改动文件无导入/运行关系（新红：无）。
+  在整仓并行跑时间歇 `spawnSync ps ENOBUFS` —— 测试的 finally 清理段与
+  `orphanedServePids()` 断言助手的 `execFileSync('ps', …)` 均未设 maxBuffer
+  （默认 1 MiB），本宿主 ps 输出实测 1.10–1.13 MiB（其他 delegate 的大 argv
+  进程主导），全仓并行时 worker 进程再推高输出越线；隔离跑 3/3 绿。
+  三次完整链路跑（22:22 / 22:24 / 22:44）均只红这同一条，其余 84/85 文件、
+  1551/1552 用例全绿；测试文件不在本卡 Scope，不修；与本卡 16 个改动文件
+  无导入/运行关系（新红：无）。无主干基线可比，按卡规则标「未能判定（无基线）」，
+  但三连同因复现 + 机制独立于本仓状态。
+- 最终 CI 验收留痕：整仓 `pnpm run ci-check` 未达 exit 0，唯一原因即上条继承红；
+  其余链路分段取证全绿（test:coverage 1551、build:dist、test:pw 152/152 exit 0、
+  biome 整仓、lint:ox/typos/knip/publint、tsc、test:deploy）。
 - 已知良性噪声（预存，非本卡引入）：`tests/client-connection.test.ts` 按既有行为
   对默认端口 localhost:3000 探测并打印 ECONNREFUSED stderr，不影响退出码。
 - 下一步唯一动作：docs commit（AGENTS.md 豁免理由更正 + 本 progress）→ 单轮 push →
