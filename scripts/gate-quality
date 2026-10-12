@@ -1,0 +1,8 @@
+#!/bin/sh
+# Stable quality entry for the shared gate v2 quality job
+# (zlxlabs/gate gate-v2.yml "Detect repository quality entry" / "Run
+# scripts/gate-quality"). It runs the repo's own CI parity command — the same
+# command .github/workflows/ci.yml's check job runs — so the shared gate and
+# the repo's required check stay on one blocking definition. The callee owns
+# the quality artifact directory; this entry only runs the check.
+exec pnpm run ci-check

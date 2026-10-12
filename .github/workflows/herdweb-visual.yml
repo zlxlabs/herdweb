@@ -1,0 +1,181 @@
+# herdweb UI 录屏走查 (ui-visual v2): 独立证据流水线, 非阻断, 不进 branch protection。
+# 按平台模板 zlxlabs/gate-hub templates/ui-visual/workflow.yml @ 0a574177 适配;
+# 「解析 PWRS 主机名」「探活 PWRS」两步与 reporter CLI 上传参数取模板原文字节。
+# 通用发布半(PR 粘性评论)用共享 composite action, 不复制发布实现。
+# 报告 title 与评论 head-sha 绑定同一完整 40 位 head SHA 表达式。
+# 与模板的差异(本仓适配, 不是发布实现改动): 工具链走 mise/pnpm(本仓 ci.yml 同路径)、
+# 报告目录在仓根 playwright-report(visual config 的 outputFolder)、上传步先做
+# token 长度 fail-loud 检查(HERDWEB_UI_REPORTER_TOKEN_MISSING)。
+name: herdweb UI 录屏走查
+
+on:
+  pull_request:
+    # Docs-only changes skip the media walkthrough (non-required workflow;
+    # the required gate / CI check stay always-triggered).
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: herdweb-ui-visual-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ui-visual:
+    # org runner group `ci` (visibility=all, allows public repos, no workflow
+    # restriction) — the platform UI pipeline's own pool label.
+    runs-on: [self-hosted, ci]
+    timeout-minutes: 15
+    env:
+      # 硬性不变式: PWRS 报告 title 必须携带完整 40 位 head SHA, 供 /reports?search=
+      # 深链命中; 上传与发布步骤引用同一份表达式。
+      UI_EVIDENCE_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+      PWRS_BASE: https://zlx-vm-work-i5-infra.taile9071.ts.net:8443
+    steps:
+      - uses: actions/checkout@v6
+
+      # Toolchain from mise.toml (node 22 / pnpm 11 / ttyd 1.7.7) — same
+      # install path as this repo's ci.yml check job.
+      - uses: jdx/mise-action@v3
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # chromium only (canonical browser for the evidence pipeline); system
+      # libs are preinstalled on the ci pool runner image.
+      - name: Install chromium
+        timeout-minutes: 5
+        run: pnpm exec playwright install chromium
+
+      - name: Run UI walkthrough (report + trace + video + screenshot)
+        id: e2e
+        run: pnpm exec playwright test --config=playwright.visual.config.ts
+
+      # 失败报告照样直传: 解析/探活/上传三步同 if: !cancelled()。
+      - name: 解析 PWRS 主机名
+        if: ${{ !cancelled() }}
+        run: |
+          PWRS_RESOLUTION="$(python3 - "$PWRS_BASE" <<'PY'
+          import socket
+          import struct
+          import sys
+          from urllib.parse import urlparse
+
+          host = urlparse(sys.argv[1]).hostname
+          if not host:
+              raise SystemExit("PWRS_BASE must contain a hostname")
+          labels = host.rstrip(".").split(".")
+          if any(not label or len(label) > 63 for label in labels):
+              raise SystemExit("PWRS_BASE hostname contains an invalid label")
+          question_name = b"".join(
+              bytes((len(label),)) + label.encode("idna") for label in labels
+          ) + b"\0"
+          query_id = b"\x01\x02"
+          packet = (
+              query_id
+              + struct.pack("!HHHHH", 0x0100, 1, 0, 0, 0)
+              + question_name
+              + struct.pack("!HH", 1, 1)
+          )
+
+          def skip_name(data, offset):
+              while True:
+                  if offset >= len(data):
+                      raise SystemExit("MagicDNS returned a truncated name")
+                  length = data[offset]
+                  if length == 0:
+                      return offset + 1
+                  if length & 0xC0 == 0xC0:
+                      if offset + 1 >= len(data):
+                          raise SystemExit("MagicDNS returned a truncated pointer")
+                      return offset + 2
+                  if length & 0xC0:
+                      raise SystemExit("MagicDNS returned an invalid name")
+                  offset += length + 1
+
+          with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as dns:
+              dns.settimeout(15)
+              dns.sendto(packet, ("100.100.100.100", 53))
+              response, _ = dns.recvfrom(4096)
+
+          if len(response) < 12 or response[:2] != query_id:
+              raise SystemExit("MagicDNS returned an invalid response")
+          _, flags, question_count, answer_count, _, _ = struct.unpack(
+              "!HHHHHH", response[:12]
+          )
+          if flags & 0x000F:
+              raise SystemExit(f"MagicDNS returned DNS error {flags & 0x000F}")
+          offset = 12
+          for _ in range(question_count):
+              offset = skip_name(response, offset)
+              if offset + 4 > len(response):
+                  raise SystemExit("MagicDNS returned a truncated question")
+              offset += 4
+          for _ in range(answer_count):
+              offset = skip_name(response, offset)
+              if offset + 10 > len(response):
+                  raise SystemExit("MagicDNS returned a truncated answer")
+              record_type, record_class, _, record_length = struct.unpack(
+                  "!HHIH", response[offset : offset + 10]
+              )
+              offset += 10
+              if offset + record_length > len(response):
+                  raise SystemExit("MagicDNS returned a truncated record")
+              record = response[offset : offset + record_length]
+              offset += record_length
+              if record_type == 1 and record_class == 1 and record_length == 4:
+                  print(f"{socket.inet_ntoa(record)} {host}")
+                  break
+          else:
+              raise SystemExit(f"MagicDNS returned no A record for {host}")
+          PY
+          )"
+          PWRS_IP="${PWRS_RESOLUTION%% *}"
+          PWRS_HOST="${PWRS_RESOLUTION#* }"
+          if [ -z "$PWRS_IP" ] || [ -z "$PWRS_HOST" ] || [ "$PWRS_IP" = "$PWRS_RESOLUTION" ]; then
+            echo "MagicDNS returned an invalid PWRS resolution" >&2
+            exit 1
+          fi
+          if [ "$(id -u)" -eq 0 ]; then
+            printf '%s %s\n' "$PWRS_IP" "$PWRS_HOST" >> /etc/hosts
+          else
+            printf '%s %s\n' "$PWRS_IP" "$PWRS_HOST" | sudo tee -a /etc/hosts >/dev/null
+          fi
+          printf 'Resolved %s to %s via MagicDNS\n' "$PWRS_HOST" "$PWRS_IP"
+
+      - name: 探活 PWRS
+        if: ${{ !cancelled() }}
+        run: curl -fsS --max-time 15 "$PWRS_BASE/api/ping" -o /dev/null
+
+      - name: 直传走查证据到 PWRS
+        if: ${{ !cancelled() }}
+        env:
+          PWRS_REPORTER_TOKEN: ${{ secrets.PWRS_REPORTER_TOKEN }}
+        run: |
+          # Fail loud on a missing reporter token; never print the value itself.
+          if [ -z "$PWRS_REPORTER_TOKEN" ]; then
+            echo "HERDWEB_UI_REPORTER_TOKEN_MISSING" >&2
+            exit 1
+          fi
+          npx --yes --package=@cyborgtests/reporter@3.0.0 --package=streamx@2.28.1 playwright-reporter-cli upload playwright-report \
+            --url "$PWRS_BASE" \
+            --token "$PWRS_REPORTER_TOKEN" \
+            --project "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REPOSITORY ui-evidence ${UI_EVIDENCE_HEAD_SHA} (run ${GITHUB_RUN_ID})" \
+            --meta "branch=${GITHUB_REF_NAME}" \
+            --meta "run_id=${GITHUB_RUN_ID}" \
+            --meta "environment=ui-evidence"
+
+      # ── 通用发布半:别改。轻量 PR 粘性评论(状态 + PWRS 搜索深链),不处理报告文件。 ──
+      - name: 发布走查证据评论
+        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        uses: zlxlabs/gate-hub/.github/actions/ui-evidence-publish@main
+        with:
+          e2e-status: ${{ steps.e2e.outcome }}
+          subject: "Terminal"
+          head-sha: ${{ env.UI_EVIDENCE_HEAD_SHA }}
