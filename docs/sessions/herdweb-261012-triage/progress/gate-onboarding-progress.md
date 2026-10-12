@@ -79,6 +79,23 @@
 - 最终 CI 验收留痕：整仓 `pnpm run ci-check` 未达 exit 0，唯一原因即上条继承红；
   其余链路分段取证全绿（test:coverage 1551、build:dist、test:pw 152/152 exit 0、
   biome 整仓、lint:ox/typos/knip/publint、tsc、test:deploy）。
+
+## 里程碑 3：push 被预推公开扫描拦下（blocked，待主脑仲裁）
+
+- 阶段：implementing → blocked
+- 事实：`git push` 被 agent-config pre-push public-scan 拒绝：
+  `.github/workflows/herdweb-visual.yml:103:cgnat_ip` —— 该行是平台模板
+  `templates/ui-visual/workflow.yml` MagicDNS 解析步骤的原文字节
+  （`dns.sendto(packet, ("100.100.100.100", 53))`，Tailscale 固定解析器）。
+  同一字面量存在于平台自己的公开仓 zlxlabs/gate `gate-v2.yml:983/1173/1750/1232`。
+- 全量待推 diff 重跑 outbound_scan：恰好 1 处命中，无其它公开内容问题。
+- 未采取的动作（均属自批/绕过，禁）：`CC_PRE_PUSH_PUBLIC_SCAN_OFF=1` 越过、
+  改扫描器、把 IP 改写成等价变体（洗白）。扫描器与守卫脚本均无本仓可编辑的白名单。
+- 待主脑三选一：(a) 授权本次 push 用守卫自带 bypass 环境变量；(b) 授权带适配的
+  替换写法（如 resolver 地址从 repo VARIABLE 注入，需一次仓库设置写权）；
+  (c) 平台侧改（gate-hub 模板把 resolver 字面量收进共享 action 或提供公开仓变体）。
+- 本地 4 个 commit 待推：8dc8a7c（设计，已推）之后的 10be0c8 / e5235b6 / 884f01a /
+  096acb6；draft PR #212 head 仍停在 8dc8a7c。
 - 已知良性噪声（预存，非本卡引入）：`tests/client-connection.test.ts` 按既有行为
   对默认端口 localhost:3000 探测并打印 ECONNREFUSED stderr，不影响退出码。
 - 下一步唯一动作：docs commit（AGENTS.md 豁免理由更正 + 本 progress）→ 单轮 push →
