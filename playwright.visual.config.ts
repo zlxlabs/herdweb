@@ -24,6 +24,11 @@ export default defineConfig({
 		trace: 'on',
 		screenshot: 'on',
 	},
+	// Test artifacts (video/trace/screenshots) get their own directory, a
+	// sibling of the HTML report — never nested inside it (Playwright refuses a
+	// report folder that clashes with the tests output folder) and never the
+	// shared default test-results/ root.
+	outputDir: 'test-results/visual-artifacts',
 	// Under test-results/ (git- and biome-ignored); the root-level
 	// 'playwright-report' name is not honored by biome's ignore list.
 	reporter: [['html', { outputFolder: 'test-results/playwright-report', open: 'never' }]],

@@ -4,8 +4,13 @@
 # 通用发布半(PR 粘性评论)用共享 composite action, 不复制发布实现。
 # 报告 title 与评论 head-sha 绑定同一完整 40 位 head SHA 表达式。
 # 与模板的差异(本仓适配, 不是发布实现改动): 工具链走 mise/pnpm(本仓 ci.yml 同路径)、
-# 报告目录在仓根 playwright-report(visual config 的 outputFolder)、上传步先做
-# token 长度 fail-loud 检查(HERDWEB_UI_REPORTER_TOKEN_MISSING)。
+# 报告目录 test-results/playwright-report(visual config 的 outputFolder)与测试产物
+# 目录 test-results/visual-artifacts 同父兄弟、上传步先做 token 长度 fail-loud 检查
+# (HERDWEB_UI_REPORTER_TOKEN_MISSING)、上传步 id=upload 且发布步门槛
+# steps.upload.outcome == 'success'(上传失败不发布新评论)、job 级可信事件准入
+# (同仓 PR 且非 dependabot[bot], 或显式 workflow_dispatch; 外部 fork 永不进入
+# self-hosted)。上传步与模板一样不声明 shell → GitHub 文档化的 Linux 默认
+# bash -e {0}, producer 边界测试按同模式复现, 不声称 pipefail。
 name: herdweb UI 录屏走查
 
 on:
@@ -27,6 +32,20 @@ concurrency:
 
 jobs:
   ui-visual:
+    # Trusted-event admission (adapter delta, not in the template): the
+    # self-hosted pool must never execute untrusted code. workflow_dispatch is
+    # maintainer-triggered and short-circuits before any PR-context field is
+    # evaluated. pull_request is admitted only when the PR head branch lives in
+    # THIS repository (external forks never match head.repo.full_name ==
+    # github.repository) AND the author is not dependabot[bot] (same-repo bot
+    # branches). github.actor is deliberately unused: a re-trigger can swap the
+    # actor. External forks are never approved to run here; the repo keeps
+    # approval_policy=all_external_contributors.
+    if: >-
+      ${{ github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.user.login != 'dependabot[bot]') }}
     # org runner group `ci` (visibility=all, allows public repos, no workflow
     # restriction) — the platform UI pipeline's own pool label.
     runs-on: [self-hosted, ci]
@@ -153,6 +172,7 @@ jobs:
         run: curl -fsS --max-time 15 "$PWRS_BASE/api/ping" -o /dev/null
 
       - name: 直传走查证据到 PWRS
+        id: upload
         if: ${{ !cancelled() }}
         env:
           PWRS_REPORTER_TOKEN: ${{ secrets.PWRS_REPORTER_TOKEN }}
@@ -172,8 +192,11 @@ jobs:
             --meta "environment=ui-evidence"
 
       # ── 通用发布半:别改。轻量 PR 粘性评论(状态 + PWRS 搜索深链),不处理报告文件。 ──
+      # F3: 只在上传步真实成功后发布(steps.upload.outcome == 'success');上传失败
+      # 时 job 保持红、不发布新评论,粘性评论保留旧状态而非伪装成功。e2e-status
+      # 仍取原始 steps.e2e.outcome,上传基础设施失败不会被改标成测试失败。
       - name: 发布走查证据评论
-        if: ${{ !cancelled() && github.event_name == 'pull_request' }}
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.upload.outcome == 'success' }}
         uses: zlxlabs/gate-hub/.github/actions/ui-evidence-publish@main
         with:
           e2e-status: ${{ steps.e2e.outcome }}
