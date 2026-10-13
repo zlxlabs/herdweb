@@ -16,9 +16,11 @@ import {
 	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	readdirSync,
 	realpathSync,
 	rmSync,
 	statSync,
+	symlinkSync,
 	writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -38,6 +40,11 @@ const readYaml = (relativePath: string): Record<string, unknown> =>
 	parse(readText(relativePath)) as Record<string, unknown>
 
 const readFixture = (name: string): string => readFileSync(join(fixtureDir, name), 'utf8')
+
+// Sealed-harness dependency: the only host tool mapped into fakebin (broken/missing → setup throws).
+const dirnameBin = ['/usr/bin/dirname', '/bin/dirname'].find((path) => existsSync(path))
+if (dirnameBin === undefined || spawnSync(dirnameBin, ['a/b']).status !== 0)
+	throw new Error('fakebin setup: no working dirname for the sealed PATH')
 
 /** Fixture excerpts keep the producer's base indentation; dedent to parse. */
 const readDedentedFixture = (name: string, width = 2): Record<string, unknown> =>
@@ -307,8 +314,7 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 	})
 
 	it('declares the repo-owned prep chain then the final exec, in order (structure, not grep)', () => {
-		// Quality-entry contract: the entry owns the FULL pipeline including
-		// dependency prep (gate README @ f4213194…, lines 38–53); missing mise = shell 127.
+		// Contract (gate README @ f4213194…, 38–53): full pipeline incl. dep prep; missing mise = 127.
 		expect(effectiveLines).toEqual([
 			'set -eu',
 			'cd "$(dirname "$0")/.."',
@@ -318,8 +324,7 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 			'mise exec -- pnpm exec playwright install --with-deps chromium webkit',
 			'exec mise exec -- pnpm run ci-check',
 		])
-		const ciYaml = readText('.github/workflows/ci.yml')
-		expect(ciYaml).toContain('pnpm run ci-check')
+		expect(readText('.github/workflows/ci.yml')).toContain('pnpm run ci-check')
 	})
 
 	it('design doc pins the formal gate README contract (ref, blob, sha256) and drops the old only-exec clause', () => {
@@ -343,8 +348,6 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 		expect(script).not.toContain('upload')
 	})
 
-	// --- real-entry subprocess producer: fake bin dir seals the environment ---
-
 	const EXPECTED_ARGV: Record<string, string[]> = {
 		trust: ['trust', '--yes', './mise.toml'],
 		tools: ['install', '--yes'],
@@ -353,8 +356,8 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 		quality: ['exec', '--', 'pnpm', 'run', 'ci-check'],
 	}
 
-	// Fake mise: binds each phase by subcommand + first operand (no call counting),
-	// appends one observation block per call, exits with the phase's configured code.
+	const PLACEHOLDER_ENV = { CI: 'ci-placeholder', GATE_ARTIFACT_DIR: '/tmp/fictional-artifacts' }
+	// Fake mise: phase bound by subcommand + first operand (no call count); appends one block per call, exits per config.
 	const FAKE_MISE = `#!/bin/sh
 set -eu
 case "\$1" in trust) phase=trust ;; install) phase=tools ;; exec) case "\${3:-}:\${4:-}" in pnpm:install) phase=deps ;; pnpm:exec) phase=browsers ;; pnpm:run) phase=quality ;; esac ;; *) phase=unknown ;; esac
@@ -369,74 +372,57 @@ exit "\${FAKE_PNPM_EXIT:-95}"
 `
 
 	const readBlocks = (record: string) => {
-		if (!existsSync(record)) {
-			return []
-		}
+		if (!existsSync(record)) return []
 		return readFileSync(record, 'utf8')
 			.split('---\n')
 			.filter((chunk) => chunk !== '')
 			.map((chunk) => {
 				const lines = chunk.split('\n').filter((line) => line !== '')
-				const env = Object.fromEntries(
-					lines.filter((line) => line.startsWith('env:')).map((line) => line.slice(4).split('=')),
-				) as Record<string, string>
 				return {
 					phase: lines[0].slice(6),
 					cwd: lines[1].slice(4),
 					args: lines.filter((line) => line.startsWith('arg=')).map((line) => line.slice(4)),
-					env,
+					env: Object.fromEntries(
+						lines.filter((line) => line.startsWith('env:')).map((line) => line.slice(4).split('=')),
+					) as Record<string, string>,
 				}
 			})
 	}
 
-	/** Runs the real entry as a subprocess. PATH is REPLACED (not prepended) with
-	 * fakebin:/usr/bin:/bin so no real mise from the parent env can ever be
-	 * reached; env overrides are fictional placeholders only. */
-	const runEntry = (opts: {
-		exitCodes?: Record<string, string>
-		cwd?: string
-		withMise?: boolean
-	}) => {
+	/** Real entry as subprocess; PATH REPLACED with fakebin ALONE — no system tool reachable. */
+	const runEntry = (opts: { codes?: Record<string, string>; cwd?: string; withMise?: boolean }) => {
 		const dir = mkdtempSync(join(tmpdir(), 'gate-quality-prep-'))
 		const bin = join(dir, 'bin')
 		mkdirSync(bin, { recursive: true })
+		symlinkSync(dirnameBin, join(bin, 'dirname'))
 		if (opts.withMise !== false) {
 			writeFileSync(join(bin, 'mise'), FAKE_MISE)
 			chmodSync(join(bin, 'mise'), 0o755)
 		}
 		writeFileSync(join(bin, 'pnpm'), FAKE_PNPM_STUB)
 		chmodSync(join(bin, 'pnpm'), 0o755)
+		const fakes = ['dirname', 'pnpm'].concat(opts.withMise === false ? [] : ['mise'])
+		expect(readdirSync(bin).sort()).toEqual(fakes.sort())
 		const record = join(dir, 'calls.txt')
-		const result = spawnSync(scriptPath, [], {
+		const result = spawnSync(scriptPath, {
 			cwd: opts.cwd ?? repoRoot,
-			env: {
-				...process.env,
-				PATH: `${bin}:/usr/bin:/bin`,
-				FAKE_MISE_RECORD: record,
-				CI: 'ci-placeholder',
-				GATE_ARTIFACT_DIR: '/tmp/fictional-gate-artifacts',
-				...(opts.exitCodes ?? {}),
-			},
+			env: { PATH: bin, FAKE_MISE_RECORD: record, ...PLACEHOLDER_ENV, ...(opts.codes ?? {}) },
 		})
 		return { result, record, dir }
 	}
 
 	it('producer e2e: entry subprocess → fake mise, exact argv/cwd/env sequence even from a foreign cwd', () => {
-		const foreign = mkdtempSync(join(tmpdir(), 'gate-quality-cwd-'))
-		const { result, record, dir } = runEntry({ cwd: foreign })
+		const { result, record, dir } = runEntry({ cwd: tmpdir() })
 		try {
 			expect(result.status).toBe(0)
-			const blocks = readBlocks(record)
-			expect(blocks.map((block) => block.phase)).toEqual(Object.keys(EXPECTED_ARGV))
-			for (const block of blocks) {
+			expect(readBlocks(record).map((block) => block.phase)).toEqual(Object.keys(EXPECTED_ARGV))
+			for (const block of readBlocks(record)) {
 				expect(block.args).toEqual(EXPECTED_ARGV[block.phase])
 				expect(realpathSync(block.cwd)).toBe(realpathSync(repoRoot))
-				expect(block.env.CI).toBe('ci-placeholder')
-				expect(block.env.GATE_ARTIFACT_DIR).toBe('/tmp/fictional-gate-artifacts')
+				expect(block.env).toEqual(PLACEHOLDER_ENV)
 			}
 		} finally {
 			rmSync(dir, { recursive: true, force: true })
-			rmSync(foreign, { recursive: true, force: true })
 		}
 	})
 
@@ -445,7 +431,7 @@ exit "\${FAKE_PNPM_EXIT:-95}"
 		const order = Object.keys(EXPECTED_ARGV)
 		for (const [phase, code] of Object.entries(failCodes)) {
 			const envVar = `FAKE_${phase.toUpperCase()}_EXIT`
-			const { result, record, dir } = runEntry({ exitCodes: { [envVar]: String(code) } })
+			const { result, record, dir } = runEntry({ codes: { [envVar]: String(code) } })
 			try {
 				expect(result.status, `${phase} must propagate exit ${code}`).toBe(code)
 				const phases = readBlocks(record).map((block) => block.phase)
@@ -462,8 +448,7 @@ exit "\${FAKE_PNPM_EXIT:-95}"
 		const { result, record, dir } = runEntry({ withMise: false })
 		try {
 			expect(result.status).toBe(127)
-			expect(result.stderr.toString()).toContain('mise')
-			expect(result.stderr.toString()).toContain('not found')
+			expect(result.stderr.toString()).toMatch(/mise.*(command )?not found/)
 			expect(existsSync(record)).toBe(false)
 		} finally {
 			rmSync(dir, { recursive: true, force: true })

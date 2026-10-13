@@ -1,19 +1,9 @@
 #!/bin/sh
 # Stable quality entry for the shared gate v2 quality job
 # (zlxlabs/gate gate-v2.yml "Detect repository quality entry" / "Run
-# scripts/gate-quality").
-#
-# Contract: the repository-owned entry owns the FULL quality pipeline
-# INCLUDING dependency preparation — gate README @ f4213194f162062bc22d57cd6
-# ac5589e97d920af (blob 14b5655060e5979df58cf45ca89f2ccf19e147ea, sha256
-# e71d6839b2635b57888bd85aaae846fe2dad3305d1e7127c9b7a42c1e048e07e), lines
-# 38-53: once this entry exists the callee's legacy installation step is
-# skipped, and the gate only contributes invocation, resources, permissions,
-# timeout, aggregation, and audit.
-#
-# Every step fails loud: `set -eu` stops on the first non-zero exit, a
-# missing `mise` fails with the shell's 127, and the final quality check
-# replaces this process so its exit code reaches the gate verbatim.
+# scripts/gate-quality"). Repo-owned FULL pipeline incl. dependency prep; every
+# step fails loud (set -eu, missing mise = 127, exec propagates). Contract:
+# docs/sessions/herdweb-261012-triage/design.md 「机制预算」#2.
 set -eu
 cd "$(dirname "$0")/.."
 mise trust --yes ./mise.toml
