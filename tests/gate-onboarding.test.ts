@@ -13,8 +13,10 @@ import { createHash } from 'node:crypto'
 import {
 	chmodSync,
 	existsSync,
+	mkdirSync,
 	mkdtempSync,
 	readFileSync,
+	realpathSync,
 	rmSync,
 	statSync,
 	writeFileSync,
@@ -304,10 +306,28 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 		expect(lines[0]).toBe('#!/bin/sh')
 	})
 
-	it('runs exactly one command: exec pnpm run ci-check (the repo CI parity command)', () => {
-		expect(effectiveLines).toEqual(['exec pnpm run ci-check'])
+	it('declares the repo-owned prep chain then the final exec, in order (structure, not grep)', () => {
+		// Quality-entry contract: the entry owns the FULL pipeline including
+		// dependency prep (gate README @ f4213194…, lines 38–53); missing mise = shell 127.
+		expect(effectiveLines).toEqual([
+			'set -eu',
+			'cd "$(dirname "$0")/.."',
+			'mise trust --yes ./mise.toml',
+			'mise install --yes',
+			'mise exec -- pnpm install --frozen-lockfile',
+			'mise exec -- pnpm exec playwright install --with-deps chromium webkit',
+			'exec mise exec -- pnpm run ci-check',
+		])
 		const ciYaml = readText('.github/workflows/ci.yml')
 		expect(ciYaml).toContain('pnpm run ci-check')
+	})
+
+	it('design doc pins the formal gate README contract (ref, blob, sha256) and drops the old only-exec clause', () => {
+		const design = readText('docs/sessions/herdweb-261012-triage/design.md')
+		expect(design).toContain('f4213194f162062bc22d57cd6ac5589e97d920af')
+		expect(design).toContain('14b5655060e5979df58cf45ca89f2ccf19e147ea')
+		expect(design).toContain('e71d6839b2635b57888bd85aaae846fe2dad3305d1e7127c9b7a42c1e048e07e')
+		expect(design).not.toContain('内容只有 `exec pnpm run ci-check`')
 	})
 
 	it('matches the real callee contract: callee creates GATE_ARTIFACT_DIR and runs the entry', () => {
@@ -323,37 +343,130 @@ describe('scripts/gate-quality (stable quality entry)', () => {
 		expect(script).not.toContain('upload')
 	})
 
-	it('really invokes `pnpm run ci-check` and propagates the failure exit code (producer argv)', () => {
-		const fakeDir = mkdtempSync(join(tmpdir(), 'gate-quality-fake-pnpm-'))
-		const argFile = join(fakeDir, 'argv.txt')
-		const fakePnpm = join(fakeDir, 'pnpm')
-		writeFileSync(
-			fakePnpm,
-			`#!/bin/sh\nprintf '%s\\n' "$@" > "$FAKE_PNPM_ARGFILE"\nexit "$FAKE_PNPM_EXIT"\n`,
-		)
-		chmodSync(fakePnpm, 0o755)
-		const runEntry = (exitCode: string): ReturnType<typeof spawnSync> =>
-			spawnSync(scriptPath, [], {
-				env: {
-					...process.env,
-					PATH: `${fakeDir}:${process.env.PATH ?? ''}`,
-					FAKE_PNPM_ARGFILE: argFile,
-					FAKE_PNPM_EXIT: exitCode,
-				},
+	// --- real-entry subprocess producer: fake bin dir seals the environment ---
+
+	const EXPECTED_ARGV: Record<string, string[]> = {
+		trust: ['trust', '--yes', './mise.toml'],
+		tools: ['install', '--yes'],
+		deps: ['exec', '--', 'pnpm', 'install', '--frozen-lockfile'],
+		browsers: 'exec -- pnpm exec playwright install --with-deps chromium webkit'.split(' '),
+		quality: ['exec', '--', 'pnpm', 'run', 'ci-check'],
+	}
+
+	// Fake mise: binds each phase by subcommand + first operand (no call counting),
+	// appends one observation block per call, exits with the phase's configured code.
+	const FAKE_MISE = `#!/bin/sh
+set -eu
+case "\$1" in trust) phase=trust ;; install) phase=tools ;; exec) case "\${3:-}:\${4:-}" in pnpm:install) phase=deps ;; pnpm:exec) phase=browsers ;; pnpm:run) phase=quality ;; esac ;; *) phase=unknown ;; esac
+{ printf 'phase=%s\\n' "\$phase"; printf 'cwd=%s\\n' "\$PWD"; for a in "\$@"; do printf 'arg=%s\\n' "\$a"; done; if [ -n "\${CI+x}" ]; then printf 'env:CI=%s\\n' "\$CI"; fi; if [ -n "\${GATE_ARTIFACT_DIR+x}" ]; then printf 'env:GATE_ARTIFACT_DIR=%s\\n' "\$GATE_ARTIFACT_DIR"; fi; printf -- '---\\n'; } >> "\$FAKE_MISE_RECORD"
+case "\$phase" in trust) exit "\${FAKE_TRUST_EXIT:-0}" ;; tools) exit "\${FAKE_TOOLS_EXIT:-0}" ;; deps) exit "\${FAKE_DEPS_EXIT:-0}" ;; browsers) exit "\${FAKE_BROWSERS_EXIT:-0}" ;; quality) exit "\${FAKE_QUALITY_EXIT:-0}" ;; *) printf 'fake-mise: unbound argv\\n' >&2; exit 90 ;; esac
+`
+
+	// pnpm stub: a regressed entry calling pnpm directly (pre-prep H1) can only record and exit 95.
+	const FAKE_PNPM_STUB = `#!/bin/sh
+{ printf 'phase=pnpm-direct\\n'; printf 'cwd=%s\\n' "\$PWD"; for a in "\$@"; do printf 'arg=%s\\n' "\$a"; done; printf -- '---\\n'; } >> "\$FAKE_MISE_RECORD"
+exit "\${FAKE_PNPM_EXIT:-95}"
+`
+
+	const readBlocks = (record: string) => {
+		if (!existsSync(record)) {
+			return []
+		}
+		return readFileSync(record, 'utf8')
+			.split('---\n')
+			.filter((chunk) => chunk !== '')
+			.map((chunk) => {
+				const lines = chunk.split('\n').filter((line) => line !== '')
+				const env = Object.fromEntries(
+					lines.filter((line) => line.startsWith('env:')).map((line) => line.slice(4).split('=')),
+				) as Record<string, string>
+				return {
+					phase: lines[0].slice(6),
+					cwd: lines[1].slice(4),
+					args: lines.filter((line) => line.startsWith('arg=')).map((line) => line.slice(4)),
+					env,
+				}
 			})
+	}
 
+	/** Runs the real entry as a subprocess. PATH is REPLACED (not prepended) with
+	 * fakebin:/usr/bin:/bin so no real mise from the parent env can ever be
+	 * reached; env overrides are fictional placeholders only. */
+	const runEntry = (opts: {
+		exitCodes?: Record<string, string>
+		cwd?: string
+		withMise?: boolean
+	}) => {
+		const dir = mkdtempSync(join(tmpdir(), 'gate-quality-prep-'))
+		const bin = join(dir, 'bin')
+		mkdirSync(bin, { recursive: true })
+		if (opts.withMise !== false) {
+			writeFileSync(join(bin, 'mise'), FAKE_MISE)
+			chmodSync(join(bin, 'mise'), 0o755)
+		}
+		writeFileSync(join(bin, 'pnpm'), FAKE_PNPM_STUB)
+		chmodSync(join(bin, 'pnpm'), 0o755)
+		const record = join(dir, 'calls.txt')
+		const result = spawnSync(scriptPath, [], {
+			cwd: opts.cwd ?? repoRoot,
+			env: {
+				...process.env,
+				PATH: `${bin}:/usr/bin:/bin`,
+				FAKE_MISE_RECORD: record,
+				CI: 'ci-placeholder',
+				GATE_ARTIFACT_DIR: '/tmp/fictional-gate-artifacts',
+				...(opts.exitCodes ?? {}),
+			},
+		})
+		return { result, record, dir }
+	}
+
+	it('producer e2e: entry subprocess → fake mise, exact argv/cwd/env sequence even from a foreign cwd', () => {
+		const foreign = mkdtempSync(join(tmpdir(), 'gate-quality-cwd-'))
+		const { result, record, dir } = runEntry({ cwd: foreign })
 		try {
-			const failing = runEntry('7')
-			expect(failing.status).toBe(7)
-			const recordedArgv = readFileSync(argFile, 'utf8')
-				.split('\n')
-				.filter((line) => line !== '')
-			expect(recordedArgv).toEqual(['run', 'ci-check'])
-
-			const passing = runEntry('0')
-			expect(passing.status).toBe(0)
+			expect(result.status).toBe(0)
+			const blocks = readBlocks(record)
+			expect(blocks.map((block) => block.phase)).toEqual(Object.keys(EXPECTED_ARGV))
+			for (const block of blocks) {
+				expect(block.args).toEqual(EXPECTED_ARGV[block.phase])
+				expect(realpathSync(block.cwd)).toBe(realpathSync(repoRoot))
+				expect(block.env.CI).toBe('ci-placeholder')
+				expect(block.env.GATE_ARTIFACT_DIR).toBe('/tmp/fictional-gate-artifacts')
+			}
 		} finally {
-			rmSync(fakeDir, { recursive: true, force: true })
+			rmSync(dir, { recursive: true, force: true })
+			rmSync(foreign, { recursive: true, force: true })
+		}
+	})
+
+	it('each failing phase propagates its own exit code and no later phase runs', () => {
+		const failCodes = { trust: 17, tools: 19, deps: 23, browsers: 27, quality: 29 }
+		const order = Object.keys(EXPECTED_ARGV)
+		for (const [phase, code] of Object.entries(failCodes)) {
+			const envVar = `FAKE_${phase.toUpperCase()}_EXIT`
+			const { result, record, dir } = runEntry({ exitCodes: { [envVar]: String(code) } })
+			try {
+				expect(result.status, `${phase} must propagate exit ${code}`).toBe(code)
+				const phases = readBlocks(record).map((block) => block.phase)
+				expect(phases, `${phase} must be the last recorded call`).toEqual(
+					order.slice(0, order.indexOf(phase) + 1),
+				)
+			} finally {
+				rmSync(dir, { recursive: true, force: true })
+			}
+		}
+	})
+
+	it('fails loud 127 with no mise on PATH and records no call at all', () => {
+		const { result, record, dir } = runEntry({ withMise: false })
+		try {
+			expect(result.status).toBe(127)
+			expect(result.stderr.toString()).toContain('mise')
+			expect(result.stderr.toString()).toContain('not found')
+			expect(existsSync(record)).toBe(false)
+		} finally {
+			rmSync(dir, { recursive: true, force: true })
 		}
 	})
 })

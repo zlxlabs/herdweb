@@ -3,6 +3,12 @@
 > 落盘时间 2026-10-12；基线 `1e6619837fa42b1b76ce87049172201fab215ef1`。
 > 本文件是 Pi 主脑审定对象；未实施任何应用代码、测试、工作流或平台改动。
 > 第二轮（顾问独立核对后）撤回 #147 的诊断卡：本设计只覆盖 #178 接入卡，#147 的处置见 triage.md。
+> 2026-10-13 修订：质量入口按 gate README @ `f4213194f162062bc22d57cd6ac5589e97d920af`
+> （blob `14b5655060e5979df58cf45ca89f2ccf19e147ea`，sha256
+> `e71d6839b2635b57888bd85aaae846fe2dad3305d1e7127c9b7a42c1e048e07e`）38–53 行改定为
+> 本仓显式准备 + fail-fast（见「机制预算」第 2 条，旧版「只 exec 不准备」条款作废）；
+> 契约测试累计行数预算改 2300（本轮增量 200）。原 `ci.yml`、共享 caller、独立 UI 走查、
+> Ready 验收漏斗均不改。
 
 ## 目标
 
@@ -61,10 +67,18 @@
 
 1. 三个标准 caller（`gate.yml` / `gate-shadow.yml` / `gate-disposition.yml`）：照抄平台模板，
    不写变体。第二消费者是平台自己的 caller 模板与 fleet 里其它已接入仓，本仓只是又一个实例。
-2. `scripts/gate-quality`：内容只有 `exec pnpm run ci-check`，不选子集、不加 retry/skip。
-   第二消费者是本仓 `ci.yml` 的 check job（跑同一条命令）——所以它是「给共享 quality 一个
-   稳定入口」，不是新增一道质量检查；`ci.yml` 今天已经有真实阻断测试（vitest + test:pw +
-   biome + oxlint + typos + knip + publint + tsc + deploy）。
+2. `scripts/gate-quality`：本仓自有质量入口，拥有完整质量流水线**包括依赖准备**：
+   `mise trust --yes ./mise.toml`（仅这一个 trust 目标，不 `--all`）→ `mise install --yes`
+   → `mise exec -- pnpm install --frozen-lockfile` → `mise exec -- pnpm exec playwright
+   install --with-deps chromium webkit` → `exec mise exec -- pnpm run ci-check`；`set -eu`
+   逐步失败即停，缺 `mise` 由 shell 127 响亮失败，最终 quality 退出码原样传播到 gate。
+   不选子集、不加 retry/skip/fallback。契约出处：gate README @ `f4213194…`（blob
+   `14b5655…`，sha256 `e71d6839…`）38–53 行——业务自有入口拥有完整质量流水线包括依赖安装，
+   gate 只负责调用/资源/权限/timeout/聚合/审计，入口存在后 callee 侧 legacy 安装跳过；
+   原始 README blob/fixture 留私有，公开侧只引指针/行/hash。旧版「入口只 exec、不安装」
+   条款作废：那是不完整准备，无 bootstrap 的树在 pnpm 之前的工具解析上就会挂。
+   第二消费者仍是本仓 `ci.yml` 的 check job（同一条 `ci-check`），`ci.yml` 今天已经有
+   真实阻断测试（vitest + test:pw + biome + oxlint + typos + knip + publint + tsc + deploy）。
 3. UI 走查胶水（`herdweb-visual.yml` + `tests/playwright/herdweb-visual.spec.ts` +
    `playwright.visual.config.ts`）：唯一消费者是这条走查流水线，单消费者仍必要——共享
    `ui-evidence-publish` action 只发 PR 评论、不搬运文件，产出 report 的那一半必须留在项目里；
@@ -121,8 +135,9 @@
 1. [推断] 自托管 `ci` 池镜像已预装 Playwright chromium 系统库与浏览器缓存卷，
    且能构建本仓依赖（`node-pty` 原生模块 + `ttyd`）。入口：`gate-v2.yml` 的 quality job 首次
    真实运行；若报缺浏览器/缺 ttyd，先核实平台前置，再去 gate-hub 提 issue，不在本仓绕过。
-2. [推断] `scripts/gate-quality`（即 `pnpm run ci-check`）在 `ci` 池上的耗时可接受
-   （`quality` job 有 45 分钟输入预算）。入口：接入 PR 上首个真实 run 的 `quality` job 时长。
+2. [推断] `scripts/gate-quality`（准备链 + `pnpm run ci-check`）在 `ci` 池上的耗时可接受
+   （`quality` job 有 45 分钟输入预算；准备链含 mise 工具与浏览器安装，首次会比纯
+   ci-check 长）。入口：接入 PR 上首个真实 run 的 `quality` job 时长。
 3. [推断] #147 历史 webkit 签名需要「按压窗口内 socket 断开」，本机 40 次一次未发生；真实 CI
    或真实触屏是否会命中未验证，本轮不为此造测试。入口：真实命中时按 triage.md 的重开条件取证。
 4. [推断] `has_ui: true` 在 gate-v2 内触发 UI 证据要求的具体形态（shadow 明确不镜像该输入）。
@@ -136,6 +151,11 @@
 6. [未知] UI 走查直传 PWRS 需要 repo secret `PWRS_REPORTER_TOKEN`
    （平台模板 `templates/ui-visual/workflow.yml:181`），本仓当前没有任何 repo secret。
    入口：走查 job 的 reporter CLI 报缺 token / 401。
+7. [推断] 真实 consumer（gate quality job 在 `ci` 池）上 `mise` 可用且其缓存/安装目录
+   可写，`mise trust` 非交互（2026-10 mise 的 install/exec 对未 trust 配置自动放行、
+   help 未列 trust 为必答——以真实 runner 首跑为准，不以前置猜测当事实）；gate 对
+   quality job 的资源/timeout 覆盖准备链。入口：真实 run 的 quality job 首个失败步骤；
+   缺前置去 gate-hub 提 issue，不在本仓绕过。
 
 ## 验收路径
 
