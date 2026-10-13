@@ -377,7 +377,8 @@ exit "\${FAKE_PNPM_EXIT:-95}"
 			.split('---\n')
 			.filter((chunk) => chunk !== '')
 			.map((chunk) => {
-				const lines = chunk.split('\n').filter((line) => line !== '')
+				// Producer contract: every block starts phase= then cwd= (fake mise source is structurally locked; real bytes in the H2 probe show ≥2 lines per block).
+				const lines = chunk.split('\n').filter((l) => l !== '') as [string, string, ...string[]]
 				return {
 					phase: lines[0].slice(6),
 					cwd: lines[1].slice(4),

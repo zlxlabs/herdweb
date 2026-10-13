@@ -7,8 +7,7 @@
 > （blob `14b5655060e5979df58cf45ca89f2ccf19e147ea`，sha256
 > `e71d6839b2635b57888bd85aaae846fe2dad3305d1e7127c9b7a42c1e048e07e`）38–53 行改定为本仓
 > 显式准备 + fail-fast（详见「机制预算」第 2 条，旧版「只 exec 不准备」条款作废）；测试
-> 累计预算 2300（本轮增量 200）；producer 实发字节一次性探针留私有 /tmp（hash 见执行报告）；
-> 原 `ci.yml`、共享 caller、独立 UI 走查、Ready 验收漏斗均不改。
+> 累计预算 2300（本轮增量 200）；producer 实发字节一次性探针留私有 /tmp（hash 见执行报告）；原 `ci.yml`、共享 caller、独立 UI 走查、Ready 验收漏斗均不改。
 
 ## 目标
 
