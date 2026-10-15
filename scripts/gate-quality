@@ -1,0 +1,13 @@
+#!/bin/sh
+# Stable quality entry for the shared gate v2 quality job
+# (zlxlabs/gate gate-v2.yml "Detect repository quality entry" / "Run
+# scripts/gate-quality"). Repo-owned FULL pipeline incl. dependency prep; every
+# step fails loud (set -eu, missing mise = 127, exec propagates). Contract:
+# docs/sessions/herdweb-261012-triage/design.md 「机制预算」#2.
+set -eu
+cd "$(dirname "$0")/.."
+mise trust --yes ./mise.toml
+mise install --yes
+mise exec -- pnpm install --frozen-lockfile
+mise exec -- pnpm exec playwright install --with-deps chromium webkit
+exec mise exec -- pnpm run ci-check

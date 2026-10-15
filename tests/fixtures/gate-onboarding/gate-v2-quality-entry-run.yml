@@ -1,0 +1,8 @@
+      - name: Run scripts/gate-quality
+        id: run-quality
+        if: ${{ steps.quality-entry.outputs.mode == 'entry' }}
+        working-directory: ${{ github.workspace }}
+        env:
+          GATE_ARTIFACT_DIR: ${{ runner.temp }}/gate-quality
+        run: ./scripts/gate-quality
+
