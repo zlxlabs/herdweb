@@ -12,7 +12,8 @@ no dependency on other-repo absolute paths at runtime) as the producer baseline.
 | `gate-v2-disposition-workflow-call.yml` | zlxlabs/gate `.github/workflows/gate-v2-disposition.yml` lines 15–32 (`workflow_call:` block, inputs + secrets) | `f4213194f162062bc22d57cd6ac5589e97d920af` (= `refs/tags/v2`, == origin/main, verified 2026-10-12 via `git ls-remote`) | `fb82a4957bc3337924e353703dbb5ab8b32939a70b9d14bf34f4f10954b5989d` |
 | `gate-v2-quality-entry-detect.yml` | zlxlabs/gate `.github/workflows/gate-v2.yml` lines 548–562 (`Detect repository quality entry` step) | `f4213194f162062bc22d57cd6ac5589e97d920af` | `b79ff876b65faa2af6fcabb43f8801dc929032079453e75f7d9159e0c1b7eed4` |
 | `gate-v2-quality-entry-run.yml` | zlxlabs/gate `.github/workflows/gate-v2.yml` lines 608–615 (`Run scripts/gate-quality` step) | `f4213194f162062bc22d57cd6ac5589e97d920af` | `fecd4fb14e1ac49d3aac19293b3c72f8f16412a61a2976a50903e5ff922976d0` |
-| `template-ui-visual-upload-step.yml` | zlxlabs/gate-hub `templates/ui-visual/workflow.yml` lines 177–190 (`直传走查证据到 PWRS` upload step) | `d39ee21af70dc8902878b273c3a5e1ee0f8ff6e4` (blob `1a184b6af6646eab6cb7f80daf4297897ef8587f`; whole file 9524 B, sha256 `5fa93c05234f74bd98d9a5c6dbfb4902e3398359491394255bd22618419e9a2f`, byte-identical to the copy at `0a57417785b3ea80b0d260af7c1feb915873155d`) | `9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6` |
+| `template-ui-visual-upload-step.yml` | zlxlabs/gate-hub `templates/ui-visual/workflow.yml` — two slices: upload step (lines 177–190 of the frozen `d39ee21af70dc8902878b273c3a5e1ee0f8ff6e4` revision, blob `1a184b6af6646eab6cb7f80daf4297897ef8587f`, whole file 9524 B, sha256 `5fa93c05234f74bd98d9a5c6dbfb4902e3398359491394255bd22618419e9a2f`) + publish step (lines 195–202 of the current post-#1508 revision, main `71d90712a2cdeb3f684663133bb20896fddc2bf2`, blob `8c93d6843b7fc8f8c477e228d6c02c90105e49a3`, verified 2026-10-15 via contents API) | `d39ee21af70dc8902878b273c3a5e1ee0f8ff6e4` (upload) / `71d90712a2cdeb3f684663133bb20896fddc2bf2` (publish) | `1aabbda77a9cfd82e359412901de6212f57520cf331ae4632cc9e4885aa8cc12` (combined file; frozen upload-slice-only hash was `9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6`) |
+| `gate-v2-workflow-call-inputs.yml` | zlxlabs/gate `.github/workflows/gate-v2.yml` `workflow_call.inputs` — the `quality_prepare_mise` input entry incl. its gate#314 comment (byte-exact, base indentation kept) | `c44e9e962e94cd2ffc64ccbcf816d700fc7d9a78` (= `refs/tags/v2`, announced in gate#314, verified 2026-10-15 via git ref API; file blob `ecc1fcfb89d59d45ebdf77d950110a51e75306cc`) | `9e937f7caff35b886e39ad70b144b88307726bfe758d45832d694e06626004eb` |
 
 Notes:
 
@@ -37,3 +38,14 @@ Notes:
   Neither the template nor the adapter declares `shell:` on the step, so
   GitHub's documented Linux default `bash -e {0}` applies; the producer
   boundary test spawns exactly that (no pipefail claim).
+- The publish-step slice (added 2026-10-15 from post-#1508 main `71d90712…`,
+  blob `8c93d684…`) spans two revisions by design: the frozen `d39ee21…`
+  template predates the public action and has no publish step. The current
+  template's upload step names its id `upload_evidence` (and drops the
+  `environment=ui-evidence` meta); the adapter keeps the frozen upload bytes
+  with `id: upload` + meta kept, so the publish slice's `steps.upload_evidence`
+  marker maps to the adapter's `steps.upload` — asserted as the only delta.
+- The `quality_prepare_mise` fixture is the complete input entry (comment +
+  declaration) from the gate#314 release (caller opt-in, default false); the
+  callee's consumption guard is not reproduced — it locks the caller-facing
+  input contract only.

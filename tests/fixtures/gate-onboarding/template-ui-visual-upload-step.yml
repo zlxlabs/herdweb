@@ -12,3 +12,11 @@
             --meta "branch=${GITHUB_REF_NAME}" \
             --meta "run_id=${GITHUB_RUN_ID}" \
             --meta "environment=ui-evidence"
+      - name: 发布走查证据评论
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.upload_evidence.outcome == 'success' }}
+        uses: zlxlabs/gate/.github/actions/ui-evidence-publish@v2
+        with:
+          e2e-status: ${{ steps.e2e.outcome }}
+          subject: "Reader"   # TODO: 改成你这个界面的名字(进评论标题;同 PR 多界面各自粘性)
+          head-sha: ${{ env.UI_EVIDENCE_HEAD_SHA }}
+          evidence-base-url: ${{ env.PWRS_BASE }}

@@ -20,6 +20,8 @@ jobs:
       runner: self
       has_ui: true
       design_doc: ""
+      # gate#314: callee prepares the mise manager only; entry owns project deps.
+      quality_prepare_mise: true
     secrets:
       # Public repo: repo secrets only. SILO_* is the shared restricted
       # public-repo Silo pair (docs/guides/public-repository-silo.md); the

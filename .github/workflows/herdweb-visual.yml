@@ -197,8 +197,10 @@ jobs:
       # 仍取原始 steps.e2e.outcome,上传基础设施失败不会被改标成测试失败。
       - name: 发布走查证据评论
         if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.upload.outcome == 'success' }}
-        uses: zlxlabs/gate-hub/.github/actions/ui-evidence-publish@main
+        uses: zlxlabs/gate/.github/actions/ui-evidence-publish@v2
         with:
           e2e-status: ${{ steps.e2e.outcome }}
           subject: "Terminal"
           head-sha: ${{ env.UI_EVIDENCE_HEAD_SHA }}
+          # Same job-scoped env as the upload --url (public @v2 has no URL default).
+          evidence-base-url: ${{ env.PWRS_BASE }}

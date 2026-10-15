@@ -145,6 +145,12 @@ describe('gate.yml (required gate caller)', () => {
 		expect(withInputs.has_ui).toBe(true)
 	})
 
+	it('opts in to the published callee mise prep, whose producer contract defaults to false', () => {
+		const producer = readDedentedFixture('gate-v2-workflow-call-inputs.yml', 6)
+		expect(producer.quality_prepare_mise).toEqual({ type: 'boolean', default: false })
+		expect(withInputs.quality_prepare_mise).toBe(true)
+	})
+
 	it('grants only actions:read, contents:read, pull-requests:write', () => {
 		expect(doc.permissions).toEqual({ actions: 'read', contents: 'read', 'pull-requests': 'write' })
 	})
@@ -551,7 +557,7 @@ describe('herdweb-visual.yml (UI evidence pipeline)', () => {
 
 	it('publishes via the shared composite action only after a successful upload', () => {
 		const publishStep = stepByName('发布走查证据评论')
-		expect(publishStep.uses).toBe('zlxlabs/gate-hub/.github/actions/ui-evidence-publish@main')
+		expect(publishStep.uses).toBe('zlxlabs/gate/.github/actions/ui-evidence-publish@v2')
 		// F3: the publish gate references the upload step's own outcome — a
 		// failed upload leaves the job red and posts no new comment (the sticky
 		// comment keeps its previous state). e2e-status stays the raw e2e
@@ -565,6 +571,8 @@ describe('herdweb-visual.yml (UI evidence pipeline)', () => {
 		const withInputs = requireRecord(publishStep.with, 'publish step with')
 		expect(withInputs['e2e-status']).toBe('${{ steps.e2e.outcome }}')
 		expect(withInputs['head-sha']).toBe('${{ env.UI_EVIDENCE_HEAD_SHA }}')
+		// Public @v2 has no default URL: same job-scoped env the upload --url consumes.
+		expect(withInputs['evidence-base-url']).toBe('${{ env.PWRS_BASE }}')
 		expect(withInputs.subject).toBeDefined()
 	})
 
@@ -677,6 +685,10 @@ describe('ui-visual upload producer (real YAML run block executed under bash)', 
 	>
 	const templateRun = String(templateStep.run)
 
+	const templatePublishStep = (
+		Array.isArray(templateSteps) ? templateSteps[1] : templateSteps
+	) as Record<string, unknown>
+
 	// Neither the template nor the adapter declares `shell:` on the step, so
 	// GitHub's documented Linux default applies: `bash -e {0}`. The spawn below
 	// reproduces exactly that (no pipefail claim).
@@ -691,9 +703,9 @@ describe('ui-visual upload producer (real YAML run block executed under bash)', 
 	const HEAD40 = '3f2a9c1e5b7d6084a2c4e6f8091b3d5f7a9c1e2b'
 	const FICTIONAL_TOKEN = 'fictional-test-token-never-a-real-secret'
 
-	it('upload-step fixture matches the frozen template slice bytes', () => {
+	it('upload+publish fixture matches the frozen/current template slice bytes', () => {
 		expect(fixtureSha256('template-ui-visual-upload-step.yml')).toBe(
-			'9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6',
+			'1aabbda77a9cfd82e359412901de6212f57520cf331ae4632cc9e4885aa8cc12',
 		)
 	})
 
@@ -705,6 +717,11 @@ describe('ui-visual upload producer (real YAML run block executed under bash)', 
 			'5fa93c05234f74bd98d9a5c6dbfb4902e3398359491394255bd22618419e9a2f',
 			'9b75a98ff895550a343392ab7d25e527bdf0bea174dcd8bf4b95f22b176c99e6',
 			'template-ui-visual-upload-step.yml',
+			'8c93d6843b7fc8f8c477e228d6c02c90105e49a3',
+			'71d90712a2cdeb3f684663133bb20896fddc2bf2',
+			'c44e9e962e94cd2ffc64ccbcf816d700fc7d9a78',
+			'ecc1fcfb89d59d45ebdf77d950110a51e75306cc',
+			'gate-v2-workflow-call-inputs.yml',
 		]) {
 			expect(source).toContain(needle)
 		}
@@ -790,6 +807,26 @@ describe('ui-visual upload producer (real YAML run block executed under bash)', 
 		}
 	})
 
+	const adapterPublishStep = steps
+		.map((step, index) => requireRecord(step, `step #${index}`))
+		.find((record) => String(record.name).includes('发布走查证据评论'))
+	if (!adapterPublishStep) {
+		throw new Error('adapter publish step not found')
+	}
+
+	it('publish-step fixture is the official consumer pattern of the public action', () => {
+		expect(templatePublishStep.uses).toBe('zlxlabs/gate/.github/actions/ui-evidence-publish@v2')
+		const templateWith = requireRecord(templatePublishStep.with, 'template publish with')
+		expect(templateWith['evidence-base-url']).toBe('${{ env.PWRS_BASE }}')
+		expect(adapterPublishStep.uses).toBe(templatePublishStep.uses)
+		expect(String(adapterPublishStep.if)).toBe(
+			String(templatePublishStep.if).replace('upload_evidence', 'upload'),
+		)
+		const adapterWith = requireRecord(adapterPublishStep.with, 'adapter publish with')
+		expect(adapterWith['evidence-base-url']).toBe(templateWith['evidence-base-url'])
+		expect(adapterWith['head-sha']).toBe(templateWith['head-sha'])
+	})
+
 	it('propagates a failing uploader exit code through the real shell', () => {
 		const { result, dir } = runUploadScript({ FAKE_NPX_EXIT: '17' })
 		try {
@@ -826,6 +863,8 @@ describe('gate-onboarding fixtures (real producer bytes)', () => {
 			'b79ff876b65faa2af6fcabb43f8801dc929032079453e75f7d9159e0c1b7eed4',
 		'gate-v2-quality-entry-run.yml':
 			'fecd4fb14e1ac49d3aac19293b3c72f8f16412a61a2976a50903e5ff922976d0',
+		'gate-v2-workflow-call-inputs.yml':
+			'9e937f7caff35b886e39ad70b144b88307726bfe758d45832d694e06626004eb',
 	}
 
 	for (const [name, expected] of Object.entries(expectedHashes)) {
