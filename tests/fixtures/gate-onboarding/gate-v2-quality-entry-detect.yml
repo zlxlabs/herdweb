@@ -1,0 +1,15 @@
+      - name: Detect repository quality entry
+        id: quality-entry
+        env:
+          GATE_ARTIFACT_DIR: ${{ runner.temp }}/gate-quality
+        run: |
+          mkdir -p "$GATE_ARTIFACT_DIR"
+          if [ -e scripts/gate-quality ]; then
+            if [ ! -x scripts/gate-quality ]; then
+              echo "::error::scripts/gate-quality exists but is not executable"
+              exit 1
+            fi
+            echo "mode=entry" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::DEPRECATION: scripts/gate-quality is missing; using legacy quality auto-detection"
+            echo "mode=legacy" >> "$GITHUB_OUTPUT"

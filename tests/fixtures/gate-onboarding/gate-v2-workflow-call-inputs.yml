@@ -1,0 +1,7 @@
+      # gate#314: opt-in only. When true AND the caller repo has a real
+      # scripts/gate-quality entry, the quality job prepares the mise tool
+      # manager (jdx/mise-action@v3, install: false — the mise binary only).
+      # The business entry still owns mise trust, tool installs and every
+      # project dependency; legacy auto-detection never touches mise. Callers
+      # that omit this input keep today's behavior exactly.
+      quality_prepare_mise: { type: boolean, default: false }

@@ -1,0 +1,31 @@
+# herdweb caller for the shared gate v2 platform contract
+# (template: zlxlabs/gate-hub templates/caller-ci.yml @ 0a574177;
+#  docs/guides/onboarding.md). Required status-check context is `gate / gate`
+# — workflow name and job id must stay `gate`.
+name: gate
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+jobs:
+  gate:
+    uses: zlxlabs/gate/.github/workflows/gate-v2.yml@v2
+    with:
+      tier: personal # registry.yaml: tier personal / runner self / has_ui true
+      runner: self
+      has_ui: true
+      design_doc: ""
+      # gate#314: callee prepares the mise manager only; entry owns project deps.
+      quality_prepare_mise: true
+    secrets:
+      # Public repo: repo secrets only. SILO_* is the shared restricted
+      # public-repo Silo pair (docs/guides/public-repository-silo.md); the
+      # PWRS reporter token is NOT forwarded — no gate-v2 job consumes it.
+      FEISHU_CI_WEBHOOK: ${{ secrets.FEISHU_CI_WEBHOOK }}
+      SILO_ACCESS_KEY: ${{ secrets.SILO_ACCESS_KEY }}
+      SILO_SECRET_KEY: ${{ secrets.SILO_SECRET_KEY }}

@@ -4,7 +4,12 @@ Purpose-built Web UI for [herdr](https://github.com/ogulcancelik/herdr) — moni
 
 risk-tier: personal
 
-ui-evidence-exempt: 2026-09-13 herdweb 未入 gate-hub registry.yaml，拿不到 ui-evidence-publish 共享 action，PR 评论给不出可点录屏链接；阻断层照旧由 pnpm run test:pw 承担 (zlxlabs/gate-hub#801)
+ui-evidence-exempt: 旧豁免理由（未入 registry、拿不到共享 action）已失效——registry 已有
+herdweb 条目（`has_ui: true`），共享 action `ui-evidence-publish` 与本仓
+`.github/workflows/herdweb-visual.yml` 已接线（#178）。豁免保留到同 PR 真实验收三条件齐：
+ready 主审完成 + `gate / gate` 的 primary job 级 SUCCESS（SKIPPED 不算）+ 报告链接含本次
+完整 head SHA 且协作者从 tailnet 可打开；三者齐之前录屏豁免不删
+(zlxlabs/gate-hub#801, herdweb#178)
 
 Fork status: this project is forked from upstream [connorads/remobi](https://github.com/connorads/remobi) (independent since 2026-08-20) — not tracking upstream, not published to npm. Focus: optimizing the herdr mobile WebUI experience. See `docs/decisions/2026-08-20-fork-herdr-focus.md`.
 

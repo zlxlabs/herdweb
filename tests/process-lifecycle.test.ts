@@ -183,7 +183,8 @@ test('isolated serve dies with the caller process', async () => {
 	}
 })
 
-test('target exit retains the server when exit fact writing fails', async () => {
+// biome-ignore format: root 绕过 DAC 权限，写入不会失败；普通 CI 以非 root 仍覆盖；见 zlxlabs/gate-hub#2384
+test.skipIf(process.getuid?.() === 0)('target exit retains the server when exit fact writing fails', async () => {
 	const port = await reservePort()
 	const stateRoot = mkdtempSync(join(tmpdir(), 'herdweb-process-lifecycle-'))
 	const configHome = mkdtempSync(join(tmpdir(), 'herdweb-empty-config-'))

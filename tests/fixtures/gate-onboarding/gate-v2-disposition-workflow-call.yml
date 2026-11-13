@@ -1,0 +1,18 @@
+  workflow_call:
+    inputs:
+      pr_number: { description: "pull request number", required: true, type: string }
+      primary_run_id: { description: "canonical primary run id", required: true, type: string }
+      primary_run_attempt: { description: "canonical primary run attempt", required: true, type: string }
+      finding_id: { description: "exact current-audit finding id", required: true, type: string }
+      reason: { description: "reason for the false-positive disposition", required: true, type: string }
+      disposition: { description: "false-positive or deferred; omitted legacy calls are rejected without evidence", required: false, type: string }
+      counterevidence_json: { description: "JSON object with command, output, result=refuted, and pointer for false-positive", required: false, type: string }
+      tracking_issue: { description: "same-repository issue number (#N) or issues URL for deferred", required: false, type: string }
+      gate_ref: { description: "deprecated compatibility input (ignored)", required: false, type: string }
+    secrets:
+      SILO_ACCESS_KEY:
+        description: "Silo 访问密钥 ID；缺省时 S3 步骤以「SILO_ACCESS_KEY 未传入」显式失败"
+        required: false
+      SILO_SECRET_KEY:
+        description: "Silo 访问密钥 Secret；与 SILO_ACCESS_KEY 配对注入 control 作业"
+        required: false

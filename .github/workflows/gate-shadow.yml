@@ -1,0 +1,22 @@
+# herdweb caller for the shadow calibration (template: zlxlabs/gate-hub
+# templates/caller-shadow-ci.yml @ 0a574177). Non-required by design; it must
+# never take the `gate` status-check context.
+name: gate-shadow
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, converted_to_draft]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  gate-shadow:
+    uses: zlxlabs/gate/.github/workflows/gate-shadow-v2.yml@v2
+    with:
+      tier: personal
+      runner: self
+      design_doc: "" # has_ui deliberately not mirrored into shadow

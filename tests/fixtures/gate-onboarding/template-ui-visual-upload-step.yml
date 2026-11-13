@@ -1,0 +1,22 @@
+      - name: 直传走查证据到 PWRS
+        if: ${{ !cancelled() }}
+        working-directory: e2e
+        env:
+          PWRS_REPORTER_TOKEN: ${{ secrets.PWRS_REPORTER_TOKEN }}
+        run: |
+          npx --yes --package=@cyborgtests/reporter@3.0.0 --package=streamx@2.28.1 playwright-reporter-cli upload playwright-report \
+            --url "$PWRS_BASE" \
+            --token "$PWRS_REPORTER_TOKEN" \
+            --project "$GITHUB_REPOSITORY" \
+            --title "$GITHUB_REPOSITORY ui-evidence ${UI_EVIDENCE_HEAD_SHA} (run ${GITHUB_RUN_ID})" \
+            --meta "branch=${GITHUB_REF_NAME}" \
+            --meta "run_id=${GITHUB_RUN_ID}" \
+            --meta "environment=ui-evidence"
+      - name: 发布走查证据评论
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && steps.upload_evidence.outcome == 'success' }}
+        uses: zlxlabs/gate/.github/actions/ui-evidence-publish@v2
+        with:
+          e2e-status: ${{ steps.e2e.outcome }}
+          subject: "Reader"   # TODO: 改成你这个界面的名字(进评论标题;同 PR 多界面各自粘性)
+          head-sha: ${{ env.UI_EVIDENCE_HEAD_SHA }}
+          evidence-base-url: ${{ env.PWRS_BASE }}
