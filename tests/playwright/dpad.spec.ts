@@ -9,17 +9,13 @@
  */
 import type { Page } from '@playwright/test'
 import { type DpadDiagnostics, installDpadDiagnostics } from './dpad-diagnostics'
-import { expect, test } from './fixtures'
+import { expect, openTerminal, test } from './fixtures'
 
 let diag: DpadDiagnostics | undefined
 
 test.beforeEach(async ({ page }, testInfo) => {
 	diag = await installDpadDiagnostics(page, testInfo)
-	await page.goto('/')
-	await page.waitForSelector('#wt-toolbar', { timeout: 10_000 })
-	await expect
-		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
-		.toBe(true)
+	await openTerminal(page, '/')
 })
 
 test.afterEach(async ({ page: _page }, testInfo) => {
@@ -157,11 +153,7 @@ test('dragging the handle moves the pad, persists across reload, double-tap dock
 	const draggedStyle = await style()
 
 	// Position persists in localStorage and is re-applied after a reload
-	await page.reload()
-	await page.waitForSelector('#wt-toolbar', { timeout: 10_000 })
-	await expect
-		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
-		.toBe(true)
+	await openTerminal(page, '/')
 	await openDpad(page)
 	await expect(dpad).toHaveClass(/wt-dpad-floating/)
 	expect(await style()).toEqual(draggedStyle)

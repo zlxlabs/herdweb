@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { expect, openTerminal, test } from './fixtures'
 
 test('serves the herdweb terminal client', async ({ page }) => {
 	await page.goto('/')
@@ -26,14 +26,11 @@ test('loads without console errors', async ({ page }) => {
 	expect(consoleErrors).toEqual([])
 })
 
-test('terminal accepts keyboard input after tapping the screen', async ({ page }) => {
-	await page.goto('/')
-	await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
-
-	await page.locator('#terminal').click()
+test('terminal accepts keyboard input after tapping the screen', async ({ terminalPage }) => {
+	await terminalPage.locator('#terminal').click()
 	await expect
 		.poll(() =>
-			page.evaluate(() => ({
+			terminalPage.evaluate(() => ({
 				tag: document.activeElement?.tagName,
 				className: document.activeElement?.className || '',
 			})),
@@ -43,10 +40,13 @@ test('terminal accepts keyboard input after tapping the screen', async ({ page }
 			className: 'xterm-helper-textarea',
 		})
 
-	await page.keyboard.type('printf "keyboard-smoke\\n"')
-	await page.keyboard.press('Enter')
+	// Output marker the shell echo cannot satisfy: the echoed command line
+	// contains `kb-%s` and `smoke` separately, only real execution prints the
+	// contiguous `kb-smoke`.
+	await terminalPage.keyboard.type("printf 'kb-%s\\n' smoke")
+	await terminalPage.keyboard.press('Enter')
 
-	await expect(page.locator('body')).toContainText('keyboard-smoke')
+	await expect(terminalPage.locator('body')).toContainText('kb-smoke')
 })
 
 test('no floating controls overlay the terminal content', async ({ page }) => {
@@ -88,24 +88,14 @@ test('help overlay shows version', async ({ page }) => {
 	await expect(versionEl).toContainText(/herdweb v\d+\.\d+\.\d+/)
 })
 
-test('late client receives terminal snapshot', async ({ browser, page }) => {
-	await page.goto('/')
-	await page.waitForSelector('#terminal .xterm', { timeout: 10_000 })
-	await expect
-		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
-		.toBe(true)
-
-	await page.evaluate(() => {
+test('late client receives terminal snapshot', async ({ browser, terminalPage }) => {
+	await terminalPage.evaluate(() => {
 		window.term?.input('printf "snapshot-smoke\\n"\r', true)
 	})
 
-	await expect(page.locator('body')).toContainText('snapshot-smoke')
+	await expect(terminalPage.locator('body')).toContainText('snapshot-smoke')
 
 	const secondPage = await browser.newPage()
-	await secondPage.goto('/')
-	await secondPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
-	await expect
-		.poll(() => secondPage.evaluate(() => window.term?.getConnectionStatus().state === 'synced'))
-		.toBe(true)
+	await openTerminal(secondPage, '/')
 	await expect(secondPage.locator('body')).toContainText('snapshot-smoke')
 })

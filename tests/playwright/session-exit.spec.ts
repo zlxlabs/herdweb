@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { expect, test } from './fixtures'
+import { expect, openTerminal, test } from './fixtures'
 import noReconnectConfig from './session-exit.config'
 
 const noReconnectConfigPath = join(import.meta.dirname, 'session-exit.config.ts')
@@ -11,16 +11,6 @@ const reconnectConfigPath = join(reconnectConfigDir, 'herdweb.config.ts')
 writeFileSync(reconnectConfigPath, 'export default { reconnect: { enabled: true } }\n')
 test.afterAll(() => rmSync(reconnectConfigDir, { recursive: true, force: true }))
 const naturalExitServeOptions = { detached: false, killWithParent: false }
-
-/** Keyboard input sent while not synced is dropped by design (with a "Not sent"
- *  notice) — marker text rendering only proves a past sync, not the state at
- *  input time. Wait for the observable ready condition so the terminating \r
- *  is guaranteed to reach the PTY and end the command. */
-async function awaitSynced(page: import('@playwright/test').Page): Promise<void> {
-	await expect
-		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state))
-		.toBe('synced')
-}
 
 const endingCommand = (marker: string): string[] => [
 	'bash',
@@ -40,9 +30,10 @@ test.describe('session exit with reconnect', () => {
 	})
 
 	test('ended command closes the session and shows reconnect overlay', async ({ page, serve }) => {
-		await page.goto(serve.url)
+		// openTerminal: input is only sent once synced, so the terminating \r is
+		// guaranteed to reach the PTY and end the command.
+		await openTerminal(page, serve.url)
 		await expect(page.locator('body')).toContainText('session-exit-e2e')
-		await awaitSynced(page)
 		await page.evaluate(() => window.term?.input('\r', true))
 		await expect(page.locator('#herdweb-reconnect-overlay')).toBeVisible({ timeout: 10_000 })
 		await expect(page.locator('#herdweb-reconnect-overlay')).toContainText(
@@ -66,9 +57,8 @@ test.describe('session exit without reconnect', () => {
 		page,
 		serve,
 	}) => {
-		await page.goto(serve.url)
+		await openTerminal(page, serve.url)
 		await expect(page.locator('body')).toContainText('session-exit-no-reconnect')
-		await awaitSynced(page)
 		await page.evaluate(() => window.term?.input('\r', true))
 		await expect(page.locator('#herdweb-session-status')).toBeVisible({ timeout: 10_000 })
 		await expect(page.locator('#herdweb-session-status')).toContainText('Session ended')

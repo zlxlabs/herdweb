@@ -1,4 +1,4 @@
-import { expect, test } from './fixtures'
+import { expect, openTerminal, test } from './fixtures'
 
 test('two live clients stay in sync after alternating resizes', async ({ browser, serve }) => {
 	// Private server: both pages below intentionally share this spec's PTY while
@@ -19,10 +19,11 @@ test('two live clients stay in sync after alternating resizes', async ({ browser
 		const firstPage = await firstContext.newPage()
 		const secondPage = await secondContext.newPage()
 
-		await firstPage.goto(serve.url)
-		await secondPage.goto(serve.url)
-		await firstPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
-		await secondPage.waitForSelector('#terminal .xterm', { timeout: 10_000 })
+		// openTerminal: both pages are synced before any input, so the first
+		// command below is guaranteed to reach the PTY instead of racing the
+		// attach handshake.
+		await openTerminal(firstPage, serve.url)
+		await openTerminal(secondPage, serve.url)
 
 		await firstPage.evaluate(() => {
 			window.__herdwebResize?.()
