@@ -63,8 +63,8 @@ async function getSentFrames(page: import('@playwright/test').Page): Promise<str
 	})
 }
 
-async function getNonPingFrames(page: import('@playwright/test').Page): Promise<string[]> {
-	return (await getSentFrames(page)).filter((frame) => JSON.parse(frame).type !== 'ping')
+async function getInputFrames(page: import('@playwright/test').Page): Promise<string[]> {
+	return (await getSentFrames(page)).filter((frame) => JSON.parse(frame).type === 'input')
 }
 
 async function getBufferedSamples(page: import('@playwright/test').Page): Promise<number[]> {
@@ -181,19 +181,11 @@ test('offline event invalidates an OPEN socket before keyboard input is sent', a
 	await page.goto('/')
 	await page.waitForSelector('#terminal .xterm')
 	await waitForSynced(page)
-	let sentBefore: string[] | undefined
-	let previousFrames: string[] | undefined
-	await expect
-		.poll(async () => {
-			const currentFrames = await getNonPingFrames(page)
-			const stable =
-				previousFrames !== undefined &&
-				JSON.stringify(currentFrames) === JSON.stringify(previousFrames)
-			previousFrames = currentFrames
-			if (stable) sentBefore = currentFrames
-			return stable
-		})
-		.toBe(true)
+	// The invariant under test: keyboard input while disconnected is dropped,
+	// i.e. no 'input' frame is ever sent. Non-input frames (viewport-manager
+	// resize, heartbeat ping) are legitimate at any moment — including right
+	// around setOffline — and must not fail this test.
+	expect(await getInputFrames(page)).toEqual([])
 
 	await context.setOffline(true)
 	await expect.poll(() => page.evaluate(() => navigator.onLine)).toBe(false)
@@ -204,9 +196,9 @@ test('offline event invalidates an OPEN socket before keyboard input is sent', a
 	const marker = `offline-open-${Date.now()}`
 	await page.keyboard.type(marker)
 	await page.keyboard.press('Enter')
-	const sentAfter = await getNonPingFrames(page)
-	expect(sentBefore).toBeDefined()
-	expect(sentAfter).toEqual(sentBefore)
+	// Every keydown is processed synchronously and the send probe records
+	// frames before dispatch, so this check is deterministic once typing returns.
+	expect(await getInputFrames(page)).toEqual([])
 
 	await context.setOffline(false)
 	await waitForSynced(page)
