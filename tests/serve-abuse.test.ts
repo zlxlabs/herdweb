@@ -213,6 +213,29 @@ function waitForJsonMessage(
 const isType = (type: string) => (message: ReturnType<typeof parseServerMessage>) =>
 	message?.type === type
 
+// Input written to the PTY can echo back before the shell's `stty -echo` takes effect, so the
+// expected response is not guaranteed to ride in the first output frame — accumulate output
+// frames until `needle` appears or the deadline expires (#213).
+async function waitForOutputAccumulating(
+	client: WebSocket,
+	needle: string,
+	timeoutMs = 10_000,
+): Promise<string> {
+	let accumulated = ''
+	try {
+		await waitForJsonMessage(client, timeoutMs, (message) => {
+			if (message?.type === 'output') accumulated += message.data
+			return accumulated.includes(needle)
+		})
+	} catch (error) {
+		throw new Error(
+			`timed out waiting for output containing ${JSON.stringify(needle)}; accumulated ${JSON.stringify(accumulated)}`,
+			{ cause: error },
+		)
+	}
+	return accumulated
+}
+
 function sendJson(ws: WebSocket, message: Record<string, unknown>): void {
 	ws.send(JSON.stringify(message))
 }
@@ -378,9 +401,9 @@ describe('serve websocket hardening', () => {
 			})
 
 			sendJson(client, { type: 'input', attachmentId: started.attachmentId, data: 'size\n' })
-			const output = await waitForJsonMessage(client, 10_000, isType('output'))
-			if (output?.type !== 'output') throw new Error('size output missing')
-			expect(output.data).toContain('43 137')
+			// The echo of "size\n" may land first if it races `stty -echo` — wait for the size
+			// itself instead of assuming which frame carries it (#213).
+			await waitForOutputAccumulating(client, '43 137')
 			client.close()
 		} finally {
 			await stopServe(proc)
@@ -485,9 +508,8 @@ describe('serve websocket hardening', () => {
 				attachmentId: replacement.attachmentId,
 			})
 			sendJson(client, { type: 'input', attachmentId: replacement.attachmentId, data: 'size\n' })
-			const replacementOutput = await waitForJsonMessage(client, 10_000, isType('output'))
-			if (replacementOutput?.type !== 'output') throw new Error('replacement PTY output missing')
-			expect(replacementOutput.data).toContain('24 80')
+			// Same first-frame echo race as the geometry case above (#213).
+			await waitForOutputAccumulating(client, '24 80')
 			sendJson(client, {
 				type: 'input-action',
 				attachmentId: replacement.attachmentId,
