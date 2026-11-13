@@ -29,6 +29,15 @@ test.afterEach(async ({ page: _page }, testInfo) => {
 async function openDpad(page: Page) {
 	await page.locator('#wt-toolbar button', { hasText: '✥' }).tap()
 	await expect(page.locator('#wt-dpad')).toHaveClass(/open/)
+	// Key taps emit input frames the client drops while not synced (by design,
+	// with a "Not sent" notice): on webkit a transient socket-error ~120ms after
+	// first sync left a ~1.1s reconnect window that swallowed the ↓ tap
+	// (run 43361349896 attempt 2). Wait out any transient reconnect before taps.
+	await expect
+		.poll(() => page.evaluate(() => window.term?.getConnectionStatus().state), {
+			timeout: 10_000,
+		})
+		.toBe('synced')
 }
 
 /** Print every byte the PTY receives as a hex line on screen */
