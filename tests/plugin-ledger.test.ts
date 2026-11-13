@@ -462,7 +462,8 @@ describe.sequential('plugin ledger flock (L1/L2/L3/INV-SVC)', () => {
 		expect(owner.port).toBe(port)
 	})
 
-	test('P2-2 readonly lock file can flock; readonly dir without a lock fails loud', async () => {
+	// biome-ignore format: root 绕过 DAC 权限，写入不会失败；普通 CI 以非 root 仍覆盖；见 zlxlabs/gate-hub#2384
+	test.skipIf(process.getuid?.() === 0)('P2-2 readonly lock file can flock; readonly dir without a lock fails loud', async () => {
 		const stateDir = makeTemp('herdweb-p22-state-')
 		const configDir = makeTemp('herdweb-p22-config-')
 		const pluginRoot = makeTemp('herdweb-p22-root-')
