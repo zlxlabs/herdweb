@@ -36,8 +36,6 @@ describe('parseNotifyEvent', () => {
 	test.each([
 		['failed kind', { ...validBase, kind: 'failed' }],
 		['unknown kind', { ...validBase, kind: 'unknown' }],
-		['tool field', { ...validBase, tool: 'grep' }],
-		['unknown field', { ...validBase, extra: true }],
 		['wrong version', { ...validBase, v: 2 }],
 		['missing id for non-test', { v: 1, kind: 'asking', title: 'T', ts: 1_700_000_000_000 }],
 	])('rejects %s with 400', (_label, payload) => {

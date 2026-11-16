@@ -1,0 +1,9 @@
+{
+	"v": 2,
+	"targetId": "local",
+	"id": "producer-host-1",
+	"kind": "asking",
+	"title": "[vm-a] Need input",
+	"ts": 1700000000000,
+	"host": "vm-a"
+}
