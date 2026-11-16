@@ -2,7 +2,13 @@ import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context, Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
-import { NotifyEventError, isRecord, parseNotifyEvent, validateNotifyEventForMode } from './events'
+import {
+	NotifyEventError,
+	type ParsedNotifyEvent,
+	isRecord,
+	parseNotifyEvent,
+	validateNotifyEventForMode,
+} from './events'
 import { parseHistoryLimitParam, readEventHistory } from './history'
 import {
 	type PushSubscriptionRecord,
@@ -98,7 +104,7 @@ async function handleInboundEvent(
 	}
 
 	const raw = await c.req.text()
-	let parsed: ReturnType<typeof parseNotifyEvent>
+	let parsed: ParsedNotifyEvent
 	try {
 		parsed = parseNotifyEvent(raw)
 		validateNotifyEventForMode(parsed, targetMode, targetIds)
