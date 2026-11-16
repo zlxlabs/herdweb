@@ -66,6 +66,11 @@ export interface NotifyEventV2 extends NotifyEventFields {
 
 export type NotifyEvent = NotifyEventV1 | NotifyEventV2
 
+/** Parse result: the event plus ignored unknown top-level field names. */
+export type ParsedNotifyEvent = NotifyEvent & {
+	readonly ignoredFields: readonly string[]
+}
+
 const ALLOWED_FIELDS = new Set([
 	'v',
 	'targetId',
@@ -97,6 +102,8 @@ const TITLE_MAX = 120
 const BODY_MAX = 200
 const REASON_MAX = 120
 const CONTENT_MARKDOWN_MAX_BYTES = 4096
+const IGNORED_FIELDS_MAX = 16
+const IGNORED_FIELD_NAME_MAX = 64
 
 export class NotifyEventError extends Error {
 	readonly statusCode: 400 | 413
@@ -142,9 +149,29 @@ export function isNotifyKind(value: unknown): value is NotifyKind {
 	return NOTIFY_KINDS.some((kind) => kind === value)
 }
 
+function collectIgnoredFields(obj: Record<string, unknown>): readonly string[] {
+	const ignored: string[] = []
+	for (const key of Object.keys(obj)) {
+		if (ALLOWED_FIELDS.has(key)) continue
+		if (ignored.length >= IGNORED_FIELDS_MAX) continue
+		ignored.push(key.length <= IGNORED_FIELD_NAME_MAX ? key : key.slice(0, IGNORED_FIELD_NAME_MAX))
+	}
+	return ignored
+}
+
+function hideIgnoredFields(event: ParsedNotifyEvent): ParsedNotifyEvent {
+	Object.defineProperty(event, 'ignoredFields', {
+		value: event.ignoredFields,
+		enumerable: false,
+		writable: false,
+		configurable: false,
+	})
+	return event
+}
+
 /** Parse and validate a v1 notify event JSON string. Throws NotifyEventError on 400/413. */
 // biome-ignore lint/complexity/noExcessiveCognitiveComplexity: table-driven validation is intentionally explicit
-export function parseNotifyEvent(raw: string): NotifyEvent {
+export function parseNotifyEvent(raw: string): ParsedNotifyEvent {
 	if (Buffer.byteLength(raw, 'utf8') > MAX_RAW_BYTES) {
 		throw new NotifyEventError('payload too large', 413)
 	}
@@ -161,11 +188,7 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 	}
 
 	const obj = parsed
-	for (const key of Object.keys(obj)) {
-		if (!ALLOWED_FIELDS.has(key)) {
-			throw new NotifyEventError(`unknown field: ${key}`, 400)
-		}
-	}
+	const ignoredFields = collectIgnoredFields(obj)
 
 	if (obj.v !== 1 && obj.v !== 2) {
 		throw new NotifyEventError('unsupported event version', 400)
@@ -293,9 +316,11 @@ export function parseNotifyEvent(raw: string): NotifyEvent {
 		...(typeof obj.drift === 'string' ? { drift: obj.drift } : {}),
 	}
 
-	return obj.v === 2
-		? { v: 2, targetId: String(obj.targetId), ...fields, ...optional }
-		: { v: 1, ...fields, ...optional }
+	const event: ParsedNotifyEvent =
+		obj.v === 2
+			? { v: 2, targetId: String(obj.targetId), ...fields, ...optional, ignoredFields }
+			: { v: 1, ...fields, ...optional, ignoredFields }
+	return hideIgnoredFields(event)
 }
 
 export function targetIdForNotifyEvent(event: NotifyEvent): string {

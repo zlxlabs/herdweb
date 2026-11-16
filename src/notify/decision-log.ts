@@ -50,6 +50,15 @@ export interface NotifyDecisionLog {
 	readonly remainingMs?: number
 	readonly armed?: boolean
 	readonly status?: number
+	readonly detail?: string
+	readonly ignoredFields?: string
+}
+
+const DETAIL_MAX = 200
+
+function boundDetail(value: string | undefined): string | undefined {
+	if (value === undefined) return undefined
+	return value.length <= DETAIL_MAX ? value : value.slice(0, DETAIL_MAX)
 }
 
 function appendField(
@@ -70,5 +79,7 @@ export function logNotifyDecision(entry: NotifyDecisionLog): void {
 	appendField(parts, 'remainingMs', entry.remainingMs)
 	appendField(parts, 'armed', entry.armed)
 	appendField(parts, 'status', entry.status)
+	appendField(parts, 'detail', boundDetail(entry.detail))
+	appendField(parts, 'ignoredFields', entry.ignoredFields)
 	console.log(parts.join(' '))
 }

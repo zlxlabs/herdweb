@@ -128,8 +128,6 @@ describe('parseNotifyEvent', () => {
 	test.each([
 		['failed kind', { ...validBase, kind: 'failed' }],
 		['unknown kind', { ...validBase, kind: 'unknown' }],
-		['tool field', { ...validBase, tool: 'grep' }],
-		['unknown field', { ...validBase, extra: true }],
 		['wrong version', { ...validBase, v: 2 }],
 		['missing id for non-test', { v: 1, kind: 'asking', title: 'T', ts: 1_700_000_000_000 }],
 	])('rejects %s with 400', (_label, payload) => {
@@ -183,7 +181,6 @@ describe('parseNotifyEvent', () => {
 		['non-finite startedAt', { ...validBase, startedAt: Number.POSITIVE_INFINITY }],
 		['NaN startedAt', { ...validBase, startedAt: Number.NaN }],
 		['string startedAt', { ...validBase, startedAt: '1' }],
-		['unknown field foo', { ...validBase, foo: 'x' }],
 		['invalid presence value', { ...validBase, presence: 'present' }],
 		['non-string presence', { ...validBase, presence: 1 }],
 		['string presenceAt', { ...validBase, presenceAt: '1700000000000' }],
@@ -568,7 +565,7 @@ describe('POST /api/events', () => {
 		expect(await response.text()).toMatch(/milliseconds|epoch ms/i)
 		expect(existsSync(join(harness.stateDir, 'events.jsonl'))).toBe(false)
 		expect(decisionLines(logSpy)).toContain(
-			'herdweb: notify decision rejected reason=invalid-event status=400',
+			'herdweb: notify decision rejected reason=invalid-event status=400 detail=ts must be epoch milliseconds',
 		)
 		logSpy.mockRestore()
 	})
@@ -701,7 +698,7 @@ describe('POST /api/events', () => {
 		})
 		expect(response.status).toBe(400)
 		expect(decisionLines(logSpy)).toContain(
-			'herdweb: notify decision rejected reason=invalid-event status=400',
+			'herdweb: notify decision rejected reason=invalid-event status=400 detail=invalid presence',
 		)
 		logSpy.mockRestore()
 	})
@@ -824,7 +821,7 @@ describe('POST /api/events', () => {
 			})
 		expect((await post(v1Body)).status).toBe(400)
 		expect(decisionLines(logSpy)).toContain(
-			'herdweb: notify decision rejected reason=invalid-event status=400',
+			'herdweb: notify decision rejected reason=invalid-event status=400 detail=explicit mode requires v2',
 		)
 		expect(decisionLines(logSpy).join('\n')).not.toContain('v1-explicit')
 		const v2 = {
@@ -964,7 +961,7 @@ describe('POST /api/events', () => {
 		})
 		expect(response.status).toBe(413)
 		expect(decisionLines(logSpy)).toEqual([
-			'herdweb: notify decision rejected reason=payload-too-large status=413',
+			'herdweb: notify decision rejected reason=payload-too-large status=413 detail=payload too large',
 		])
 		expect(decisionLines(logSpy).join('\n')).not.toContain(body)
 		expect(decisionLines(logSpy).join('\n')).not.toContain('huge-1')
