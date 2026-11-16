@@ -532,6 +532,8 @@ const PNG_MAGIC = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
 // and zero body bytes (the server rejects from headers alone); 'content-length' sends the whole
 // body with one end(); 'chunked' streams 256 KiB blocks without a content-length header.
 type ImageDropPostMode = 'declare-only' | 'content-length' | 'chunked'
+const IMAGE_DROP_STEP_TIMEOUT_MS = 10_000
+
 function postRawImageDrop(
 	url: string,
 	body: Buffer,
@@ -539,7 +541,14 @@ function postRawImageDrop(
 	headers: Record<string, string> = {},
 ): Promise<{ statusCode: number; path?: string; size?: number }> {
 	return new Promise((resolve, reject) => {
+		let settled = false
 		let responded = false
+		const finish = (action: () => void): void => {
+			if (settled) return
+			settled = true
+			clearTimeout(timer)
+			action()
+		}
 		const request = httpRequest(
 			url,
 			{
@@ -554,15 +563,27 @@ function postRawImageDrop(
 					const text = Buffer.concat(chunks).toString('utf-8')
 					const parsed: { path?: string; size?: number } =
 						response.statusCode === 200 ? JSON.parse(text) : {}
-					resolve({ statusCode: response.statusCode ?? 0, ...parsed })
-					// declare-only never sends a body, so the request stays open until torn down here.
-					if (mode === 'declare-only') request.destroy()
+					finish(() => {
+						resolve({ statusCode: response.statusCode ?? 0, ...parsed })
+						// declare-only never sends a body, so the request stays open until torn down here.
+						if (mode === 'declare-only') request.destroy()
+					})
 				})
 			},
 		)
+		const timer = setTimeout(() => {
+			request.destroy()
+			finish(() => {
+				reject(
+					new Error(
+						`image-drop-step-timeout: ${mode} POST did not finish in ${IMAGE_DROP_STEP_TIMEOUT_MS}ms (responded=${responded})`,
+					),
+				)
+			})
+		}, IMAGE_DROP_STEP_TIMEOUT_MS)
 		// Once a response arrived it is the source of truth; reject only when none ever did.
 		request.on('error', (error) => {
-			if (!responded) reject(error)
+			if (!responded) finish(() => reject(error))
 		})
 		// Writes still in flight when the socket dies surface on the socket itself (WriteWrap
 		// EPIPE), outside the request's error forwarding — swallow them explicitly.
@@ -631,8 +652,8 @@ describe('image drop attachment binding', () => {
 		try {
 			await waitForHttp(`http://127.0.0.1:${port}`)
 			const endpoint = `http://127.0.0.1:${port}/api/image-drop`
-			expect((await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only')).statusCode).toBe(400)
-			const forged = await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+			expect((await postRawImageDrop(endpoint, PNG_MAGIC, 'content-length')).statusCode).toBe(400)
+			const forged = await postRawImageDrop(endpoint, PNG_MAGIC, 'content-length', {
 				[X_HERDWEB_ATTACHMENT_ID_HEADER]: 'forged-token',
 			})
 			expect(forged.statusCode).toBe(403)
@@ -650,7 +671,7 @@ describe('image drop attachment binding', () => {
 			await waitForJsonMessage(pending, 10_000, isType('snapshot'))
 			expect(
 				(
-					await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+					await postRawImageDrop(endpoint, PNG_MAGIC, 'content-length', {
 						[X_HERDWEB_ATTACHMENT_ID_HEADER]: started.attachmentId,
 					})
 				).statusCode,
@@ -665,7 +686,7 @@ describe('image drop attachment binding', () => {
 					})
 				).statusCode,
 				(
-					await postRawImageDrop(endpoint, PNG_MAGIC, 'declare-only', {
+					await postRawImageDrop(endpoint, PNG_MAGIC, 'content-length', {
 						[X_HERDWEB_ATTACHMENT_ID_HEADER]: off,
 					})
 				).statusCode,
