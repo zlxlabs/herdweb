@@ -27,7 +27,17 @@ test.afterEach(async ({ page: _page }, testInfo) => {
 })
 
 async function openDpad(page: Page) {
-	await page.locator('#wt-toolbar button', { hasText: '✥' }).tap()
+	// Synthetic touchend instead of .tap(): a real tap makes webkit synthesise a
+	// compat mouse click on ✥ ~4ms later, and tap.ts can only suppress that click
+	// inside a 400ms wall-clock window. Under runner CPU contention the click can
+	// be delivered after the window expired, toggling the pad CLOSED again — the
+	// pad then disappears between openDpad and the next interaction (CI runs
+	// 43801950871/43802465799: "key has no bounding box"; load repro: .tap() on ↓
+	// stuck 30s on "element is not visible"). dispatchEvent generates no compat
+	// click, so the open state is stable. Same idiom as selection-mode's drawer.
+	await page
+		.locator('#wt-toolbar button', { hasText: '✥' })
+		.dispatchEvent('touchend', { touches: [], changedTouches: [], targetTouches: [] })
 	await expect(page.locator('#wt-dpad')).toHaveClass(/open/)
 	// Key taps emit input frames the client drops while not synced (by design,
 	// with a "Not sent" notice): on webkit a transient socket-error ~120ms after
@@ -57,18 +67,33 @@ async function screenText(page: Page): Promise<string> {
 	return (await page.locator('#terminal .xterm-rows').textContent()) ?? ''
 }
 
-/** Hold a key down with the mouse (the d-pad wires long-press/repeat on mousedown too) */
+/**
+ * Hold a key down with the mouse (the d-pad wires long-press/repeat on mousedown
+ * too) until `until` observes the held press's effect, then release.
+ *
+ * The release must not happen before the page-side timers produced their effect:
+ * a held key starts its timers (300ms delay, then 100ms interval / one long-press
+ * shot) only after mousedown is processed, and mouseup clears any timer that has
+ * not fired yet. A fixed wall-clock hold is bounded by test-process time, which
+ * decouples from the page under runner CPU contention (CI run 43801950871: zero
+ * input frames during an 800ms hold). Waiting for the observable echo while
+ * still held removes the coupling without extending any timeout. If `until`
+ * throws, the key is still released so the failure dump shows the real state.
+ */
 async function holdKey(
 	page: Page,
 	locator: ReturnType<Page['locator']>,
-	holdMs: number,
+	until: () => Promise<unknown>,
 ): Promise<void> {
 	const box = await locator.boundingBox()
 	if (!box) throw new Error('key has no bounding box')
 	await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2)
 	await page.mouse.down()
-	await page.waitForTimeout(holdMs)
-	await page.mouse.up()
+	try {
+		await until()
+	} finally {
+		await page.mouse.up()
+	}
 }
 
 test('✥ opens the d-pad: nine keys, 📋, ⏎ alt badge, and the drag handle', async ({ page }) => {
@@ -93,9 +118,15 @@ test('holding ⏎ sends \\n (0a) and never \\r (0d)', async ({ page }) => {
 	await startByteEcho(page)
 	await openDpad(page)
 
-	await holdKey(page, page.locator('#wt-dpad button', { hasText: '⏎' }), 650)
+	// Hold until the newline echo shows up, then release (see holdKey). The
+	// echoed command text and prompt cannot contain '0a', so the first match is
+	// the dispatch itself.
+	await holdKey(page, page.locator('#wt-dpad button', { hasText: '⏎' }), async () => {
+		await expect
+			.poll(async () => (await screenText(page)).match(/0a/g)?.length ?? 0)
+			.toBeGreaterThanOrEqual(1)
+	})
 
-	await expect.poll(() => screenText(page)).toContain('0a')
 	expect(await screenText(page)).not.toContain('0d')
 })
 
@@ -105,12 +136,13 @@ test('holding → repeats the right-arrow sequence (300ms delay, 100ms interval)
 	await startByteEcho(page)
 	await openDpad(page)
 
-	// 800ms hold → first send at 300ms, then every 100ms; assert loosely (>= 3)
-	await holdKey(page, page.locator('#wt-dpad button', { hasText: '→' }), 800)
-
-	await expect
-		.poll(async () => (await screenText(page)).match(/1b5b43/g)?.length ?? 0)
-		.toBeGreaterThanOrEqual(3)
+	// Hold until three repeats have echoed, then release (see holdKey):
+	// first send at ~300ms, then every ~100ms, observed while still held
+	await holdKey(page, page.locator('#wt-dpad button', { hasText: '→' }), async () => {
+		await expect
+			.poll(async () => (await screenText(page)).match(/1b5b43/g)?.length ?? 0)
+			.toBeGreaterThanOrEqual(3)
+	})
 })
 
 test('📋 pastes clipboard text into the terminal', async ({ page, context, browserName }) => {
@@ -166,9 +198,12 @@ test('dragging the handle moves the pad, persists across reload, double-tap dock
 	await expect(dpad).toHaveClass(/wt-dpad-floating/)
 	expect(await style()).toEqual(draggedStyle)
 
-	// Double-tap the handle docks the pad back above the toolbar
-	await handle.click()
-	await handle.click()
+	// Double-tap the handle docks the pad back above the toolbar. One dblclick
+	// (one queued input batch) instead of two separate clicks: the dock window is
+	// 300ms of PAGE time between the two pointerups, and two independent
+	// actionability-checked clicks can be processed >300ms apart under runner CPU
+	// contention, leaving the pad floating (load repro: 3/20 and 1/20 at base).
+	await handle.dblclick()
 	await expect(dpad).not.toHaveClass(/wt-dpad-floating/)
 	expect(await style()).toEqual({ left: '', top: '' })
 	expect(await page.evaluate(() => localStorage.getItem('herdweb:dpadPosition'))).toBeNull()
