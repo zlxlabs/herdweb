@@ -1,7 +1,7 @@
 import type { Page, TestInfo } from '@playwright/test'
 
 type Evt = 'pointerdown' | 'pointerup' | 'mousedown' | 'mouseup' | 'click'
-type KeyName = 'enter' | 'down'
+type KeyName = 'enter' | 'down' | 'right'
 type EvtCounts = Record<Evt, number>
 
 interface StatusLogEntry {
@@ -52,7 +52,14 @@ export class DpadDiagnostics {
 		this.page = page
 		this.testInfo = testInfo
 		const t = testInfo.title
-		this.expected = t.includes('0a') || t.includes('⏎') ? '0a' : t.includes('↓') ? '1b5b42' : ''
+		this.expected =
+			t.includes('0a') || t.includes('⏎')
+				? '0a'
+				: t.includes('↓')
+					? '1b5b42'
+					: t.includes('→')
+						? '1b5b43'
+						: ''
 	}
 
 	recordWsOpen(): number {
@@ -98,7 +105,7 @@ export class DpadDiagnostics {
 		let identity = { targetId: null as string | null, attachmentId: null as string | null }
 		let pageDiag: PageDiag = {
 			notices: { count: 0, recent: [] },
-			buttonEvents: { enter: emptyCounts(), down: emptyCounts() },
+			buttonEvents: { enter: emptyCounts(), down: emptyCounts(), right: emptyCounts() },
 			statusLog: [],
 		}
 
@@ -181,7 +188,7 @@ export class DpadDiagnostics {
 			`3. herdweb-connection-notice events:\n   count: ${dumpData.notices.count}, recent: ${JSON.stringify(dumpData.notices.recent)}`,
 		)
 		log(
-			`4. Button event counts:\n   ⏎ (enter): ${fmtEvents('enter')}\n   ↓ (down):  ${fmtEvents('down')}`,
+			`4. Button event counts:\n   ⏎ (enter): ${fmtEvents('enter')}\n   ↓ (down):  ${fmtEvents('down')}\n   → (right): ${fmtEvents('right')}`,
 		)
 		log(`5. WS outgoing frames:\n   total sent count: ${dumpData.wsFrames.total}`)
 		dumpData.wsFrames.recent.forEach((f, i) =>
@@ -223,7 +230,7 @@ export async function installDpadDiagnostics(
 
 	await page.addInitScript(() => {
 		type E = 'pointerdown' | 'pointerup' | 'mousedown' | 'mouseup' | 'click'
-		type K = 'enter' | 'down'
+		type K = 'enter' | 'down' | 'right'
 		type StatusLogEntry = {
 			t: string
 			state: string
@@ -261,7 +268,7 @@ export async function installDpadDiagnostics(
 		if (!win.__dpadDiag) {
 			win.__dpadDiag = {
 				notices: { count: 0, recent: [] },
-				buttonEvents: { enter: initCounts(), down: initCounts() },
+				buttonEvents: { enter: initCounts(), down: initCounts(), right: initCounts() },
 				statusLog: [],
 				lastDump: null,
 			}
@@ -307,6 +314,7 @@ export async function installDpadDiagnostics(
 			const aria = (btn.getAttribute('aria-label') ?? '').toLowerCase()
 			if (txt.includes('⏎') || aria.includes('enter')) return 'enter'
 			if (txt.includes('↓') || aria.includes('down')) return 'down'
+			if (txt.includes('→') || aria.includes('right')) return 'right'
 			return null
 		}
 

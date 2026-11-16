@@ -94,6 +94,12 @@ test('freezes selectable terminal text and excludes later output', async ({ page
 			touchAction: 'auto',
 		})
 
+	// A webkit transient socket error ~120ms after the first sync leaves a ~1s
+	// reconnect window whose input frames the client drops by design ("Not
+	// sent") — CI run 43801950871 lost exactly this second send, and the output
+	// then never appears. Re-check synced right before sending so the frame
+	// goes out on a live socket (same guard as openDpad in dpad.spec.ts).
+	await waitForSynced(page)
 	await page.evaluate(() => {
 		window.term?.input("printf 'selection-after\\n'\r", true)
 	})
