@@ -8,7 +8,8 @@ import { describe, expect, test } from 'vitest'
  * `NotifyDispatchResult` (`src/notify/service.ts`) and the push delivery contract
  * table in `docs/configuration.md`.
  *
- * `POST /api/events` responds with HTTP 202 and a JSON body containing `{ outcome, reason }`.
+ * `POST /api/events` responds with HTTP 202 and a JSON body containing `{ outcome, reason }`,
+ * plus `ignoredFields` when unknown top-level fields were dropped.
  * Accepted does not mean delivered: each outcome represents a distinct lifecycle
  * (immediate dispatch, deliberate withholding, 300s presence deferral, 600s done coalescing,
  * or deduplication discard). If an engineer adds, removes, or renames an outcome in

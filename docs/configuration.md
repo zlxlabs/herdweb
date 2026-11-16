@@ -493,6 +493,12 @@ values are rejected and not stored.
 | `presence`, `presenceAt` | no | Optional presence signal and its epoch-millisecond timestamp; see presence-aware deferral below. |
 | `session`, `task_id`, `dispatch_id`, `drift` | no | Optional producer metadata stored with the event. |
 
+Unknown top-level fields (for example producer `host`) are ignored rather than
+rejected. A `202` receipt includes `ignoredFields` — at most 16 names, each
+truncated to 64 characters — listing the dropped keys; the property is omitted
+when none were dropped. Required fields (`v`, `kind`, `title`, `ts`, and `id`
+except `kind=test`) and their value checks are unchanged.
+
 Single-mode smoke test (with `herdweb serve` on port 7681, after subscribing on
 a device; **single-only**):
 
