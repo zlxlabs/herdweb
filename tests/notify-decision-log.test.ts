@@ -95,6 +95,41 @@ describe('logNotifyDecision', () => {
 		expect(loggedLines().every((line) => line.startsWith(NOTIFY_DECISION_LOG_PREFIX))).toBe(true)
 	})
 
+	test('rejected lines include a bounded detail message', () => {
+		logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		logNotifyDecision({
+			outcome: 'rejected',
+			reason: 'invalid-event',
+			status: 400,
+			detail: 'invalid kind',
+		})
+		expect(loggedLines()).toEqual([
+			'herdweb: notify decision rejected reason=invalid-event status=400 detail=invalid kind',
+		])
+		logNotifyDecision({
+			outcome: 'rejected',
+			reason: 'invalid-event',
+			status: 400,
+			detail: `${'x'.repeat(201)}`,
+		})
+		expect(loggedLines()[1]).toBe(
+			`herdweb: notify decision rejected reason=invalid-event status=400 detail=${'x'.repeat(200)}`,
+		)
+	})
+
+	test('accepted lines can list ignored field names', () => {
+		logSpy = vi.spyOn(console, 'log').mockImplementation(() => {})
+		logNotifyDecision({
+			outcome: 'accepted',
+			kind: 'asking',
+			id: 'evt-1',
+			ignoredFields: 'host',
+		})
+		expect(loggedLines()).toEqual([
+			'herdweb: notify decision accepted kind=asking id=evt-1 ignoredFields=host',
+		])
+	})
+
 	test('type union has no extra reasons beyond the closed list', () => {
 		const check = (reason: NotifyDecisionReason): NotifyDecisionReason => {
 			switch (reason) {

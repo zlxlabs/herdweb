@@ -2,7 +2,13 @@ import { getConnInfo } from '@hono/node-server/conninfo'
 import type { Context, Hono } from 'hono'
 import type { ContentfulStatusCode } from 'hono/utils/http-status'
 import { type NotifyDecisionReason, logNotifyDecision } from './decision-log'
-import { NotifyEventError, isRecord, parseNotifyEvent, validateNotifyEventForMode } from './events'
+import {
+	NotifyEventError,
+	type ParsedNotifyEvent,
+	isRecord,
+	parseNotifyEvent,
+	validateNotifyEventForMode,
+} from './events'
 import { parseHistoryLimitParam, readEventHistory } from './history'
 import {
 	type PushSubscriptionRecord,
@@ -73,9 +79,62 @@ function denyInboundEvent(
 	message: string,
 	status: ContentfulStatusCode,
 	reason: NotifyDecisionReason,
+	detail?: string,
 ): Response {
-	logNotifyDecision({ outcome: 'rejected', reason, status })
+	logNotifyDecision({ outcome: 'rejected', reason, status, detail })
 	return deny(c, deps, securityHeaders, message, status)
+}
+
+async function handleInboundEvent(
+	c: Context,
+	deps: NotifyRouteDeps,
+	targetMode: 'single' | 'explicit',
+	targetIds: readonly string[],
+	eventsLimiter: SlidingWindowRateLimiter,
+): Promise<Response> {
+	const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
+	if (!isLoopbackRequest(c)) {
+		return denyInboundEvent(c, deps, securityHeaders, 'Forbidden', 403, 'not-loopback')
+	}
+	if (!checkBearerToken(c, deps.token)) {
+		return denyInboundEvent(c, deps, securityHeaders, 'Unauthorized', 401, 'unauthorized')
+	}
+	if (!eventsLimiter.allow()) {
+		return denyInboundEvent(c, deps, securityHeaders, 'Too Many Requests', 429, 'rate-limited')
+	}
+
+	const raw = await c.req.text()
+	let parsed: ParsedNotifyEvent
+	try {
+		parsed = parseNotifyEvent(raw)
+		validateNotifyEventForMode(parsed, targetMode, targetIds)
+	} catch (error) {
+		if (error instanceof NotifyEventError) {
+			return denyInboundEvent(
+				c,
+				deps,
+				securityHeaders,
+				error.message,
+				error.statusCode,
+				error.statusCode === 413 ? 'payload-too-large' : 'invalid-event',
+				error.message,
+			)
+		}
+		return denyInboundEvent(c, deps, securityHeaders, 'invalid event', 400, 'invalid-event')
+	}
+
+	const ignoredFields = parsed.ignoredFields
+	if (ignoredFields.length > 0) {
+		logNotifyDecision({
+			outcome: 'accepted',
+			kind: parsed.kind,
+			id: parsed.id,
+			ignoredFields: ignoredFields.join(','),
+		})
+	}
+	const result = deps.notifyService.dispatchEvent(parsed)
+	const body = ignoredFields.length === 0 ? result : { ...result, ignoredFields }
+	return deps.withSecurityHeaders(c.json(body, 202), securityHeaders)
 }
 
 function requireOrigin(
@@ -135,40 +194,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 	const pushLimiter = new SlidingWindowRateLimiter(EVENTS_RATE_LIMIT, EVENTS_WINDOW_MS)
 
 	for (const route of deps.routeVariants(deps.basePath, '/api/events')) {
-		app.post(route, async (c) => {
-			const securityHeaders = deps.securityHeadersForRequest(c.req.header('host'))
-			if (!isLoopbackRequest(c)) {
-				return denyInboundEvent(c, deps, securityHeaders, 'Forbidden', 403, 'not-loopback')
-			}
-			if (!checkBearerToken(c, deps.token)) {
-				return denyInboundEvent(c, deps, securityHeaders, 'Unauthorized', 401, 'unauthorized')
-			}
-			if (!eventsLimiter.allow()) {
-				return denyInboundEvent(c, deps, securityHeaders, 'Too Many Requests', 429, 'rate-limited')
-			}
-
-			const raw = await c.req.text()
-			let event: ReturnType<typeof parseNotifyEvent>
-			try {
-				event = parseNotifyEvent(raw)
-				validateNotifyEventForMode(event, targetMode, targetIds)
-			} catch (error) {
-				if (error instanceof NotifyEventError) {
-					return denyInboundEvent(
-						c,
-						deps,
-						securityHeaders,
-						error.message,
-						error.statusCode,
-						error.statusCode === 413 ? 'payload-too-large' : 'invalid-event',
-					)
-				}
-				return denyInboundEvent(c, deps, securityHeaders, 'invalid event', 400, 'invalid-event')
-			}
-
-			const result = deps.notifyService.dispatchEvent(event)
-			return deps.withSecurityHeaders(c.json(result, 202), securityHeaders)
-		})
+		app.post(route, (c) => handleInboundEvent(c, deps, targetMode, targetIds, eventsLimiter))
 	}
 
 	for (const route of deps.routeVariants(deps.basePath, '/api/events/history')) {
@@ -215,7 +241,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 			if (!targetId || !targetIds.includes(targetId)) {
 				return deny(c, deps, securityHeaders, 'unknown targetId', 400)
 			}
-			const event = parseNotifyEvent(
+			const parsed = parseNotifyEvent(
 				JSON.stringify({
 					v: targetMode === 'explicit' ? 2 : 1,
 					...(targetMode === 'explicit' ? { targetId } : {}),
@@ -225,7 +251,7 @@ export function registerNotifyRoutes(app: Hono, deps: NotifyRouteDeps): void {
 					ts: Date.now(),
 				}),
 			)
-			deps.notifyService.dispatchEvent(event)
+			deps.notifyService.dispatchEvent(parsed)
 			return deps.withSecurityHeaders(c.body(null, 202), securityHeaders)
 		})
 	}
