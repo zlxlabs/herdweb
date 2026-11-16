@@ -159,17 +159,14 @@ function collectIgnoredFields(obj: Record<string, unknown>): readonly string[] {
 	return ignored
 }
 
-function withIgnoredFields(
-	event: NotifyEvent,
-	ignoredFields: readonly string[],
-): ParsedNotifyEvent {
+function hideIgnoredFields(event: ParsedNotifyEvent): ParsedNotifyEvent {
 	Object.defineProperty(event, 'ignoredFields', {
-		value: ignoredFields,
+		value: event.ignoredFields,
 		enumerable: false,
 		writable: false,
 		configurable: false,
 	})
-	return event as ParsedNotifyEvent
+	return event
 }
 
 /** Parse and validate a v1 notify event JSON string. Throws NotifyEventError on 400/413. */
@@ -319,11 +316,11 @@ export function parseNotifyEvent(raw: string): ParsedNotifyEvent {
 		...(typeof obj.drift === 'string' ? { drift: obj.drift } : {}),
 	}
 
-	const event: NotifyEvent =
+	const event: ParsedNotifyEvent =
 		obj.v === 2
-			? { v: 2, targetId: String(obj.targetId), ...fields, ...optional }
-			: { v: 1, ...fields, ...optional }
-	return withIgnoredFields(event, ignoredFields)
+			? { v: 2, targetId: String(obj.targetId), ...fields, ...optional, ignoredFields }
+			: { v: 1, ...fields, ...optional, ignoredFields }
+	return hideIgnoredFields(event)
 }
 
 export function targetIdForNotifyEvent(event: NotifyEvent): string {
