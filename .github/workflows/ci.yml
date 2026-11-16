@@ -14,7 +14,7 @@ jobs:
   # leaves the required context pending forever and blocks the merge. Any detection
   # doubt falls back to running the full check.
   changes:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       docs-only: ${{ steps.detect.outputs.docs-only }}
     steps:
@@ -43,7 +43,7 @@ jobs:
   check:
     needs: changes
     if: needs.changes.outputs.docs-only != 'true'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: jdx/mise-action@v3
@@ -59,7 +59,7 @@ jobs:
   release:
     if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev'
     needs: check
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: write
       issues: write
